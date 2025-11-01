@@ -1,0 +1,13 @@
+matplotlib
+
+numpy
+pillow
+#IPython
+
+jupyter
+notebook
+#ipykernel
+
+pygame
+
+loguru
