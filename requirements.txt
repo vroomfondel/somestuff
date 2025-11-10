@@ -11,3 +11,6 @@ notebook
 pygame
 
 loguru
+
+dnspython
+pyroute2
