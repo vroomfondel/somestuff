@@ -11,15 +11,15 @@ from google.genai.client import DebugConfig
 import google.genai
 from google.genai.types import GenerateContentResponse
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from dataclasses import dataclass
 
-from typing import Set, Optional, List, Any, Dict, Literal, Type, Tuple, TypeVar, Callable, Protocol
-from functools import singledispatch
+from typing import Optional, List, Literal, Type, Tuple, TypeVar
 
 from loguru import logger
 
-from llmstuff.config import settings
+from config import settings
+from Helper import get_pretty_dict_json_no_sort
 
 import mimetypes
 mimetypes.init()
@@ -37,7 +37,7 @@ T = TypeVar('T', bound=BaseModel)
 class GoogleLLMModel(StrEnum):
     GEMINI_25_PRO = "gemini-2.5-pro"  # Eingabepreis	Kostenlos	1,25 $, Prompts mit ≤ 200.000 Tokens 2,50 $, Prompts mit > 200.000 Tokens Ausgabepreis (einschließlich Denk-Tokens)	Kostenlos	10,00 $, Prompts mit <= 200.000 Tokens 15,00 $, Prompts mit > 200.000 Tokens
     GEMINI_25_FLASH = "gemini-2.5-flash"  # Eingabepreis	Kostenlos	0,30 $ (Text / Bild / Video) 1,00 $ (Audio) Ausgabepreis (einschließlich Denk-Tokens)	Kostenlos	2,50 $
-    GEMINI_30_PRO_PREVIEW = "gemini-3-pro-preview"
+    GEMINI_30_PRO_PREVIEW = "gemini-3-pro-preview"    # Eingabepreis 2,00 $, Prompts mit ≤ 200.000 Tokens 4,00 $, Prompts mit > 200.000 Tokens    # Ausgabepreis (einschließlich Denk-Tokens)	12,00 $, Prompts <= 200.000 Tokens  18,00 $, Prompts > 200.000 Tokens    # Preis für Kontext-Caching	0,20 $, Prompts mit <= 200.000 Tokens  0,40 $, Prompts mit > 200.000 Tokens    4,50 $ / 1.000.000 Tokens pro Stunde (Speicherpreis)  # Fundierung mit der Google Suche	1.500 RPD (kostenlos), danach (demnächst verfügbar) 14 $ pro 1.000 Suchanfragen
 
 class AnthropicLLMModel(StrEnum):
     # https://docs.claude.com/en/api/client-sdks
@@ -107,42 +107,6 @@ class AIRequest[T]:
 #         airequest.aireqresp = aireqresp
 #
 #         return aireqresp
-
-
-class ComplexEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if hasattr(obj, "repr_json"):
-            return obj.repr_json()
-        elif hasattr(obj, "as_string"):
-            return obj.as_string()
-        elif type(obj) == uuid.UUID:
-            obj: uuid.UUID
-            return str(obj)
-        elif type(obj) == datetime:
-            obj: datetime
-            return obj.isoformat()  # strftime("%Y-%m-%d %H:%M:%S %Z")
-        elif type(obj) == datetime.date:
-            obj: datetime.date
-            return obj.strftime("%Y-%m-%d")
-        elif type(obj) == datetime.timedelta:
-            obj: datetime.timedelta
-            return str(obj)
-        elif isinstance(obj, dict) or isinstance(obj, list):
-            obj: str = get_pretty_dict_json_no_sort(obj)
-            return obj
-        else:
-            return json.JSONEncoder.default(self, obj)
-
-
-def print_pretty_dict_json(data, indent: int = 4):
-    logger.info(json.dumps(data, indent=indent, sort_keys=True, cls=ComplexEncoder, default=str))
-
-def get_pretty_dict_json(data, indent: int = 4) -> str:
-    return json.dumps(data, indent=indent, sort_keys=True, cls=ComplexEncoder, default=str)
-
-def get_pretty_dict_json_no_sort(data, indent: int = 4) -> str:
-    return json.dumps(data, indent=indent, sort_keys=False, cls=ComplexEncoder, default=str)
-
 
 
 def request_gemini[T](airequest: AIRequest[T],
