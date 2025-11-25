@@ -12,7 +12,9 @@ import pytz
 from typing import Type, Tuple, Optional, Literal, List, Any, Dict, ClassVar
 
 from cachetools import cached, TTLCache
-from pydantic import BaseModel, Field, HttpUrl, RootModel, PostgresDsn
+from pydantic import BaseModel, Field, HttpUrl, RootModel, PostgresDsn, field_validator
+from pydantic_extra_types.mac_address import MacAddress
+
 
 _CONFIGDIRPATH: Path = Path(__file__).parent.resolve()
 _CONFIGDIRPATH = Path(os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH") else _CONFIGDIRPATH
@@ -55,6 +57,25 @@ logger.info(f"EFFECTIVE CONFIGLOCALPATH: {_CONFIGLOCALPATH}")
 
 # alias in settings not correctly handled for pydantic v2
 # https://github.com/pydantic/pydantic/issues/8379
+
+class Ecowitt(BaseModel):
+    application_key: str|None = None
+    api_key: str|None = None
+    mac: MacAddress|None = None
+
+    # HttpUrlString = Annotated[HttpUrl, AfterValidator(lambda v: str(v))]
+    realtime_url: HttpUrl = Field(default=HttpUrl("https://api.ecowitt.net/api/v3/device/real_time"))
+    device_info_url: HttpUrl = Field(default=HttpUrl("https://api.ecowitt.net/api/v3/device/info"))
+
+    # @field_validator('mac', mode="before")
+    # @classmethod
+    # def validate_mac(cls, v):
+    #     # logger.debug(f"VALIDATE MAC: {v}")
+    #     if not v:
+    #         return None
+    #
+    #     return cls.mac_no_colon_to_colon(v)
+
 
 class Redis(BaseModel):
     host: str = Field(default="127.0.0.1")
@@ -104,6 +125,7 @@ class Settings(BaseSettings):
     timezone: str = Field(default="Europe/Berlin")
     google: Google
     anthropic: Anthropic
+    ecowitt: Ecowitt
 
     @classmethod
     def settings_customise_sources(

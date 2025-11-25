@@ -26,6 +26,13 @@ google:
 anthropic:
   anthropic_api_key: "sk-ant-DOBBLE-WOBBLE-DINGDONG"
 
+ecowitt:
+  application_key: "bluppkey"
+  api_key: "blargkey"
+  realtime_url: "https://api.ecowitt.net/api/v3/device/real_time"
+  device_info_url: "https://api.ecowitt.net/api/v3/device/info"
+  mac: "de:ad:be:ef:fe:ed"
+
 postgresql:
   host: "127.0.0.1"
   host_in_cluster: "postgresql.postgresql.svc"
