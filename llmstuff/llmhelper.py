@@ -22,6 +22,7 @@ from config import settings
 from Helper import get_pretty_dict_json_no_sort
 
 import mimetypes
+
 mimetypes.init()
 
 # try:
@@ -32,22 +33,25 @@ mimetypes.init()
 #     # logger.opt(exception=True).debug("Exception logged with debug level:")
 
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
+
 
 class GoogleLLMModel(StrEnum):
     GEMINI_25_PRO = "gemini-2.5-pro"  # Eingabepreis	Kostenlos	1,25 $, Prompts mit ≤ 200.000 Tokens 2,50 $, Prompts mit > 200.000 Tokens Ausgabepreis (einschließlich Denk-Tokens)	Kostenlos	10,00 $, Prompts mit <= 200.000 Tokens 15,00 $, Prompts mit > 200.000 Tokens
     GEMINI_25_FLASH = "gemini-2.5-flash"  # Eingabepreis	Kostenlos	0,30 $ (Text / Bild / Video) 1,00 $ (Audio) Ausgabepreis (einschließlich Denk-Tokens)	Kostenlos	2,50 $
-    GEMINI_30_PRO_PREVIEW = "gemini-3-pro-preview"    # Eingabepreis 2,00 $, Prompts mit ≤ 200.000 Tokens 4,00 $, Prompts mit > 200.000 Tokens    # Ausgabepreis (einschließlich Denk-Tokens)	12,00 $, Prompts <= 200.000 Tokens  18,00 $, Prompts > 200.000 Tokens    # Preis für Kontext-Caching	0,20 $, Prompts mit <= 200.000 Tokens  0,40 $, Prompts mit > 200.000 Tokens    4,50 $ / 1.000.000 Tokens pro Stunde (Speicherpreis)  # Fundierung mit der Google Suche	1.500 RPD (kostenlos), danach (demnächst verfügbar) 14 $ pro 1.000 Suchanfragen
+    GEMINI_30_PRO_PREVIEW = "gemini-3-pro-preview"  # Eingabepreis 2,00 $, Prompts mit ≤ 200.000 Tokens 4,00 $, Prompts mit > 200.000 Tokens    # Ausgabepreis (einschließlich Denk-Tokens)	12,00 $, Prompts <= 200.000 Tokens  18,00 $, Prompts > 200.000 Tokens    # Preis für Kontext-Caching	0,20 $, Prompts mit <= 200.000 Tokens  0,40 $, Prompts mit > 200.000 Tokens    4,50 $ / 1.000.000 Tokens pro Stunde (Speicherpreis)  # Fundierung mit der Google Suche	1.500 RPD (kostenlos), danach (demnächst verfügbar) 14 $ pro 1.000 Suchanfragen
+
 
 class AnthropicLLMModel(StrEnum):
     # https://docs.claude.com/en/api/client-sdks
     CLAUDE_OPUS_41 = "claude-opus-4-1"  # sehr teuer Input $15 / MTok Output $75 / MTok
     CLAUDE_SONNET_45 = "claude-sonnet-4-5"  # Input $3 / MTok	Output	$15 / MTok
-    CLAUDE_SONNET_40 = "claude-sonnet-4-0"  # kostet soviel wie 4.5 ist aber schneller  Input $3 / MTok Output $15 / MTok
-    CLAUDE_SONNET_37 = "claude-3-7-sonnet-latest" # Input $3 / MTok	Output	$15 / MTok
+    CLAUDE_SONNET_40 = (
+        "claude-sonnet-4-0"  # kostet soviel wie 4.5 ist aber schneller  Input $3 / MTok Output $15 / MTok
+    )
+    CLAUDE_SONNET_37 = "claude-3-7-sonnet-latest"  # Input $3 / MTok	Output	$15 / MTok
     CLAUDE_HAIKU_45 = "claude-haiku-4-5"  # HAS Thinking mode! Input $1 / MTok	Output $5 / MTok
     CLAUDE_HAIKU_35 = "claude-3-5-haiku-latest"  # NO Thinking mode Input $0.80 / MTok Output $4 / MTok
-
 
 
 # class AIRequestResponse(DBObject):
@@ -66,11 +70,12 @@ class AnthropicLLMModel(StrEnum):
 #         server_default="gemini-2.5-pro"
 #     )
 
+
 @dataclass
 class AIRequest[T]:
     prompt: str
     system_prompt: str | None = None
-    target: Literal['google', 'anthropic'] = 'google'
+    target: Literal["google", "anthropic"] = "google"
     model: GoogleLLMModel | AnthropicLLMModel = GoogleLLMModel.GEMINI_25_FLASH
     response_schema: Optional[T | List[T]] = None
     enable_websearch: bool = False
@@ -109,37 +114,37 @@ class AIRequest[T]:
 #         return aireqresp
 
 
-def request_gemini[T](airequest: AIRequest[T],
-                   debug_with_replayid: str|None = None, retries: int|None = 10) -> Tuple[str | T | List[T], Optional[str], google.genai.types.GenerateContentResponse]:
+def request_gemini[T](
+    airequest: AIRequest[T], debug_with_replayid: str | None = None, retries: int | None = 10
+) -> Tuple[str | T | List[T], Optional[str], google.genai.types.GenerateContentResponse]:
 
-    debugconfig: DebugConfig|None = None
+    debugconfig: DebugConfig | None = None
     if debug_with_replayid:
-        debugconfig = google.genai.client.DebugConfig(client_mode="record",
-                                                      replay_id=f"MODULE/FUNCTION/{datetime.datetime.now():%Y%m%d-%H%M%S.%s}",
-                                                      replays_directory=str(Path(Path(Path.home(), "Desktop"), "GOOGLE_REPLAYDIR")))
+        debugconfig = google.genai.client.DebugConfig(
+            client_mode="record",
+            replay_id=f"MODULE/FUNCTION/{datetime.datetime.now():%Y%m%d-%H%M%S.%s}",
+            replays_directory=str(Path(Path(Path.home(), "Desktop"), "GOOGLE_REPLAYDIR")),
+        )
 
     # https://googleapis.github.io/python-genai/genai.html#genai.types.HttpRetryOptions
     # https://github.com/googleapis/python-genai/issues/336
-    http_options: google.genai.types.HttpOptions|None = None
+    http_options: google.genai.types.HttpOptions | None = None
     if retries is not None and retries > 1:
         http_options = google.genai.types.HttpOptions(
-            retry_options=google.genai.types.HttpRetryOptions(initial_delay=5, attempts=retries, exp_base=2.0,
-                                                              max_delay=120.0, http_status_codes=[429, 502, 503, 504]))
+            retry_options=google.genai.types.HttpRetryOptions(
+                initial_delay=5, attempts=retries, exp_base=2.0, max_delay=120.0, http_status_codes=[429, 502, 503, 504]
+            )
+        )
 
     client = google.genai.Client(
-        http_options=http_options,
-        api_key=settings.google.gemini_api_key,
-        debug_config=debugconfig
+        http_options=http_options, api_key=settings.google.gemini_api_key, debug_config=debugconfig
     )
 
-    grounding_tool: google.genai.types.Tool = google.genai.types.Tool(
-        google_search=google.genai.types.GoogleSearch()
-    )
+    grounding_tool: google.genai.types.Tool = google.genai.types.Tool(google_search=google.genai.types.GoogleSearch())
 
     thinking_config: google.genai.types.ThinkingConfig = google.genai.types.ThinkingConfig(
-                thinking_budget=-1,  # 8192,
-                include_thoughts=True
-                ) # turn-off thinking: budget=0, dynamic thinking: budget=-1
+        thinking_budget=-1, include_thoughts=True  # 8192,
+    )  # turn-off thinking: budget=0, dynamic thinking: budget=-1
 
     # google.genai.errors.ClientError: 400 INVALID_ARGUMENT.
     # {'error': {'code': 400, 'message': 'You can only set only one of thinking budget and thinking level.', 'status': 'INVALID_ARGUMENT'}}
@@ -154,7 +159,7 @@ def request_gemini[T](airequest: AIRequest[T],
         thinking_config=thinking_config,
         response_mime_type="application/json" if airequest.response_schema else None,
         system_instruction=airequest.system_prompt,
-        response_schema=airequest.response_schema  # list[Recipe]
+        response_schema=airequest.response_schema,  # list[Recipe]
     )
 
     contents: List[google.genai.types.Content] = []
@@ -167,11 +172,7 @@ def request_gemini[T](airequest: AIRequest[T],
         mt: str = mimetypes.guess_file_type(airequest.image)[0]
         parts.append(google.genai.types.Part.from_bytes(data=airequest.image.read_bytes(), mime_type=mt))
 
-    contents.append(
-        google.genai.types.UserContent(
-            parts=parts
-        )
-    )
+    contents.append(google.genai.types.UserContent(parts=parts))
 
     logger.debug(f"{airequest.model=}")
 
@@ -230,15 +231,19 @@ def request_gemini[T](airequest: AIRequest[T],
     return answer, thoughts, response
 
 
-def request_ai[T](airequest: AIRequest[T]) -> Tuple[Optional[str] | T | List[T], Optional[str], Optional[GenerateContentResponse]]:
+def request_ai[T](
+    airequest: AIRequest[T],
+) -> Tuple[Optional[str] | T | List[T], Optional[str], Optional[GenerateContentResponse]]:
     answer: Optional[str] | T | List[T] = None
     thoughts: Optional[str] = None
     # rawresponse: Optional[BetaMessage|GenerateContentResponse] = None
     rawresponse: Optional[GenerateContentResponse] = None
 
-    if airequest.target == 'google':
+    if airequest.target == "google":
         if not isinstance(airequest.model, GoogleLLMModel):
-            raise ValueError(f"When target is 'google', the model must be an instance of GoogleLLMModel, but is {airequest.model=}")
+            raise ValueError(
+                f"When target is 'google', the model must be an instance of GoogleLLMModel, but is {airequest.model=}"
+            )
 
         answer, thoughts, rawresponse = request_gemini(airequest=airequest)
 
@@ -271,14 +276,18 @@ def do_test_reqest():
     # rawresponse: BetaMessage
     rawresponse_google: GenerateContentResponse
 
-    prompt1: str = "List 3 popular cookie recipes, and include the amounts of ingredients. Make an estimation of on how many websites this recipe is shared."
+    prompt1: str = (
+        "List 3 popular cookie recipes, and include the amounts of ingredients. Make an estimation of on how many websites this recipe is shared."
+    )
     prompt2: str = "That is quite ok, but now make those recipes halloween-style."
 
-    system_prompt: str|None = "You are a some kind of a naughty minded pirate and include some awfull jokes and some pirate-speak into your answers."
+    system_prompt: str | None = (
+        "You are a some kind of a naughty minded pirate and include some awfull jokes and some pirate-speak into your answers."
+    )
 
     history: Optional[List[google.genai.types.Content]] = None
 
-    #NOTE: GEMINI_30_PRO_PREVIEW can use response_schema ("tool") and websearch simultaneously -> previous models CANNOT!!!
+    # NOTE: GEMINI_30_PRO_PREVIEW can use response_schema ("tool") and websearch simultaneously -> previous models CANNOT!!!
     for prompt in [prompt1, prompt2]:
         logger.debug(f"Now asking this Prompt:\n\t{prompt}")
         airequest: AIRequest = AIRequest(
@@ -322,15 +331,9 @@ def do_test_reqest():
         if not history:
             history = []
 
-        history.append(
-            google.genai.types.UserContent(
-                parts=[google.genai.types.Part(text=prompt)]
-            )
-        )
+        history.append(google.genai.types.UserContent(parts=[google.genai.types.Part(text=prompt)]))
 
-        history.append(
-            rawresponse_google.candidates[0].content
-        )
+        history.append(rawresponse_google.candidates[0].content)
 
 
 def do_test_image_request():
@@ -344,16 +347,20 @@ def do_test_image_request():
         objects: List[Object]
         scene: str
         colors: List[str]
-        time_of_day: Literal['Morning', 'Afternoon', 'Evening', 'Night']
-        setting: Literal['Indoor', 'Outdoor', 'Unknown']
+        time_of_day: Literal["Morning", "Afternoon", "Evening", "Night"]
+        setting: Literal["Indoor", "Outdoor", "Unknown"]
         text_content: Optional[str] = None
 
     thoughts: str
     # rawresponse: BetaMessage
     rawresponse_google: GenerateContentResponse
 
-    prompt: str = "Describe the image in detail. Include information about the objects, scene, colors, time of day, setting, and any text content. If the image contains a receipt, list the items, amounts and prices on the receipt."
-    system_prompt: str | None = "You are a some kind of a naughty minded pirate and include some awfull jokes and some pirate-speak into your answers."
+    prompt: str = (
+        "Describe the image in detail. Include information about the objects, scene, colors, time of day, setting, and any text content. If the image contains a receipt, list the items, amounts and prices on the receipt."
+    )
+    system_prompt: str | None = (
+        "You are a some kind of a naughty minded pirate and include some awfull jokes and some pirate-speak into your answers."
+    )
 
     history: Optional[List[google.genai.types.Content]] = None
 
@@ -368,7 +375,7 @@ def do_test_image_request():
         response_schema=ImageDescription,
         enable_websearch=False,
         history=history,
-        image=Path(Path.home(), f"Desktop/traderjoes_h0auyjrjq1n1yshsez3z.jpg")
+        image=Path(Path.home(), f"Desktop/traderjoes_h0auyjrjq1n1yshsez3z.jpg"),
     )
 
     imagedescription, thoughts, rawresponse_google = request_ai(airequest=airequest)
@@ -405,17 +412,15 @@ def do_test_image_request():
     #     "text_content": "TRADER JOE'S\n\n785 Oak Grove Road\nConcord, CA       94518\nStore #0083 - 925 521-1134\n\nSALE TRANSACTION\n\nSOUR CREAM & ONION CORN   $2.49\nSLICED WHOLE WHEAT BREAD  $2.49\nRICE CAKES KOREAN TTEOK   $3.99\nSQUASH ZUCCHINI 1.5 LB    $2.49\nGREENS KALE 10 OZ         $1.99\nSQUASH SPAGHETTI EACH     $2.49\n50% LESS SALT ROASTED SA  $2.99\nBANANA EACH               $1.14\n6 @ $0.19\nPASTA GNOCCHI PRANZO      $1.99\nORG COCONUT MILK          $1.69\nORG YELLOW MUSTARD        $1.79\nHOL TRADITIONAL ACTIVE D  $1.29\n\nItems in Transaction:17\nBalance to pay            $26.83\nGift Card Tendered        $25.00\nVisa Debit                $1.83\n\nPAYMENT CARD PURCHASE TRANSACTION\nCUSTOMER COPY"
     # }
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # inputfile: Path = Path(Path.home(), f"Desktop/traderjoes_h0auyjrjq1n1yshsez3z.jpg")
     # mt: str = mimetypes.guess_file_type(inputfile)[0]
     #
     # print(f"{mt=} {inputfile.name[:-4]=}")
 
-
     # do_test_reqest()
     do_test_image_request()
-
-
 
 
 # from google import genai
