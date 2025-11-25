@@ -17,6 +17,7 @@ from pydantic_extra_types.mac_address import MacAddress
 from typing import Optional
 import datetime
 
+
 # https://doc.ecowitt.net/web/#/apiv3en?page_id=17
 class ResultType(IntEnum):
     SYSTEM_BUSY = -1
@@ -42,11 +43,12 @@ class ResultType(IntEnum):
     PARSE_JSON_XML_CONTENTS_ERROR = 47001
     PRIVILEGE_PROBLEM = 48001
 
+
 class MeasurementValue(BaseModel):
     time: float
     unit: str
     value: float
-    time_as_datetime: datetime.datetime|None = None
+    time_as_datetime: datetime.datetime | None = None
 
     @model_validator(mode="after")
     def _val_time_to_datetime(self):
@@ -125,13 +127,13 @@ class WeatherStationResponse(BaseModel):
     def _val_time_to_datetime(self):
         self.time_as_datetime = datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
         return self
+
     #
     # def time_as_datetime(self):
     #     return datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
 
 
-
-def get_realtime_data():
+def get_realtime_data() -> WeatherStationResponse:
     base_url: pydantic.networks.HttpUrl = settings.ecowitt.realtime_url
 
     # https://doc.ecowitt.net/web/#/apiv3en?page_id=17
@@ -141,12 +143,12 @@ def get_realtime_data():
         "wind_speed_unitid": 10,
         "rainfall_unitid": 12,
         "solar_irradiance_unitid": 14,
-        "call_back": "all"
+        "call_back": "all",
     }
 
-    params['application_key'] = settings.ecowitt.application_key
-    params['api_key'] = settings.ecowitt.api_key
-    params['mac'] = settings.ecowitt.mac
+    params["application_key"] = settings.ecowitt.application_key
+    params["api_key"] = settings.ecowitt.api_key
+    params["mac"] = settings.ecowitt.mac
 
     logger.info(f"Sende Request an {base_url} mit Parametern: {list(params.keys())}")
 
@@ -169,13 +171,21 @@ def get_realtime_data():
 
     return weather_response
 
-def main():
+
+def main() -> None:
     weather_response: WeatherStationResponse = get_realtime_data()
 
     # Auf die Daten zugreifen
-    logger.info(f"Außentemperatur: {weather_response.data.outdoor.temperature.value} {weather_response.data.outdoor.temperature.unit}")
-    logger.info(f"Luftfeuchtigkeit: {weather_response.data.outdoor.humidity.value}{weather_response.data.outdoor.humidity.unit}")
-    logger.info(f"Luftdruck: {weather_response.data.pressure.relative.value} {weather_response.data.pressure.relative.unit}")
+    logger.info(
+        f"Außentemperatur: {weather_response.data.outdoor.temperature.value} {weather_response.data.outdoor.temperature.unit}"
+    )
+    logger.info(
+        f"Luftfeuchtigkeit: {weather_response.data.outdoor.humidity.value}{weather_response.data.outdoor.humidity.unit}"
+    )
+    logger.info(
+        f"Luftdruck: {weather_response.data.pressure.relative.value} {weather_response.data.pressure.relative.unit}"
+    )
+
 
 if __name__ == "__main__":
     main()

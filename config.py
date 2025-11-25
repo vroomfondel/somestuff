@@ -6,6 +6,7 @@ from enum import StrEnum, auto
 from pathlib import Path
 
 import locale
+
 locale.setlocale(locale.LC_ALL, "de_DE.UTF-8")
 
 import pytz
@@ -17,13 +18,14 @@ from pydantic_extra_types.mac_address import MacAddress
 
 
 _CONFIGDIRPATH: Path = Path(__file__).parent.resolve()
-_CONFIGDIRPATH = Path(os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH") else _CONFIGDIRPATH
+_CONFIGDIRPATH = Path(os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH") else _CONFIGDIRPATH  # type: ignore
 
 _CONFIGPATH: Path = Path(_CONFIGDIRPATH, "config.yaml")
-_CONFIGPATH: Path = Path(os.getenv("ODDOSELENIUM_CONFIG_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_PATH") else _CONFIGPATH
+_CONFIGPATH= Path(os.getenv("ODDOSELENIUM_CONFIG_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_PATH") else _CONFIGPATH # type: ignore
 
 _CONFIGLOCALPATH: Path = Path(_CONFIGDIRPATH, "config.local.yaml")
-_CONFIGLOCALPATH = Path(os.getenv("ODDOSELENIUM_CONFIG_LOCAL_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH
+_CONFIGLOCALPATH = Path(os.getenv("ODDOSELENIUM_CONFIG_LOCAL_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH # type: ignore
+
 
 
 from pydantic_settings import (
@@ -41,11 +43,11 @@ from loguru import logger
 # https://buildmedia.readthedocs.org/media/pdf/loguru/latest/loguru.pdf
 os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")  # standard is DEBUG
 logger.remove()  # remove default-handler
-logger_fmt: str = "<g>{time:HH:mm:ssZZ}</> | <lvl>{level}</> | <c>{module}::{extra[classname]}:{function}:{line}</> - {message}"
+logger_fmt: str = (
+    "<g>{time:HH:mm:ssZZ}</> | <lvl>{level}</> | <c>{module}::{extra[classname]}:{function}:{line}</> - {message}"
+)
 #
-logger.add(
-    sys.stderr, level=os.getenv("LOGURU_LEVEL"), format=logger_fmt
-)  # TRACE | DEBUG | INFO | WARN | ERROR |  FATAL
+logger.add(sys.stderr, level=os.getenv("LOGURU_LEVEL"), format=logger_fmt)  # type: ignore # TRACE | DEBUG | INFO | WARN | ERROR |  FATAL
 logger.configure(extra={"classname": "None"})
 
 
@@ -58,10 +60,11 @@ logger.info(f"EFFECTIVE CONFIGLOCALPATH: {_CONFIGLOCALPATH}")
 # alias in settings not correctly handled for pydantic v2
 # https://github.com/pydantic/pydantic/issues/8379
 
+
 class Ecowitt(BaseModel):
-    application_key: str|None = None
-    api_key: str|None = None
-    mac: MacAddress|None = None
+    application_key: str | None = None
+    api_key: str | None = None
+    mac: MacAddress | None = None
 
     # HttpUrlString = Annotated[HttpUrl, AfterValidator(lambda v: str(v))]
     realtime_url: HttpUrl = Field(default=HttpUrl("https://api.ecowitt.net/api/v3/device/real_time"))
@@ -83,12 +86,13 @@ class Redis(BaseModel):
     port: int = Field(default=6379)
     port_in_cluster: int = Field(default=6379)
 
+
 class Google(BaseModel):
-    gemini_api_key: str|None = Field(default=None)
+    gemini_api_key: str | None = Field(default=None)
 
 
 class Anthropic(BaseModel):
-    anthropic_api_key: str|None = Field(default=None)
+    anthropic_api_key: str | None = Field(default=None)
 
 
 class Postgresql(BaseModel):
@@ -116,7 +120,7 @@ class Settings(BaseSettings):
         #     validation_alias=to_camel,
         #     serialization_alias=to_pascal,
         # )
-        yaml_file=[_CONFIGPATH, _CONFIGLOCALPATH]
+        yaml_file=[_CONFIGPATH, _CONFIGLOCALPATH],
     )
 
     # emailsettings: EmailSettings
@@ -131,16 +135,15 @@ class Settings(BaseSettings):
     def settings_customise_sources(
         cls,
         settings_cls: Type[BaseSettings],
-        init_settings: InitSettingsSource,
-        env_settings: EnvSettingsSource,
-        dotenv_settings: DotEnvSettingsSource,
+        init_settings: InitSettingsSource, # type: ignore
+        env_settings: EnvSettingsSource, # type: ignore
+        dotenv_settings: DotEnvSettingsSource, # type: ignore
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> Tuple[PydanticBaseSettingsSource, ...]:
         return init_settings, env_settings, YamlConfigSettingsSource(settings_cls)
 
 
-
-def str2bool(v: str|bool) -> bool:
+def str2bool(v: str | bool) -> bool:
     if not v:
         return False
 
@@ -158,7 +161,6 @@ def is_in_cluster() -> bool:
     return False
 
 
-
 def log_settings():
     for k, v in os.environ.items():
         if k.startswith("PSQL_"):
@@ -166,13 +168,15 @@ def log_settings():
     logger.info(json.dumps(settings.model_dump(by_alias=True), indent=4, sort_keys=False, default=str))
 
 
-settings: Settings = Settings()
+settings: Settings = Settings()  # type: ignore
 
 if settings.postgresql.url:
     os.environ["PSQL_DB_URL"] = os.getenv("PSQL_DB_URL", settings.postgresql.url)
 
-os.environ["PSQL_DB_HOST"] = os.getenv("PSQL_DB_HOST", settings.postgresql.host_in_cluster if is_in_cluster() else settings.postgresql.host)
-os.environ["PSQL_DB_PORT"] = os.getenv("PSQL_DB_PORT", str(settings.postgresql.port_in_cluster if is_in_cluster() else settings.postgresql.port))
+os.environ["PSQL_DB_HOST"] = os.getenv("PSQL_DB_HOST", settings.postgresql.host_in_cluster if is_in_cluster() else settings.postgresql.host)  # type: ignore
+os.environ["PSQL_DB_PORT"] = os.getenv(
+    "PSQL_DB_PORT", str(settings.postgresql.port_in_cluster if is_in_cluster() else settings.postgresql.port)
+)
 os.environ["PSQL_DB_USERNAME"] = os.getenv("PSQL_DB_USERNAME", settings.postgresql.username)
 os.environ["PSQL_DB_PASSWORD"] = os.getenv("PSQL_DB_PASSWORD", settings.postgresql.password)
 os.environ["PSQL_DB_NAME"] = os.getenv("PSQL_DB_NAME", settings.postgresql.dbname)
@@ -186,4 +190,3 @@ logger.debug(f"TIMEZONE: {TIMEZONE}")
 
 if __name__ == "__main__":
     log_settings()
-
