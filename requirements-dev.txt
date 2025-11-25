@@ -1,0 +1,23 @@
+-r requirements.txt
+
+pre-commit==4.2.*
+
+# linting
+isort==6.0.*
+black==25.11.*
+mypy==1.18.*
+
+pytest==8.3.*
+
+# local black-connect-daemon
+#aiohttp==3.11.*
+
+# mypy-stubs
+types-python-dateutil==2.9.*
+
+types-pytz>=2025.2
+types-cachetools
+types-requests>=2.32.4.20250913
+
+# gguf
+# accelerate
