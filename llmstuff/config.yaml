@@ -1,0 +1,36 @@
+emailsettings:
+  privileged_sender: "jonathan@fara.de"
+  mailaddress: "fu@fara.de"
+  mailuser: "fu@fara.de"
+  mailpassword: "fumpuslumpus"
+  imapserver: "imap.hopefully.not.office365.blargh"
+  imapport: 143
+  smtpserver: "smtp.hopefully.not.office365.blargh"
+  smtpport: 587
+  folders:
+    old: "WORKED"
+    cur: "WORKING"
+    rej: "REJECTED"
+    err: "FAILED"
+  alloweddomains:
+    - "onecorp.bizme"
+    - "secondcorp.bizme"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+
+google:
+  gemini_api_key: "WOBBLE-DOBBLE-DINGDONG"
+
+anthropic:
+  anthropic_api_key: "sk-ant-DOBBLE-WOBBLE-DINGDONG"
+
+postgresql:
+  host: "127.0.0.1"
+  host_in_cluster: "postgresql.postgresql.svc"
+  port: 5438
+  port_in_cluster: 5432
+  username: "postgres"
+  password: "postgrespass"
+  dbname: "postgres"

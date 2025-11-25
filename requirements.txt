@@ -14,3 +14,10 @@ loguru
 
 dnspython
 pyroute2
+
+ollama
+google-genai
+
+pydantic
+pydantic-settings
+pytz
