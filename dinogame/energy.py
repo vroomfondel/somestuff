@@ -1,5 +1,6 @@
 from dinogame_utils import *
 
+
 def energizer_plant_task(x_off, y_off, width, height, harvest_before=False, allow_watering=True):
     y_up = False
 
@@ -63,7 +64,7 @@ def harvest_with_target_droned(targets):
             to_spread -= 1
 
         # if i+1 >= available_drones:
-        #	end = off + remainder
+        # 	end = off + remainder
 
         myjob = targets[off:end]
 
@@ -107,7 +108,7 @@ def energizer(height, maxloops=None, width=1, harvest_before=False, extra_plant_
     loopcounter = 0
     y_up = False
 
-    while (True):
+    while True:
         petals = []
         posxy = []
         plant_drones = None
@@ -133,8 +134,9 @@ def energizer(height, maxloops=None, width=1, harvest_before=False, extra_plant_
             my_width = per_drone_width
             my_height = start_y + height - my_y_off
 
-            petals, posxy = energizer_plant_task(my_x_off, my_y_off, my_width, my_height, harvest_before,
-                                                 allow_watering)
+            petals, posxy = energizer_plant_task(
+                my_x_off, my_y_off, my_width, my_height, harvest_before, allow_watering
+            )
 
             # wait for other drones and combine stuff
             for dm in plant_drones:
