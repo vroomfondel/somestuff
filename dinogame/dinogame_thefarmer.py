@@ -53,13 +53,10 @@ class SimpleDeque:
 
 def create_simple_deque(iterable=None):
     # State stored in closure
-    state = {
-        'left': [],
-        'right': []
-    }
+    state = {"left": [], "right": []}
 
     if iterable is not None:
-        state['right'] += iterable
+        state["right"] += iterable
 
     def reverse_list(lst):
         # """Custom reverse function since .reverse() is not available"""
@@ -68,61 +65,61 @@ def create_simple_deque(iterable=None):
             lst[i], lst[n - 1 - i] = lst[n - 1 - i], lst[i]
 
     def appendright(item):
-        state['right'].append(item)
+        state["right"].append(item)
 
     def appendleft(item):
-        state['left'].append(item)
+        state["left"].append(item)
 
     def popright():
-        if state['right']:
-            return state['right'].pop()
-        elif state['left']:
-            reverse_list(state['left'])
-            state['right'] = state['left']
-            state['left'] = []
-            r = state['right']
+        if state["right"]:
+            return state["right"].pop()
+        elif state["left"]:
+            reverse_list(state["left"])
+            state["right"] = state["left"]
+            state["left"] = []
+            r = state["right"]
             return r.pop()
         # else:
         #     raise IndexError("pop from empty deque")
         return None
 
     def popleft():
-        if state['left']:
-            return state['left'].pop()
-        elif state['right']:
-            reverse_list(state['right'])
-            state['left'] = state['right']
-            state['right'] = []
-            l = state['left']
+        if state["left"]:
+            return state["left"].pop()
+        elif state["right"]:
+            reverse_list(state["right"])
+            state["left"] = state["right"]
+            state["right"] = []
+            l = state["left"]
             return l.pop()
         # else:
         #     raise IndexError("pop from empty deque")
         return None
 
     def get_length():
-        return len(state['left']) + len(state['right'])
+        return len(state["left"]) + len(state["right"])
 
     def is_empty():
-        return not (state['left'] or state['right'])
+        return not (state["left"] or state["right"])
 
     def get_bool():
         return not is_empty()
 
     def to_list():
-        result = state['left'][:]
+        result = state["left"][:]
         reverse_list(result)
-        result = result + state['right']
+        result = result + state["right"]
         return result
 
     def contains_no_skip_first(item):
-        if item in state['left'] or item in state['right']:
+        if item in state["left"] or item in state["right"]:
             return True
 
         return False
 
     def contains_skip_first(item):
         # """Check if item exists in deque, ignoring the first element"""
-        total_length = len(state['left']) + len(state['right'])
+        total_length = len(state["left"]) + len(state["right"])
 
         # If deque has 0 or 1 elements, nothing to check after skipping first
         if total_length <= 1:
@@ -132,47 +129,44 @@ def create_simple_deque(iterable=None):
         # - Last element of left list (if left is not empty)
         # - First element of right list (if left is empty)
 
-        if state['left']:
+        if state["left"]:
             # First element is state['left'][-1]
             # Check remaining elements in left (excluding the last one)
-            ll = len(state['left'])
+            ll = len(state["left"])
             if ll > 1:
                 for i in range(ll - 1):
-                    if state['left'][i] == item:
+                    if state["left"][i] == item:
                         return True
 
             # Check all elements in right
-            if item in state['right']:
+            if item in state["right"]:
                 return True
         else:
             # First element is state['right'][0]
             # Check remaining elements in right (excluding the first one)
-            lr = len(state['right'])
+            lr = len(state["right"])
             if lr > 1:
                 for i in range(1, lr):
-                    if state['right'][i] == item:
+                    if state["right"][i] == item:
                         return True
 
         return False
 
     # Return dictionary with bound methods
     return {
-        'appendright': appendright,
-        'appendleft': appendleft,
-        'popright': popright,
-        'popleft': popleft,
-        'get_length': get_length,
-        'bool': get_bool,
-        'to_list': to_list,
-        'contains_skip_first': contains_skip_first,
-        'contains_no_skip_first': contains_no_skip_first,
-        '__len__': get_length,
-        '__bool__': get_bool,
-        '__state__': state
+        "appendright": appendright,
+        "appendleft": appendleft,
+        "popright": popright,
+        "popleft": popleft,
+        "get_length": get_length,
+        "bool": get_bool,
+        "to_list": to_list,
+        "contains_skip_first": contains_skip_first,
+        "contains_no_skip_first": contains_no_skip_first,
+        "__len__": get_length,
+        "__bool__": get_bool,
+        "__state__": state,
     }
-
-
-
 
 
 # def can_move_safe(x, y, direction, tail_positions, farm_x, farm_y, prev_pos, ignore_oldest_tail_segment=True,
@@ -199,8 +193,17 @@ def create_simple_deque(iterable=None):
 #     return True
 
 
-def can_move_safe(x, y, direction, tail_positions_deque, farm_x, farm_y, prev_pos, ignore_oldest_tail_segment=True,
-                  new_apple_found=False):
+def can_move_safe(
+    x,
+    y,
+    direction,
+    tail_positions_deque,
+    farm_x,
+    farm_y,
+    prev_pos,
+    ignore_oldest_tail_segment=True,
+    new_apple_found=False,
+):
     dx, dy = deltas[direction]
     new_x = x + dx
     new_y = y + dy
@@ -214,16 +217,16 @@ def can_move_safe(x, y, direction, tail_positions_deque, farm_x, farm_y, prev_po
         found = tail_positions_deque["contains_skip_first"]((new_x, new_y))
         return not found
 
-    found = tail_positions_deque['contains_no_skip_first']((new_x, new_y))
+    found = tail_positions_deque["contains_no_skip_first"]((new_x, new_y))
     return not found
 
 
-def find_path_astar_with_tail_collision_avoidance(x, y, zx, zy, _tail_positions_deque, farm_x, farm_y,
-                                                  new_apple_found=False, allow_drone_spawn=True, _visited=None):
+def find_path_astar_with_tail_collision_avoidance(
+    x, y, zx, zy, _tail_positions_deque, farm_x, farm_y, new_apple_found=False, allow_drone_spawn=True, _visited=None
+):
     visited = _visited  # should be array -> may visit same twice (<- different tail!)
     if visited == None:
         visited = []
-
 
     path_stack = []  # Stack für Backtracking
     oldest_tail_element_at_stack = []
@@ -237,7 +240,7 @@ def find_path_astar_with_tail_collision_avoidance(x, y, zx, zy, _tail_positions_
 
     # Verwende dict-basierte Deque für O(1) Operationen
     # tail_deque = create_simple_deque(_tail_positions)
-    tail_deque = create_simple_deque(_tail_positions_deque['to_list']())
+    tail_deque = create_simple_deque(_tail_positions_deque["to_list"]())
 
     prev_pos = None
 
@@ -316,7 +319,7 @@ def find_path_astar_with_tail_collision_avoidance(x, y, zx, zy, _tail_positions_
                             farm_y,
                             my_new_apple_found,
                             True,
-                            visited
+                            visited,
                         )
 
                     medrone = spawn_drone(mytask)
@@ -393,11 +396,13 @@ def find_path_astar_with_tail_collision_avoidance(x, y, zx, zy, _tail_positions_
     return False, path_stack, visited
 
 
-def can_still_move_anywhere(x, y, tail_positions_deque, farm_x, farm_y, prev_pos, ignore_oldest_tail_segment=True,
-                            new_apple_found=False):
+def can_still_move_anywhere(
+    x, y, tail_positions_deque, farm_x, farm_y, prev_pos, ignore_oldest_tail_segment=True, new_apple_found=False
+):
     for direction in directions:
-        if can_move_safe(x, y, direction, tail_positions_deque, farm_x, farm_y, prev_pos, ignore_oldest_tail_segment,
-                         new_apple_found):
+        if can_move_safe(
+            x, y, direction, tail_positions_deque, farm_x, farm_y, prev_pos, ignore_oldest_tail_segment, new_apple_found
+        ):
             return True
 
     return False
@@ -443,14 +448,8 @@ def collect_apples_astar():
 
         # Bewege zum Apfel mit A*
         success, path_stack, visited = find_path_astar_with_tail_collision_avoidance(
-            actual_x,
-            actual_y,
-            apple_x,
-            apple_y,
-            tail_positions_deque,
-            farm_x,
-            farm_y,
-            new_apple_found)
+            actual_x, actual_y, apple_x, apple_y, tail_positions_deque, farm_x, farm_y, new_apple_found
+        )
 
         if not success:
             print("Kann nicht zum Apfel bewegen!")
@@ -490,20 +489,18 @@ def collect_apples_astar():
 
         # Prüfe ob wir uns noch bewegen können
         # new_apple_found -> sollte hier eigentlich immer False sein...
-        if not can_still_move_anywhere(actual_x, actual_y, tail_positions_deque, farm_x, farm_y, prev_pos, False,
-                                       new_apple_found):
+        if not can_still_move_anywhere(
+            actual_x, actual_y, tail_positions_deque, farm_x, farm_y, prev_pos, False, new_apple_found
+        ):
             print("Keine Bewegung mehr möglich - Farm ist voll!")
             break
 
     # Ernte den Schwanz durch Wechseln des Huts
     change_hat(Hats.Golden_Cactus_Hat)
 
-    bones = tail_length ** 2
+    bones = tail_length**2
 
     return apples_collected, bones
-
-
-
 
 
 def controller(world_size=-1, exec_speed=-1, do_harvest=False, maxloops=None, reset_wordl_size_afterwards=True):
@@ -522,7 +519,7 @@ def controller(world_size=-1, exec_speed=-1, do_harvest=False, maxloops=None, re
     change_hat(Hats.Golden_Cactus_Hat)
 
     loopcounter = 0
-    while (True):
+    while True:
         apples, bones = collect_apples_astar()
         loopcounter += 1
 
@@ -552,19 +549,19 @@ def testmoves():
 
 if __name__ == "__main__":
     # testmoves()
-    
+
     deque = create_simple_deque([1, 2, 3, 4])
-    result1 = deque['contains_skip_first'](3)  # Returns True (ignores first element 1)
+    result1 = deque["contains_skip_first"](3)  # Returns True (ignores first element 1)
     print(f"{result1=}")
 
-    result2 = deque['contains_skip_first'](1)  # Returns True (ignores first element 1)
+    result2 = deque["contains_skip_first"](1)  # Returns True (ignores first element 1)
     print(f"{result2=}")
-    
+
     # controller(8, -1, False)
 
     # change_hat(Hats.Dinosaur_Hat)
     # moved = move(North)
     # moved = move(South)
     # if not moved:
-    #	print("MOVE FAIL SOUTH")
+    # 	print("MOVE FAIL SOUTH")
     # change_hat(Hats.Golden_Cactus_Hat)

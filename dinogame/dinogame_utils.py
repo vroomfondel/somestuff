@@ -8,6 +8,7 @@ from collections import deque
 
 from loguru import logger
 
+
 ## dummy classes /enums
 class Hats(Enum):
     Golden_Cactus_Hat = auto()
@@ -38,9 +39,11 @@ class HedgeSub(Enum):
     # special case
     HedgeNone = auto()
 
-#is_left, is_right, is_top, is_bottom
+
+# is_left, is_right, is_top, is_bottom
 _hedge_subtype_dict: Dict[Tuple[bool, bool, bool, bool], HedgeSub] = {}
 _hedge_subtype_dict_reverse: Dict[HedgeSub, Tuple[bool, bool, bool, bool]] = {}
+
 
 def _prepare_hedge_subtypes_dicts():
     for is_left in [True, False]:
@@ -83,21 +86,24 @@ def _prepare_hedge_subtypes_dicts():
                             # special case!
                             hedge = HedgeSub.HedgeNone
 
-
                     if hedge is not None:
                         _hedge_subtype_dict[(is_left, is_right, is_top, is_bottom)] = hedge
                         _hedge_subtype_dict_reverse[hedge] = (is_left, is_right, is_top, is_bottom)
 
+
 _prepare_hedge_subtypes_dicts()
+
 
 def get_hedge_subtype(is_left: bool, is_right: bool, is_top: bool, is_bottom: bool) -> HedgeSub | None:
     ret: HedgeSub | None = _hedge_subtype_dict.get((is_left, is_right, is_top, is_bottom), None)
     return ret
 
+
 def get_hedge_tuple_by_hedgesubtype(hedge: HedgeSub) -> Tuple[bool, bool, bool, bool]:
     ret: Tuple[bool, bool, bool, bool] | None = _hedge_subtype_dict_reverse.get(hedge, None)
     return ret
-    
+
+
 @dataclass
 class Maze:
     maze_x_pos: int
@@ -109,8 +115,6 @@ class Maze:
     hedges_positions_dict: Optional[Dict[Tuple[int, int], HedgeSub]] = field(init=False)
 
     drone: "Drone"
-
-
 
     def __post_init__(self):
         # 1. erstellt das maze-layout:
@@ -168,8 +172,10 @@ class Maze:
         if not in_inner(sx, sy):
             sx, sy = (ix0 + ix1) // 2, (iy0 + iy1) // 2
         # Auf ein zulässiges „Raster" ziehen (damit 2er-Schritte gut funktionieren)
-        if (sx - ix0) % 2 == 0: sx += 1 if sx + 1 <= ix1 else -1
-        if (sy - iy0) % 2 == 0: sy += 1 if sy + 1 <= iy1 else -1
+        if (sx - ix0) % 2 == 0:
+            sx += 1 if sx + 1 <= ix1 else -1
+        if (sy - iy0) % 2 == 0:
+            sy += 1 if sy + 1 <= iy1 else -1
 
         # 3) DFS-Backtracker: Erstelle Maze-Struktur
         # Wir tracken welche "Wände" (Übergänge zwischen Zellen) blockiert sind
@@ -233,10 +239,18 @@ class Maze:
                 else:
                     # Innenfeld: prüfe blockierte Übergänge zu Nachbarn
                     # Übergänge zu Zellen außerhalb des Innenbereichs (also Rand) sind grundsätzlich blockiert
-                    blocked_left = (not in_inner(xo - 1, yo)) or (tuple(sorted([(xo, yo), (xo - 1, yo)])) in blocked_edges)
-                    blocked_right = (not in_inner(xo + 1, yo)) or (tuple(sorted([(xo, yo), (xo + 1, yo)])) in blocked_edges)
-                    blocked_top = (not in_inner(xo, yo + 1)) or (tuple(sorted([(xo, yo), (xo, yo + 1)])) in blocked_edges)
-                    blocked_bottom = (not in_inner(xo, yo - 1)) or (tuple(sorted([(xo, yo), (xo, yo - 1)])) in blocked_edges)
+                    blocked_left = (not in_inner(xo - 1, yo)) or (
+                        tuple(sorted([(xo, yo), (xo - 1, yo)])) in blocked_edges
+                    )
+                    blocked_right = (not in_inner(xo + 1, yo)) or (
+                        tuple(sorted([(xo, yo), (xo + 1, yo)])) in blocked_edges
+                    )
+                    blocked_top = (not in_inner(xo, yo + 1)) or (
+                        tuple(sorted([(xo, yo), (xo, yo + 1)])) in blocked_edges
+                    )
+                    blocked_bottom = (not in_inner(xo, yo - 1)) or (
+                        tuple(sorted([(xo, yo), (xo, yo - 1)])) in blocked_edges
+                    )
 
                 # Bestimme HedgeSub basierend auf blockierten Richtungen
                 subtype = get_hedge_subtype(blocked_left, blocked_right, blocked_top, blocked_bottom)
@@ -284,13 +298,10 @@ class Maze:
             self.treasure_position = (fx, fy)
 
 
-
-
-
-
 class Grounds(Enum):
     Grass = auto()
     Soil = auto()
+
 
 class Entities(Enum):
     Carrot = auto()
@@ -305,16 +316,19 @@ class Entities(Enum):
     Grass = auto()
     _DinoTail = auto()
 
+
 @dataclass
 class EntityAndValues:
     entity: Entities
     size: Optional[int] = None
     growstate_percentage: Optional[float] = None
 
+
 @dataclass
 class GroundsAndValues:
     ground_type: Grounds
     water_percentage: float = 0.0
+
 
 # class HedgeSub(Enum):
 #     HedgeNorth = auto()
@@ -365,7 +379,7 @@ South = Directions.South
 
 costs: Dict[Entities, Dict[Items, int]] = {
     Entities.Carrot: {Items.Wood: 1, Items.Hay: 1},
-    Entities.Pumpkin: {Items.Carrot: 2}
+    Entities.Pumpkin: {Items.Carrot: 2},
 }
 
 
@@ -411,8 +425,7 @@ class Drone:
         # check if entity
         ...
 
-    def spawn_drone(task: Callable[[], Any]):
-        ...
+    def spawn_drone(task: Callable[[], Any]): ...
 
     def get_pos_x(self):
         return self.drone_x_position
@@ -579,7 +592,6 @@ class Drone:
         return ret
 
 
-
 @dataclass
 class World:
     # check: max-width: 32
@@ -624,11 +636,9 @@ class World:
     def num_drones(self) -> int:
         return self.num_current_drones
 
-    def has_finished(self, droneobject: Drone):
-        ...
+    def has_finished(self, droneobject: Drone): ...
 
-    def wait_for(self, droneobject: Drone):
-        ...
+    def wait_for(self, droneobject: Drone): ...
 
     def get_world_size(self) -> int:
         return self.size
@@ -643,11 +653,12 @@ class World:
         self.items_in_inventory[item] += amount
 
     def _generate_next_apple_position(self) -> Optional[Tuple[int, int]]:
-        if len(_entities_on_the_map) == _world_size ** 2:
+        if len(_entities_on_the_map) == _world_size**2:
             return None
 
         next_apple_pos: Tuple[int, int] = int((random() * 10 * _world_size) // 10), int(
-            (random() * 10 * _world_size) // 10)
+            (random() * 10 * _world_size) // 10
+        )
         tries_needed: int = 1
 
         while next_apple_pos in _entities_on_the_map:
@@ -660,7 +671,6 @@ class World:
 
     def num_items(self, item: Items) -> int:
         return self.items_in_inventory.get(item, 0)
-
 
     def set_world_size(self, world_size):
         prev_world_size = self.size
@@ -687,6 +697,7 @@ class World:
 
         return False
 
+
 ## END dummy classes /enums
 
 
@@ -698,6 +709,7 @@ world: World = World(size=32, main_drone_task=main_drone_task)
 
 ## dummy/mockup functions
 
+
 def change_hat(hat: Hats):
     global _current_hat, _is_in_dino_mode, _tail_positions, _apple_position, _next_apple_position, _entities_on_the_map
 
@@ -705,7 +717,7 @@ def change_hat(hat: Hats):
     was_in_dino_mode = _is_in_dino_mode
 
     if hat == Hats.Dinosaur_Hat:
-         _is_in_dino_mode = True
+        _is_in_dino_mode = True
     else:
         _is_in_dino_mode = False
 
@@ -746,7 +758,6 @@ def change_hat(hat: Hats):
 # TODO create_random_maze implementieren...
 
 
-
 ## END dummy/mockup functions
 
 
@@ -754,8 +765,10 @@ directions: List[Directions] = [North, South, East, West]
 opposite: Dict[Directions, Directions] = {North: South, South: North, East: West, West: East}
 deltas: Dict[Directions, Tuple[int, int]] = {North: (0, 1), South: (0, -1), East: (1, 0), West: (-1, 0)}
 
+
 def manhattan_heuristic(x, y, zx, zy):
     return abs(x - zx) + abs(y - zy)
+
 
 def get_pos():
     return get_pos_x(), get_pos_y()
@@ -797,12 +810,12 @@ def sort_array_bubblesort(arr):
 
     # bubbled = True
     # while(bubbled):
-    #	bubbled = False
+    # 	bubbled = False
     #
-    #	for i in range(len(fa)-1):
-    #		if fa[i] > fa[i+1]:
-    #			fa[i], fa[i+1] = fa[i+1], fa[i]
-    #			bubbled = True
+    # 	for i in range(len(fa)-1):
+    # 		if fa[i] > fa[i+1]:
+    # 			fa[i], fa[i+1] = fa[i+1], fa[i]
+    # 			bubbled = True
     # return True
 
     n = len(arr)
@@ -928,6 +941,7 @@ def sort_two_arrays_by_first_array(arr, arrb):
 
     return True
 
+
 def shuffle_array(to_shuffle):
     ll = len(to_shuffle)
 
@@ -951,6 +965,7 @@ def shuffle_two_arrays(to_shuffle, shuffle_along):
 
 
 # move_deltas = {North: (0, 1), South: (0, -1), East: (1, 0), West: (-1, 0)}
+
 
 def move_to_astar(zx, zy):
     my_directions = [North, South, East, West]
@@ -991,6 +1006,7 @@ def move_to_astar(zx, zy):
                 return False
 
     return True
+
 
 #
 # def conditional_watering():
@@ -1222,17 +1238,19 @@ def move_to_astar(zx, zy):
 #     # print(get_cost(Unlocks.Top_Hat))
 #     get_need_to_unlock_map(True, True, True)
 
+
 def max_drones():
     return world.max_drones()
+
 
 def num_drones():
     return world.num_drones()
 
-def spawn_drone(task: Callable[[], Any]):
-    ...
 
-def wait_for(drone: Drone|Any):
-    ...
+def spawn_drone(task: Callable[[], Any]): ...
+
+
+def wait_for(drone: Drone | Any): ...
 
 
 def matchtester():

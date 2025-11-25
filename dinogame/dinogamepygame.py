@@ -41,18 +41,8 @@ class DinoGameSimulation:
         self.South = 4
 
         self.directions = [self.North, self.South, self.East, self.West]
-        self.opposite = {
-            self.North: self.South,
-            self.South: self.North,
-            self.East: self.West,
-            self.West: self.East
-        }
-        self.deltas = {
-            self.North: (0, 1),
-            self.South: (0, -1),
-            self.East: (1, 0),
-            self.West: (-1, 0)
-        }
+        self.opposite = {self.North: self.South, self.South: self.North, self.East: self.West, self.West: self.East}
+        self.deltas = {self.North: (0, 1), self.South: (0, -1), self.East: (1, 0), self.West: (-1, 0)}
 
         self._spawn_new_apple()
 
@@ -122,8 +112,9 @@ class DinoGameSimulation:
         """Manhattan-Distanz für A*"""
         return abs(x - zx) + abs(y - zy)
 
-    def can_move_safe(self, x, y, direction, tail_positions, prev_pos,
-                      ignore_oldest_tail_segment=True, new_apple_found=False):
+    def can_move_safe(
+        self, x, y, direction, tail_positions, prev_pos, ignore_oldest_tail_segment=True, new_apple_found=False
+    ):
         """Prüft ob eine Bewegung sicher ist"""
         dx, dy = self.deltas[direction]
         new_x = x + dx
@@ -174,8 +165,7 @@ class DinoGameSimulation:
                 self.directions[i], self.directions[j] = self.directions[j], self.directions[i]
 
             for direction in self.directions:
-                if self.can_move_safe(x, y, direction, tail_positions_copy, prev_pos,
-                                      False, my_new_apple_found):
+                if self.can_move_safe(x, y, direction, tail_positions_copy, prev_pos, False, my_new_apple_found):
                     dx, dy = self.deltas[direction]
                     next_x = x + dx
                     next_y = y + dy
@@ -207,13 +197,15 @@ class DinoGameSimulation:
                 oldest_tail_element_at_stack.append(oldest_tail_element)
                 visited.append((current_x, current_y, x, y, best_direction))
 
-                self.planning_steps.append({
-                    'type': 'forward',
-                    'position': (x, y),
-                    'from': (current_x, current_y),
-                    'path': path_stack[:],
-                    'tail': tail_positions_copy[:]
-                })
+                self.planning_steps.append(
+                    {
+                        "type": "forward",
+                        "position": (x, y),
+                        "from": (current_x, current_y),
+                        "path": path_stack[:],
+                        "tail": tail_positions_copy[:],
+                    }
+                )
             else:
                 if len(path_stack) == 0:
                     return False, path_stack
@@ -234,13 +226,15 @@ class DinoGameSimulation:
                 if oldest_tail_element is not None:
                     tail_positions_copy.insert(0, oldest_tail_element)
 
-                self.planning_steps.append({
-                    'type': 'backtrack',
-                    'position': (x, y),
-                    'from': (current_x, current_y),
-                    'path': path_stack[:],
-                    'tail': tail_positions_copy[:]
-                })
+                self.planning_steps.append(
+                    {
+                        "type": "backtrack",
+                        "position": (x, y),
+                        "from": (current_x, current_y),
+                        "path": path_stack[:],
+                        "tail": tail_positions_copy[:],
+                    }
+                )
 
             moves_made += 1
 
@@ -258,10 +252,7 @@ class DinoGameSimulation:
         self.target_apple = self.current_apple
 
         success, path_stack = self.find_path_astar(
-            self.dino_x, self.dino_y,
-            apple_x, apple_y,
-            self.tail_positions,
-            new_apple_found=True
+            self.dino_x, self.dino_y, apple_x, apple_y, self.tail_positions, new_apple_found=True
         )
 
         if not success:
@@ -281,13 +272,15 @@ class DinoGameSimulation:
 
             apple_collected = (new_x, new_y) == self.current_apple
 
-            self.execution_steps.append({
-                'direction': step,
-                'from': (temp_x, temp_y),
-                'to': (new_x, new_y),
-                'tail_before': temp_tail[:],
-                'apple_collected': apple_collected
-            })
+            self.execution_steps.append(
+                {
+                    "direction": step,
+                    "from": (temp_x, temp_y),
+                    "to": (new_x, new_y),
+                    "tail_before": temp_tail[:],
+                    "apple_collected": apple_collected,
+                }
+            )
 
             if apple_collected:
                 temp_tail.append((temp_x, temp_y))
@@ -313,7 +306,7 @@ class DinoGameVisualizer:
         self.screen_height = world_size * cell_size + 50  # +50 für Titel
 
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
-        pygame.display.set_caption('Dino-Spiel Simulation')
+        pygame.display.set_caption("Dino-Spiel Simulation")
 
         self.clock = pygame.time.Clock()
         self.fps = 2  # Frames pro Sekunde
@@ -334,13 +327,13 @@ class DinoGameVisualizer:
         self.COLOR_WHITE = (255, 255, 255)
 
         # Fonts
-        self.font_title = pygame.font.SysFont('Arial', 24, bold=True)
-        self.font_stats = pygame.font.SysFont('Arial', 16)
-        self.font_emoji = pygame.font.SysFont('Segoe UI Emoji', 32)
-        self.font_small = pygame.font.SysFont('Arial', 12)
+        self.font_title = pygame.font.SysFont("Arial", 24, bold=True)
+        self.font_stats = pygame.font.SysFont("Arial", 16)
+        self.font_emoji = pygame.font.SysFont("Segoe UI Emoji", 32)
+        self.font_small = pygame.font.SysFont("Arial", 12)
 
         # Animationsphasen
-        self.current_phase = 'idle'
+        self.current_phase = "idle"
         self.planning_index = 0
         self.execution_index = 0
         self.frame_count = 0
@@ -371,9 +364,7 @@ class DinoGameVisualizer:
 
             # Schwanz-Segment zeichnen
             padding = 6
-            rect = pygame.Rect(x + padding, y + padding,
-                               self.cell_size - 2 * padding,
-                               self.cell_size - 2 * padding)
+            rect = pygame.Rect(x + padding, y + padding, self.cell_size - 2 * padding, self.cell_size - 2 * padding)
 
             color = tuple(int(c * intensity * alpha) for c in self.COLOR_TAIL)
             pygame.draw.rect(self.screen, color, rect, border_radius=5)
@@ -397,7 +388,7 @@ class DinoGameVisualizer:
             pygame.draw.circle(self.screen, self.COLOR_APPLE_DARK, center, radius, 2)
 
             # Emoji
-            emoji = self.font_emoji.render('🍎', True, self.COLOR_TEXT)
+            emoji = self.font_emoji.render("🍎", True, self.COLOR_TEXT)
             emoji_rect = emoji.get_rect(center=center)
             self.screen.blit(emoji, emoji_rect)
 
@@ -440,9 +431,7 @@ class DinoGameVisualizer:
 
         # Dino-Körper
         padding = 3
-        rect = pygame.Rect(sx + padding, sy + padding,
-                           self.cell_size - 2 * padding,
-                           self.cell_size - 2 * padding)
+        rect = pygame.Rect(sx + padding, sy + padding, self.cell_size - 2 * padding, self.cell_size - 2 * padding)
 
         if alpha < 1.0:
             # Transparenter Dino für Planung
@@ -456,7 +445,7 @@ class DinoGameVisualizer:
             pygame.draw.rect(self.screen, (0, 0, 0), rect, 3, border_radius=5)
 
         # Dino Emoji
-        emoji = self.font_emoji.render('🦖', True, self.COLOR_TEXT)
+        emoji = self.font_emoji.render("🦖", True, self.COLOR_TEXT)
         emoji.set_alpha(int(255 * alpha))
         emoji_rect = emoji.get_rect(center=(sx + self.cell_size // 2, sy + self.cell_size // 2))
         self.screen.blit(emoji, emoji_rect)
@@ -468,16 +457,16 @@ class DinoGameVisualizer:
 
         # Bestimme was gezeichnet werden soll
         if planning_state:
-            tail_positions = planning_state['tail']
-            dino_x, dino_y = planning_state['position']
-            path_to_show = planning_state['path']
+            tail_positions = planning_state["tail"]
+            dino_x, dino_y = planning_state["position"]
+            path_to_show = planning_state["path"]
             is_planning = True
             apple_pos = self.sim.target_apple
         else:
             tail_positions = self.sim.tail_positions
             dino_x, dino_y = self.sim.dino_x, self.sim.dino_y
-            if self.current_phase == 'executing' and self.execution_index < len(self.sim.execution_steps):
-                path_to_show = self.sim.path_to_apple[self.execution_index:]
+            if self.current_phase == "executing" and self.execution_index < len(self.sim.execution_steps):
+                path_to_show = self.sim.path_to_apple[self.execution_index :]
             else:
                 path_to_show = []
             is_planning = False
@@ -503,11 +492,7 @@ class DinoGameVisualizer:
         title_rect = pygame.Rect(0, 0, self.grid_width, 50)
         pygame.draw.rect(self.screen, self.COLOR_TITLE_BG, title_rect)
 
-        phase_emoji = {
-            'idle': '⏸️',
-            'planning': '🧠',
-            'executing': '🏃'
-        }
+        phase_emoji = {"idle": "⏸️", "planning": "🧠", "executing": "🏃"}
 
         title_text = f"Dino-Spiel: {self.sim.apples_collected} Äpfel"
         if self.current_phase in phase_emoji:
@@ -545,9 +530,9 @@ class DinoGameVisualizer:
         ]
 
         # Phase
-        if self.current_phase == 'planning':
+        if self.current_phase == "planning":
             stats.append(f"Phase: Planung {self.planning_index + 1}/{len(self.sim.planning_steps)}")
-        elif self.current_phase == 'executing':
+        elif self.current_phase == "executing":
             stats.append(f"Phase: Ausführung {self.execution_index + 1}/{len(self.sim.execution_steps)}")
         else:
             stats.append("Phase: Bereit")
@@ -590,7 +575,7 @@ class DinoGameVisualizer:
             return False
 
         # Phase 1: Neue Planung starten
-        if self.current_phase == 'idle':
+        if self.current_phase == "idle":
             max_apples = self.sim.world_size * self.sim.world_size - 1
             if self.sim.apples_collected < max_apples:
                 success = self.sim.collect_next_apple()
@@ -599,7 +584,7 @@ class DinoGameVisualizer:
                     self.sim.game_over = True
                     return False
                 else:
-                    self.current_phase = 'planning'
+                    self.current_phase = "planning"
                     self.planning_index = 0
                     self.execution_index = 0
             else:
@@ -608,23 +593,23 @@ class DinoGameVisualizer:
                 return False
 
         # Phase 2: Planungsschritte visualisieren
-        elif self.current_phase == 'planning':
+        elif self.current_phase == "planning":
             if self.planning_index < len(self.sim.planning_steps):
                 self.planning_index += 1
                 return True
             else:
-                self.current_phase = 'executing'
+                self.current_phase = "executing"
                 self.execution_index = 0
 
         # Phase 3: Ausführungsschritte visualisieren
-        elif self.current_phase == 'executing':
+        elif self.current_phase == "executing":
             if self.execution_index < len(self.sim.execution_steps):
                 step = self.sim.execution_steps[self.execution_index]
-                self.sim.move(step['direction'])
+                self.sim.move(step["direction"])
                 self.execution_index += 1
                 return True
             else:
-                self.current_phase = 'idle'
+                self.current_phase = "idle"
                 self.sim.path_to_apple = []
                 self.sim.target_apple = None
 
@@ -646,7 +631,7 @@ class DinoGameVisualizer:
             self.screen.fill(self.COLOR_BG)
 
             # Spielzustand zeichnen
-            if self.current_phase == 'planning' and self.planning_index > 0:
+            if self.current_phase == "planning" and self.planning_index > 0:
                 planning_state = self.sim.planning_steps[self.planning_index - 1]
                 self.draw_game_state(planning_state)
             else:
