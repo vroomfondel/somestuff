@@ -304,8 +304,11 @@ def ipset_update_with_swap(srcname: str, ipv4_addr_or_net: List[str], do_actual_
 
         # 5. Add all entries to the temporary ipset
         for entry in ipv4_addr_or_net:
-            ipset.add(temp_name, entry, etype=etype)
-            print(f"  → Added: {entry}")
+            if not ipset.test(temp_name, entry, etype=etype):
+                ipset.add(temp_name, entry, etype=etype)
+                print(f"  → Added: {entry}")
+            else:
+                print(f"  → Skipped: {entry}")
 
         if src_exists:
             print(f"Total of {len(ipv4_addr_or_net)} entries added to temporary ipset")
