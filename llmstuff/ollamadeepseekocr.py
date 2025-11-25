@@ -16,16 +16,13 @@ from ollama import GenerateResponse
 # from io import StringIO
 # from jinja2 import Environment, FileSystemLoader
 
-_OLLAMA_HTTPX_CLIENT_TIMEOUT: float|None = None
+_OLLAMA_HTTPX_CLIENT_TIMEOUT: float | None = None
 
 OLLAMA_HOST = "http://127.0.0.1:11434"
 
 logger.debug(f"OLLAMA_HOST: {OLLAMA_HOST}")
 
-OLLAMA_CLIENT = ollama.Client(
-    host=OLLAMA_HOST,
-    timeout=_OLLAMA_HTTPX_CLIENT_TIMEOUT
-)
+OLLAMA_CLIENT = ollama.Client(host=OLLAMA_HOST, timeout=_OLLAMA_HTTPX_CLIENT_TIMEOUT)
 
 OCRTESTFILE_JPG: Path = Path(Path.home(), f"Desktop/traderjoes_h0auyjrjq1n1yshsez3z.jpg")
 
@@ -48,15 +45,15 @@ DEFAULT_MARKDOWN_SYSTEM_PROMPT = """Convert the provided image into Markdown for
 
 def runocr(imagefile: Path):
     image_bytes: bytes = imagefile.read_bytes()
-    image_b64: str = base64.b64encode(image_bytes).decode('utf-8')
+    image_b64: str = base64.b64encode(image_bytes).decode("utf-8")
 
-    response: GenerateResponse|Iterator[GenerateResponse] = OLLAMA_CLIENT.generate(
+    response: GenerateResponse | Iterator[GenerateResponse] = OLLAMA_CLIENT.generate(
         # system=DEFAULT_OCR_SYSTEM_PROMPT,  # ?! really needed? deepseek-ocr seems to be a bit picky
         model=OCR_MODEL,
         # prompt="<image>\n<|grounding|>Convert the document to markdown.",  # https://ollama.com/library/deepseek-ocr
         prompt="<image>\n<|grounding|>Convert the document to markdown and count the bananas.",
         images=[image_b64],
-        stream=False
+        stream=False,
     )
     if isinstance(response, Iterator):
         raise Exception("Unexpectedly got an iterator")
@@ -64,14 +61,15 @@ def runocr(imagefile: Path):
     # logger.debug(response)
     return response.response
 
+
 def comparedifferentfiletypes() -> List[tuple[str, str, float, int]]:
     # encoded = base64.b64encode(b'data to be encoded')
 
     # difflib.unified_diff(redo_resps[0], redo_resps[1],
     #                                   fromfile=f"NO_HISTORY", tofile=f"WITH_HISTORY"):
 
-    result_lines: Dict[str, List[str]|None] = {"webp": None, "png": None, "jpg": None}
-    result_texts: Dict[str, str|None] = {"webp": None, "png": None, "jpg": None}
+    result_lines: Dict[str, List[str] | None] = {"webp": None, "png": None, "jpg": None}
+    result_texts: Dict[str, str | None] = {"webp": None, "png": None, "jpg": None}
 
     for suff in result_texts.keys():
         inputfile: Path = Path(OCRTESTFILE_JPG.parent, f"{OCRTESTFILE_JPG.name[:-4]}.{suff}")
@@ -101,11 +99,11 @@ def comparedifferentfiletypes() -> List[tuple[str, str, float, int]]:
             matcher = difflib.SequenceMatcher(None, prev, resp)
             changed_chars: int = 0
             for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == 'replace':
+                if tag == "replace":
                     changed_chars += max(i2 - i1, j2 - j1)
-                elif tag == 'delete':
+                elif tag == "delete":
                     changed_chars += i2 - i1
-                elif tag == 'insert':
+                elif tag == "insert":
                     changed_chars += j2 - j1
 
             # Berechne die Signifikanz der Änderungen
@@ -121,10 +119,9 @@ def comparedifferentfiletypes() -> List[tuple[str, str, float, int]]:
             logger.debug(f"DIFF [{changed_chars=} {psuff} -> {suff}]:")
             logger.debug(f"Change ratio: {change_ratio:.2%} - {'SIGNIFICANT' if is_significant else 'MINOR'}")
 
-            d = difflib.unified_diff(prevl, respl,
-                                     fromfile=psuff, tofile=suff)
+            d = difflib.unified_diff(prevl, respl, fromfile=psuff, tofile=suff)
 
-            unified_diff_str: str = '\n'.join(d)
+            unified_diff_str: str = "\n".join(d)
 
             logger.debug(unified_diff_str)
 
@@ -161,13 +158,11 @@ Return ONLY valid JSON:
 }}"""
 
     response = OLLAMA_CLIENT.generate(
-        model="deepseek-r1:latest",  # oder ein anderes reasoning model
-        prompt=prompt,
-        format="json",
-        stream=False
+        model="deepseek-r1:latest", prompt=prompt, format="json", stream=False  # oder ein anderes reasoning model
     )
 
     return json.loads(response.response)
+
 
 def llm_categorize_differences(text1: str, text2: str, diff_str: str) -> Dict:
     """Lasse LLM die Unterschiede kategorisieren"""
@@ -193,14 +188,10 @@ Return JSON:
   "most_concerning": "<description of worst error if any>"
 }}"""
 
-    response = OLLAMA_CLIENT.generate(
-        model="deepseek-r1:latest",
-        prompt=prompt,
-        format="json",
-        stream=False
-    )
+    response = OLLAMA_CLIENT.generate(model="deepseek-r1:latest", prompt=prompt, format="json", stream=False)
 
     return json.loads(response.response)
+
 
 # from pydantic import BaseModel
 #
@@ -216,13 +207,11 @@ Return JSON:
 
 # pets = PetList.model_validate_json(response.message.content)
 
+
 def llm_ensemble_best_result(results: Dict[str, str], image_b64: str) -> str:
     """Lasse LLM aus mehreren OCR-Ergebnissen das beste auswählen"""
 
-    results_text = "\n\n---\n\n".join([
-        f"RESULT {fmt.upper()}:\n{text}"
-        for fmt, text in results.items()
-    ])
+    results_text = "\n\n---\n\n".join([f"RESULT {fmt.upper()}:\n{text}" for fmt, text in results.items()])
 
     prompt = f"""You have {len(results)} OCR results of the same image. 
 Analyze them and determine which is most accurate by:
@@ -245,8 +234,8 @@ Return JSON with your analysis:
         model=OCR_MODEL,
         prompt=f"<image>\n\n{prompt}",
         images=[image_b64],
-        format="json",  #format=Country.model_json_schema(),
-        stream=False
+        format="json",  # format=Country.model_json_schema(),
+        stream=False,
     )
 
     return json.loads(response.response)
@@ -313,6 +302,7 @@ def main():
     logger.info("\n=== TOPliste mit geringster Change Ratio ===")
     for i, (from_fmt, to_fmt, ratio, chars) in enumerate(comparisons, 1):
         logger.info(f"{i}. {from_fmt} -> {to_fmt}: {ratio:.2%} ({chars} Zeichen geändert)")
+
 
 if __name__ == "__main__":
     main()
