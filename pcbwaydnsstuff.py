@@ -12,6 +12,7 @@ import os
 
 from pyroute2.ipset import IPSet, PortEntry, PortRange
 
+
 def ipsettest():
     ipset = IPSet()
     ipset.swap("oldset", "newset")
@@ -23,15 +24,12 @@ def ipsettest():
     print(ipset.test("foo", "198.51.100.10"))  # False
     msg_list = ipset.list("foo")
     for msg in msg_list:
-        for attr_data in msg.get_attr('IPSET_ATTR_ADT').get_attrs(
-            'IPSET_ATTR_DATA'
-        ):
-            for attr_ip_from in attr_data.get_attrs('IPSET_ATTR_IP_FROM'):
-                for ipv4 in attr_ip_from.get_attrs('IPSET_ATTR_IPADDR_IPV4'):
+        for attr_data in msg.get_attr("IPSET_ATTR_ADT").get_attrs("IPSET_ATTR_DATA"):
+            for attr_ip_from in attr_data.get_attrs("IPSET_ATTR_IP_FROM"):
+                for ipv4 in attr_ip_from.get_attrs("IPSET_ATTR_IPADDR_IPV4"):
                     print("- " + ipv4)
     ipset.destroy("foo")
     ipset.close()
-
 
     ipset = IPSet()
     ipset.create("bar", stype="bitmap:port", bitmap_ports_range=(1000, 2000))
@@ -42,21 +40,17 @@ def ipsettest():
     ipset.destroy("bar")
     ipset.close()
 
-
     ipset = IPSet()
     protocol_tcp = socket.getprotobyname("tcp")
     ipset.create("foobar", stype="hash:net,port")
     port_entry_http = PortEntry(80, protocol=protocol_tcp)
     ipset.add("foobar", ("198.51.100.0/24", port_entry_http), etype="net,port")
-    print(
-        ipset.test("foobar", ("198.51.100.1", port_entry_http), etype="ip,port")
-    )  # True
+    print(ipset.test("foobar", ("198.51.100.1", port_entry_http), etype="ip,port"))  # True
     port_entry_https = PortEntry(443, protocol=protocol_tcp)
-    print(
-        ipset.test("foobar", ("198.51.100.1", port_entry_https), etype="ip,port")
-    )  # False
+    print(ipset.test("foobar", ("198.51.100.1", port_entry_https), etype="ip,port"))  # False
     ipset.destroy("foobar")
     ipset.close()
+
 
 def get_spf_records(domain: str) -> List[str]:
     """
@@ -73,7 +67,7 @@ def get_spf_records(domain: str) -> List[str]:
 
     try:
         # Query TXT records, as SPF records are stored there
-        answers = dns.resolver.resolve(domain, 'TXT')
+        answers = dns.resolver.resolve(domain, "TXT")
         txt_rdata: dns.rdtypes.ANY.TXT.TXT
 
         spf_found = False
@@ -81,18 +75,16 @@ def get_spf_records(domain: str) -> List[str]:
 
         for txt_rdata in answers:
             # TXT records can consist of multiple strings
-            txt_content = ''.join([s.decode('utf-8') if isinstance(s, bytes) else s for s in txt_rdata.strings])
+            txt_content = "".join([s.decode("utf-8") if isinstance(s, bytes) else s for s in txt_rdata.strings])
 
             # Check if it's an SPF record (starts with "v=spf1")
-            if txt_content.startswith('v=spf1'):
+            if txt_content.startswith("v=spf1"):
                 spf_found = True
                 spf_records.append(txt_content)
 
                 # Create an SPF object for correct typing
                 spf_rdata: dns.rdtypes.ANY.SPF.SPF = dns.rdtypes.ANY.SPF.SPF(
-                    txt_rdata.rdclass,
-                    txt_rdata.rdtype,
-                    txt_rdata.strings
+                    txt_rdata.rdclass, txt_rdata.rdtype, txt_rdata.strings
                 )
 
                 print(f"{type(spf_rdata)=}")
@@ -148,13 +140,13 @@ def resolve_spf_to_ipv4(domain: str, visited_domains=None) -> List[str]:
 
         for mechanism in mechanisms:
             # Extract direct IPv4 addresses
-            if mechanism.startswith('ip4:'):
+            if mechanism.startswith("ip4:"):
                 ipv4 = mechanism[4:]  # Remove 'ip4:' prefix
                 ipv4_addresses.append(ipv4)
                 print(f"  → Found IPv4: {ipv4}")
 
             # Process include directives recursively
-            elif mechanism.startswith('include:'):
+            elif mechanism.startswith("include:"):
                 include_domain = mechanism[8:]  # Remove 'include:' prefix
                 print(f"\n  → Processing include: {include_domain}")
 
@@ -163,9 +155,9 @@ def resolve_spf_to_ipv4(domain: str, visited_domains=None) -> List[str]:
                 ipv4_addresses.extend(included_ipv4s)
 
             # Process MX mechanisms
-            elif mechanism.startswith('mx:') or mechanism == 'mx':
+            elif mechanism.startswith("mx:") or mechanism == "mx":
                 # Determine the domain for the MX query
-                if mechanism == 'mx':
+                if mechanism == "mx":
                     mx_domain = domain  # Use the current domain
                 else:
                     mx_domain = mechanism[3:]  # Remove 'mx:' prefix
@@ -174,17 +166,17 @@ def resolve_spf_to_ipv4(domain: str, visited_domains=None) -> List[str]:
 
                 try:
                     # Get MX records
-                    mx_answers = dns.resolver.resolve(mx_domain, 'MX')
+                    mx_answers = dns.resolver.resolve(mx_domain, "MX")
 
                     for mx_rdata in mx_answers:
-                        mx_host = str(mx_rdata.exchange).rstrip('.')
+                        mx_host = str(mx_rdata.exchange).rstrip(".")
                         print(f"    → MX host found: {mx_host}")
 
                         try:
                             # Resolve A records (IPv4) for the MX host
                             # dns.resolver.resolve() follows CNAMEs automatically,
                             # but only returns the final A records
-                            a_answers = dns.resolver.resolve(mx_host, 'A')
+                            a_answers = dns.resolver.resolve(mx_host, "A")
 
                             for a_rdata in a_answers:
                                 ipv4 = str(a_rdata)
@@ -192,7 +184,9 @@ def resolve_spf_to_ipv4(domain: str, visited_domains=None) -> List[str]:
                                 print(f"      → Found IPv4 (MX): {ipv4}")
 
                             # Check if CNAMEs were involved (for debugging purposes)
-                            if hasattr(a_answers, 'canonical_name') and a_answers.canonical_name != dns.name.from_text(mx_host):
+                            if hasattr(a_answers, "canonical_name") and a_answers.canonical_name != dns.name.from_text(
+                                mx_host
+                            ):
                                 print(f"      → (via CNAME: {a_answers.canonical_name})")
 
                         except dns.resolver.NoAnswer:
@@ -215,11 +209,12 @@ def resolve_spf_to_ipv4(domain: str, visited_domains=None) -> List[str]:
 
 
 def ddd():
-    answers = dns.resolver.resolve('pcbway.com', 'TXT')
+    answers = dns.resolver.resolve("pcbway.com", "TXT")
     rdata: dns.rdtypes.ANY.TXT.TXT
     for rdata in answers:
         print(f"{type(rdata)=} {rdata=}")
-        print(f'Resolve response for pcbway.com TXT record : {rdata.to_text()=}')
+        print(f"Resolve response for pcbway.com TXT record : {rdata.to_text()=}")
+
 
 def ipset_exists(ipset_instance, name: str) -> bool:
     """Checks if an ipset with the given name exists."""
@@ -227,16 +222,22 @@ def ipset_exists(ipset_instance, name: str) -> bool:
         # list() without parameters lists all ipsets
         all_ipsets = ipset_instance.list()
         for msg in all_ipsets:
-            setname_attr = msg.get_attr('IPSET_ATTR_SETNAME')
+            setname_attr = msg.get_attr("IPSET_ATTR_SETNAME")
             if setname_attr:
-                setname = setname_attr.decode('utf-8') if isinstance(setname_attr, bytes) else setname_attr
+                setname = setname_attr.decode("utf-8") if isinstance(setname_attr, bytes) else setname_attr
                 if setname == name:
                     return True
         return False
     except Exception:
         return False
 
-def ipset_update_with_swap(srcname: str, ipv4_addr_or_net: List[str], do_actual_swap: bool = True, create_srcname_defaulttype: str|None = "hash:net"):
+
+def ipset_update_with_swap(
+    srcname: str,
+    ipv4_addr_or_net: List[str],
+    do_actual_swap: bool = True,
+    create_srcname_defaulttype: str | None = "hash:net",
+):
     """
     Updates an ipset atomically using swap operation.
 
@@ -258,9 +259,9 @@ def ipset_update_with_swap(srcname: str, ipv4_addr_or_net: List[str], do_actual_
             print(f"{type(msg)=} {msg=}")
 
             # Get the set type from the attributes
-            type_attr = msg.get_attr('IPSET_ATTR_TYPENAME')
+            type_attr = msg.get_attr("IPSET_ATTR_TYPENAME")
             if type_attr:
-                stype = type_attr.decode('utf-8') if isinstance(type_attr, bytes) else type_attr
+                stype = type_attr.decode("utf-8") if isinstance(type_attr, bytes) else type_attr
                 break
 
         if not stype:
@@ -268,14 +269,15 @@ def ipset_update_with_swap(srcname: str, ipv4_addr_or_net: List[str], do_actual_
                 raise ValueError(f"Could not determine type of ipset '{srcname}' and no default type was specified.")
             else:
                 stype = create_srcname_defaulttype
-                print(f"SRC ipset with name {srcname} does not exist -> using default type {create_srcname_defaulttype}")
+                print(
+                    f"SRC ipset with name {srcname} does not exist -> using default type {create_srcname_defaulttype}"
+                )
         else:
             src_exists = True
             print(f"Determined ipset type: {stype}")
 
-
         # 2. Generate a random name for the temporary ipset
-        random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        random_suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
         temp_name = f"tmp_{srcname}_{random_suffix}"
         if src_exists:
             print(f"Temporary ipset: {temp_name}")
@@ -292,13 +294,13 @@ def ipset_update_with_swap(srcname: str, ipv4_addr_or_net: List[str], do_actual_
         # 4. Determine the etype based on the stype
         # For most hash:ip and hash:net sets we can use "net",
         # as it also accepts individual IPs (as /32 network)
-        if 'hash:ip' in stype or 'hash:net' in stype:
+        if "hash:ip" in stype or "hash:net" in stype:
             etype = "net"
-        elif 'bitmap:ip' in stype:
+        elif "bitmap:ip" in stype:
             etype = "ip"
         else:
             # Fallback: try to use the part after the colon
-            etype = stype.split(':')[1] if ':' in stype else "ip"
+            etype = stype.split(":")[1] if ":" in stype else "ip"
 
         print(f"Using etype: {etype}")
 
@@ -327,12 +329,11 @@ def ipset_update_with_swap(srcname: str, ipv4_addr_or_net: List[str], do_actual_
         else:
             print("ACTUAL SWAP DISABLED!")
 
-
     except Exception as e:
         print(f"Error updating ipset: {e}")
         # Cleanup: Try to delete the temporary ipset if it exists
         try:
-            if 'temp_name' in locals() and src_exists:
+            if "temp_name" in locals() and src_exists:
                 ipset.destroy(temp_name)
         except:
             pass
@@ -378,18 +379,17 @@ def main():
     for ip in all_ipv4_combined:
         print(f"  - {ip}")
 
-
     # Check if the user has root privileges
     if os.getuid() == 0:
-        ipset_update_with_swap("smtpallowlist", all_ipv4_combined, do_actual_swap=True,
-                               create_srcname_defaulttype="hash:net")
+        ipset_update_with_swap(
+            "smtpallowlist", all_ipv4_combined, do_actual_swap=True, create_srcname_defaulttype="hash:net"
+        )
     else:
         print("\n" + "=" * 50)
         print("WARNING: ipset update will be skipped!")
         print("Root privileges (UID 0) are required to update ipsets.")
         print(f"Current UID: {os.getuid()}")
         print("=" * 50)
-
 
 
 if __name__ == "__main__":
