@@ -1,6 +1,8 @@
 /*gguf*
 
 /docker-config
+/docker_build_local.log
+
 /ms?hit
 *mstest*py
 *_test.py
@@ -9,6 +11,7 @@
 /upydev_.config
 *.local.*
 /scripts/logdir/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
