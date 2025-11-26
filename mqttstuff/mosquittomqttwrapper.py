@@ -593,12 +593,25 @@ class MQTTLastDataReader:
         return None
 
 
-# if __name__ == "__main__":
-    # mqttclient: MosquittoClientWrapper = MosquittoClientWrapper()
-    # mqttclient.wait_for_connect_and_start_loop()
-    # mqttclient.publish_one(
-    #     topic="husqvarna/automower/TEST",
-    #     value=779,
-    #     created_at=datetime.datetime.now(tz=_tz_berlin),
-    #     metadata=config.MOSQUITTO_DEFAULTMETADATA_ROEP12B,
-    # )
+if __name__ == "__main__":
+    from config import settings, _EFFECTIVE_CONFIG
+
+    mqttclient: MosquittoClientWrapper = MosquittoClientWrapper(
+        host=settings.mqtt.host,
+        port=settings.mqtt.port,
+        username=settings.mqtt.username,
+        password=settings.mqtt.password
+    )
+
+    connected: bool = mqttclient.wait_for_connect_and_start_loop()
+    logger.debug(f"mqttclient.is_connected()={mqttclient.is_connected()}")
+    # mqttclient.connect_and_start_loop_forever()
+
+    mqttclient.publish_one(
+        topic="somestuff/mqttstuff/TEST",
+        value=779,
+        created_at=datetime.datetime.now(tz=_tz_berlin),
+        metadata=_EFFECTIVE_CONFIG["mqtt_message_default_metadata"]  # type: ignore
+    )
+
+    mqttclient.disconnect()
