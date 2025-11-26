@@ -36,4 +36,5 @@ jobs:
         run: black -l 120 --check  .
 
       - name: static type checking with mypy
-        run: mypy *.py **/*.py
+        run: make tcheck
+        #run: mypy *.py **/*.py
