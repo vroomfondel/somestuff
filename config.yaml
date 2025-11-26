@@ -41,3 +41,18 @@ postgresql:
   username: "postgres"
   password: "postgrespass"
   dbname: "postgres"
+
+
+
+mqtt:
+  username: "MQTT_USERNAME"
+  password: "MQTT_PASS"
+  host: "MQTT_HOST"
+  port: 1883
+  # TLS not used/implemented as of now.
+
+mqtt_defaultmetadata:
+  # latitude, longitude, elevation for sensor/actor
+  lat: 1.234567
+  lon: 2.345678
+  ele: 3.456

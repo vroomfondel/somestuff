@@ -43,7 +43,7 @@ DEFAULT_MARKDOWN_SYSTEM_PROMPT = """Convert the provided image into Markdown for
   - Complete Content: Do not omit any part of the page, including headers, footers, and subtext."""
 
 
-def runocr(imagefile: Path):
+def runocr(imagefile: Path) -> str:
     image_bytes: bytes = imagefile.read_bytes()
     image_b64: str = base64.b64encode(image_bytes).decode("utf-8")
 
@@ -86,15 +86,15 @@ def comparedifferentfiletypes() -> List[tuple[str, str, float, int]]:
     comparisons: List[tuple[str, str, float, int]] = []  # (from, to, ratio, changed_chars)
 
     for psuff in result_texts.keys():
-        prevl: List[str] = result_lines[psuff]
-        prev: str = result_texts[psuff]
+        prevl: List[str] = result_lines[psuff]  # type: ignore
+        prev: str = result_texts[psuff]  # type: ignore
 
         for suff in result_texts.keys():
             if psuff == suff:
                 continue
 
-            respl: List[str] = result_lines[suff]
-            resp: str = result_texts[suff]
+            respl: List[str] = result_lines[suff]  # type: ignore
+            resp = result_texts[suff]  # type: ignore
 
             matcher = difflib.SequenceMatcher(None, prev, resp)
             changed_chars: int = 0
@@ -129,7 +129,7 @@ def comparedifferentfiletypes() -> List[tuple[str, str, float, int]]:
 
     return comparisons
 
-
+# TODO HT20251126 implement/check/validate this
 def llm_semantic_comparison(text1: str, text2: str) -> Dict:
     """Lasse LLM die semantische Ähnlichkeit bewerten"""
 
@@ -164,6 +164,7 @@ Return ONLY valid JSON:
     return json.loads(response.response)
 
 
+# TODO HT20251126 implement/check/validate this
 def llm_categorize_differences(text1: str, text2: str, diff_str: str) -> Dict:
     """Lasse LLM die Unterschiede kategorisieren"""
 
@@ -207,7 +208,7 @@ Return JSON:
 
 # pets = PetList.model_validate_json(response.message.content)
 
-
+# TODO HT20251126 implement/check/validate this
 def llm_ensemble_best_result(results: Dict[str, str], image_b64: str) -> str:
     """Lasse LLM aus mehreren OCR-Ergebnissen das beste auswählen"""
 
@@ -296,7 +297,7 @@ Return JSON with your analysis:
 #     }
 
 
-def main():
+def main() -> None:
     comparisons: List[tuple[str, str, float, int]] = comparedifferentfiletypes()
 
     logger.info("\n=== TOPliste mit geringster Change Ratio ===")
@@ -308,7 +309,7 @@ if __name__ == "__main__":
     main()
 
     # NOTE: this only accounts for sheer number of characters changed and not the significance of those changes...
-    # TODO: implement some kind of measurement for the significance of the difference/changed characters
+    # TODO: HT20251126 implement some kind of measurement for the significance of the difference/changed characters
     # === TOPliste mit geringster Change Ratio ===
     # 2025-11-25 10:19:36.286 | INFO     | __main__:main:132 - 1. jpg -> webp: 6.46% (68 Zeichen geändert)
     # 2025-11-25 10:19:36.286 | INFO     | __main__:main:132 - 2. webp -> jpg: 6.93% (73 Zeichen geändert)

@@ -169,7 +169,8 @@ def request_gemini[T](
     parts: List[google.genai.types.Part] = [google.genai.types.Part(text=airequest.prompt)]
 
     if airequest.image is not None:
-        mt: str = mimetypes.guess_file_type(airequest.image)[0]
+        mt: str|None = mimetypes.guess_file_type(airequest.image)[0]
+        assert mt is not None
         parts.append(google.genai.types.Part.from_bytes(data=airequest.image.read_bytes(), mime_type=mt))
 
     contents.append(google.genai.types.UserContent(parts=parts))
@@ -178,7 +179,7 @@ def request_gemini[T](
 
     response: GenerateContentResponse = client.models.generate_content(
         model=airequest.model,
-        contents=contents,  # prompt,
+        contents=contents,  # type: ignore # why type-fail-check ?! # prompt,
         config=genconf,
     )
 
@@ -188,7 +189,7 @@ def request_gemini[T](
     mystuff: Optional[T | Type[List[T]]] = None
     # Use instantiated objects.
     if airequest.response_schema:
-        mystuff = response.parsed
+        mystuff = response.parsed  # type: ignore  # TODO HT20251126 make it properly typed
         # logger.debug(f"{type(mystuff)=} {mystuff=}")
         #
         # if isinstance(mystuff, list):
@@ -202,6 +203,10 @@ def request_gemini[T](
 
     thought_writer: StringIO = StringIO()
     answer_writer: StringIO = StringIO()
+
+    # THIS WHOLE BLOCK IS NEEDED FOR MYPY TO BE HAPPY ?!
+    assert response is not None and response.candidates is not None
+    assert len(response.candidates) > 0 and response.candidates[0].content is not None and response.candidates[0].content.parts is not None
 
     for part in response.candidates[0].content.parts:
         if not part.text:
@@ -226,9 +231,9 @@ def request_gemini[T](
         thoughts = thought_writer.getvalue().strip()
 
     if mystuff:
-        return mystuff, thoughts, response
+        return mystuff, thoughts, response  # type: ignore  # TODO HT20251126 make it properly typed
 
-    return answer, thoughts, response
+    return answer, thoughts, response  # type: ignore  # TODO HT20251126 make it properly typed
 
 
 def request_ai[T](
@@ -262,7 +267,7 @@ def request_ai[T](
     return answer, thoughts, rawresponse
 
 
-def do_test_reqest():
+def do_test_reqest() -> None:
     class Recipe(BaseModel):
         recipe_name: str
         ingredients: list[str]
@@ -304,7 +309,7 @@ def do_test_reqest():
             # dbrecorder=dbrecorder
         )
 
-        recipelist, thoughts, rawresponse_google = request_ai(airequest=airequest)
+        recipelist, thoughts, rawresponse_google = request_ai(airequest=airequest)  # type: ignore  # TODO HT20251126 make it properly typed
 
         # recipelist, thoughts, rawresponse = request_ai(target="anthropic",
         #                                model=AnthropicLLMModel.CLAUDE_SONNET_40,
@@ -333,10 +338,15 @@ def do_test_reqest():
 
         history.append(google.genai.types.UserContent(parts=[google.genai.types.Part(text=prompt)]))
 
+        # THIS WHOLE BLOCK IS NEEDED FOR MYPY TO BE HAPPY ?!
+        assert rawresponse_google is not None and rawresponse_google.candidates is not None
+        assert len(rawresponse_google.candidates) > 0 and rawresponse_google.candidates[0].content is not None
+        assert rawresponse_google.candidates[0].content.parts is not None
+
         history.append(rawresponse_google.candidates[0].content)
 
 
-def do_test_image_request():
+def do_test_image_request() -> None:
     class Object(BaseModel):
         name: str
         confidence: float
@@ -378,13 +388,13 @@ def do_test_image_request():
         image=Path(Path.home(), f"Desktop/traderjoes_h0auyjrjq1n1yshsez3z.jpg"),
     )
 
-    imagedescription, thoughts, rawresponse_google = request_ai(airequest=airequest)
+    imagedescription, thoughts, rawresponse_google = request_ai(airequest=airequest) # type: ignore  # TODO HT20251126 make it properly typed
 
     logger.debug(rawresponse_google)
     logger.debug(f"{"*"*40}")
     logger.debug(thoughts)
     logger.debug(f"{"*"*40}")
-    logger.debug(get_pretty_dict_json_no_sort(imagedescription.model_dump()))
+    logger.debug(get_pretty_dict_json_no_sort(imagedescription.model_dump()))  # type: ignore  # TODO HT20251126 make it properly typed 
 
     # {
     #     "summary": "Ahoy, ye scurvy dogs! Feast yer one good eye on this here parchment of plunder from the merchant known as Trader Joe! It be restin' upon a wooden plank, likely the table in a captain's quarters. This scallywag has traded their doubloons for a bounty of provisions. Look at that! Six bananas? Har har har! Someone's got a hunger for the long, yellow fruit, eh? Maybe they be lonely on the high seas! And sour cream corn? Sounds like something that'd make ye walk the plank in the privy! Why couldn't the pirate play cards? Because he was standing on the deck! Arrrgh!",

@@ -48,7 +48,8 @@ isort: venv
 
 tcheck: venv
 	@$(venv_activated)
-	mypy *.py **/*.py
+	mypy ecowitt/*py llmstuff/*.py mqttstuff/*.py *.py
+    # mypy *.py **/*.py
 
 build: venv
 	./build.sh

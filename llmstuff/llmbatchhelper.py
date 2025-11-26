@@ -38,9 +38,10 @@ inline_requests = [
     },
 ]
 
+# TODO HT20251126 proper implement typed
 inline_batch_job = client.batches.create(
     model="models/gemini-2.5-flash",
-    src=inline_requests,
+    src=inline_requests,  # type: ignore
     config={"display_name": "structured-output-job-1"},
 )
 
@@ -48,22 +49,25 @@ inline_batch_job = client.batches.create(
 job_name = inline_batch_job.name
 print(f"Polling status for job: {job_name}")
 
+# TODO HT20251126 proper implement typed
 while True:
-    batch_job_inline = client.batches.get(name=job_name)
-    if batch_job_inline.state.name in (
+    batch_job_inline = client.batches.get(name=job_name)  # type: ignore
+    if batch_job_inline.state.name in (  # type: ignore
         "JOB_STATE_SUCCEEDED",
         "JOB_STATE_FAILED",
         "JOB_STATE_CANCELLED",
         "JOB_STATE_EXPIRED",
     ):
         break
-    print(f"Job not finished. Current state: {batch_job_inline.state.name}. Waiting 30 seconds...")
+    print(f"Job not finished. Current state: {batch_job_inline.state.name}. Waiting 30 seconds...")  # type: ignore
     time.sleep(30)
 
-print(f"Job finished with state: {batch_job_inline.state.name}")
+print(f"Job finished with state: {batch_job_inline.state.name}")  # type: ignore
 
+
+# TODO HT20251126 proper implement typed
 # print the response
-for i, inline_response in enumerate(batch_job_inline.dest.inlined_responses, start=1):
+for i, inline_response in enumerate(batch_job_inline.dest.inlined_responses, start=1):  # type: ignore
     print(f"\n--- Response {i} ---")
 
     # Check for a successful response
@@ -91,15 +95,16 @@ completed_states = set(
     ]
 )
 
+# TODO HT20251126 proper implement typed
 print(f"Polling status for job: {job_name}")
 batch_job = client.batches.get(name=job_name)  # Initial get
-while batch_job.state.name not in completed_states:
-    print(f"Current state: {batch_job.state.name}")
+while batch_job.state.name not in completed_states: # type: ignore
+    print(f"Current state: {batch_job.state.name}")  # type: ignore
     time.sleep(30)  # Wait for 30 seconds before polling again
     batch_job = client.batches.get(name=job_name)
 
-print(f"Job finished with state: {batch_job.state.name}")
-if batch_job.state.name == "JOB_STATE_FAILED":
+print(f"Job finished with state: {batch_job.state.name}")  # type: ignore
+if batch_job.state.name == "JOB_STATE_FAILED":  # type: ignore
     print(f"Error: {batch_job.error}")
 
 
@@ -113,7 +118,7 @@ client = genai.Client()
 job_name = "YOUR_BATCH_JOB_NAME"
 batch_job = client.batches.get(name=job_name)
 
-if batch_job.state.name == "JOB_STATE_SUCCEEDED":
+if batch_job.state.name == "JOB_STATE_SUCCEEDED": # type: ignore
 
     # If batch job was created with a file
     if batch_job.dest and batch_job.dest.file_name:
@@ -144,6 +149,6 @@ if batch_job.state.name == "JOB_STATE_SUCCEEDED":
     else:
         print("No results found (neither file nor inline).")
 else:
-    print(f"Job did not succeed. Final state: {batch_job.state.name}")
+    print(f"Job did not succeed. Final state: {batch_job.state.name}")  # type: ignore
     if batch_job.error:
         print(f"Error: {batch_job.error}")

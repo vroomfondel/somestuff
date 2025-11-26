@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Set
 
 import dns.resolver
 import dns.rdtypes.ANY.SPF
@@ -13,7 +13,7 @@ import os
 from pyroute2.ipset import IPSet, PortEntry, PortRange
 
 
-def ipsettest():
+def ipsettest() -> None:
     ipset = IPSet()
     ipset.swap("oldset", "newset")
 
@@ -105,7 +105,7 @@ def get_spf_records(domain: str) -> List[str]:
     return spf_records
 
 
-def resolve_spf_to_ipv4(domain: str, visited_domains=None) -> List[str]:
+def resolve_spf_to_ipv4(domain: str, visited_domains: Set|None = None) -> List[str]:
     """
     Resolves SPF records recursively and collects all IPv4 addresses.
 
@@ -208,7 +208,7 @@ def resolve_spf_to_ipv4(domain: str, visited_domains=None) -> List[str]:
     return ipv4_addresses
 
 
-def ddd():
+def ddd() -> None:
     answers = dns.resolver.resolve("pcbway.com", "TXT")
     rdata: dns.rdtypes.ANY.TXT.TXT
     for rdata in answers:
@@ -216,7 +216,7 @@ def ddd():
         print(f"Resolve response for pcbway.com TXT record : {rdata.to_text()=}")
 
 
-def ipset_exists(ipset_instance, name: str) -> bool:
+def ipset_exists(ipset_instance: IPSet, name: str) -> bool:
     """Checks if an ipset with the given name exists."""
     try:
         # list() without parameters lists all ipsets
@@ -232,12 +232,13 @@ def ipset_exists(ipset_instance, name: str) -> bool:
         return False
 
 
+
 def ipset_update_with_swap(
     srcname: str,
     ipv4_addr_or_net: List[str],
     do_actual_swap: bool = True,
     create_srcname_defaulttype: str | None = "hash:net",
-):
+) -> None:
     """
     Updates an ipset atomically using swap operation.
 
@@ -342,7 +343,7 @@ def ipset_update_with_swap(
         ipset.close()
 
 
-def main():
+def main() -> None:
     # Process command line arguments
     # sys.argv[0] is the script name, sys.argv[1:] are the arguments
     domains = sys.argv[1:] if len(sys.argv) > 1 else ["pcbway.com", "mail-notify.pcbway.com"]

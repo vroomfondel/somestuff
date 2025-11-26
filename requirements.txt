@@ -22,3 +22,9 @@ pydantic
 pydantic-settings
 pytz
 pydantic-extra-types
+
+paho-mqtt
+schedule
+
+# PyYAML
+ruamel.yaml

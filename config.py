@@ -7,6 +7,10 @@ from pathlib import Path
 
 import locale
 
+from ruamel.yaml import YAML
+
+import Helper
+
 locale.setlocale(locale.LC_ALL, "de_DE.UTF-8")
 
 import pytz
@@ -17,14 +21,16 @@ from pydantic import BaseModel, Field, HttpUrl, RootModel, PostgresDsn, field_va
 from pydantic_extra_types.mac_address import MacAddress
 
 
+_PKG = "SOMESTUFF"
+
 _CONFIGDIRPATH: Path = Path(__file__).parent.resolve()
-_CONFIGDIRPATH = Path(os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_DIR_PATH") else _CONFIGDIRPATH  # type: ignore
+_CONFIGDIRPATH = Path(os.getenv(f"{_PKG}_CONFIG_DIR_PATH")) if os.getenv(f"{_PKG}_CONFIG_DIR_PATH") else _CONFIGDIRPATH  # type: ignore
 
 _CONFIGPATH: Path = Path(_CONFIGDIRPATH, "config.yaml")
-_CONFIGPATH= Path(os.getenv("ODDOSELENIUM_CONFIG_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_PATH") else _CONFIGPATH # type: ignore
+_CONFIGPATH= Path(os.getenv(f"{_PKG}_CONFIG_PATH")) if os.getenv(f"{_PKG}_CONFIG_PATH") else _CONFIGPATH # type: ignore
 
 _CONFIGLOCALPATH: Path = Path(_CONFIGDIRPATH, "config.local.yaml")
-_CONFIGLOCALPATH = Path(os.getenv("ODDOSELENIUM_CONFIG_LOCAL_PATH")) if os.getenv("ODDOSELENIUM_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH # type: ignore
+_CONFIGLOCALPATH = Path(os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH")) if os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH # type: ignore
 
 
 
@@ -53,6 +59,27 @@ logger.configure(extra={"classname": "None"})
 
 logger.info(f"EFFECTIVE CONFIGPATH: {_CONFIGPATH}")
 logger.info(f"EFFECTIVE CONFIGLOCALPATH: {_CONFIGLOCALPATH}")
+
+_CONFIG_ORIG: Dict[str, Any]|None = None
+try:
+    _CONFIG_ORIG = YAML().load(_CONFIGPATH)
+except Exception as e:
+    logger.opt(exception=e).exception(f"Error loading local config file: {_CONFIGPATH}")
+
+_CONFIG_LOCAL_ORIG: Dict[str, Any]|None = None
+try:
+    _CONFIG_LOCAL_ORIG = YAML().load(stream=_CONFIGLOCALPATH)
+except Exception as e:
+    logger.opt(exception=e).exception(f"Error loading local config file: {_CONFIGLOCALPATH}")
+
+_EFFECTIVE_CONFIG: Dict[str, Any]|None = None
+
+if _CONFIG_ORIG is not None:
+    _EFFECTIVE_CONFIG = _CONFIG_ORIG
+
+    if _CONFIG_LOCAL_ORIG is not None:
+        _EFFECTIVE_CONFIG = Helper.update_deep(_EFFECTIVE_CONFIG, _CONFIG_LOCAL_ORIG)  # type: ignore
+
 
 
 # https://docs.pydantic.dev/latest/concepts/pydantic_settings/
@@ -107,6 +134,22 @@ class Postgresql(BaseModel):
     url: Optional[str] = Field(default=None)
 
 
+class Mqtt(BaseModel):
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=1883)
+    username: str = Field()
+    password: str = Field()
+
+
+class MqttMessageDefaultMetadata(BaseModel):
+    # created_at is not really needed here -> will be added "on-the-fly"
+    created_at: None | str = Field(default=None)
+    # latitude, longitude, elevation for sensor/actor
+    lat: None | float = Field(default=None)
+    lon: None | float = Field(default=None)
+    ele: None | float = Field(default=None)
+
+
 class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         populate_by_name=True,
@@ -130,6 +173,8 @@ class Settings(BaseSettings):
     google: Google
     anthropic: Anthropic
     ecowitt: Ecowitt
+    mqtt: Mqtt
+    mqtt_message_default_metadata: MqttMessageDefaultMetadata
 
     @classmethod
     def settings_customise_sources(
@@ -161,11 +206,16 @@ def is_in_cluster() -> bool:
     return False
 
 
-def log_settings():
+def log_settings() -> None:
     for k, v in os.environ.items():
         if k.startswith("PSQL_"):
             logger.info(f"ENV::{k}: {v}")
+
+    # logger.info(json.dumps(_CONFIG_ORIG, indent=4, sort_keys=False, default=str))
+    # logger.info(json.dumps(_CONFIG_LOCAL_ORIG, indent=4, sort_keys=False, default=str))
+
     logger.info(json.dumps(settings.model_dump(by_alias=True), indent=4, sort_keys=False, default=str))
+
 
 
 settings: Settings = Settings()  # type: ignore
@@ -188,5 +238,12 @@ logger.debug(f"TEMPLATEDIRPATH: {TEMPLATEDIRPATH}")
 TIMEZONE: datetime.tzinfo = pytz.timezone(settings.timezone)
 logger.debug(f"TIMEZONE: {TIMEZONE}")
 
+
+
+
 if __name__ == "__main__":
     log_settings()
+
+    # logger.info(json.dumps(_CONFIG_ORIG, indent=4, sort_keys=False, default=str))
+    # logger.info(json.dumps(_CONFIG_LOCAL_ORIG, indent=4, sort_keys=False, default=str))
+    logger.info(json.dumps(_EFFECTIVE_CONFIG, indent=4, sort_keys=False, default=str))
