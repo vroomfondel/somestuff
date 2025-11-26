@@ -35,8 +35,10 @@ COPY --chown=${UID}:${GID} requirements.txt /
 RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
 
 COPY --chown=${UID}:${GID} dinogame /app/dinogame
-COPY --chown=${UID}:${GID} ecowitt /app/ecowitt
+COPY --chown=${UID}:${GID} ecowittstuff /app/ecowittstuff
 COPY --chown=${UID}:${GID} llmstuff /app/llmstuff
+COPY --chown=${UID}:${GID} dnsstuff /app/dnsstuff
+COPY --chown=${UID}:${GID} mqttstuff /app/mqttstuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 # COPY --chown=${UID}:${GID} config.local.yaml /app/
