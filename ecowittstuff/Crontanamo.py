@@ -4,7 +4,7 @@ from os.path import expanduser, exists
 from pathlib import Path
 
 from config import settings
-from config import _EFFECTIVE_CONFIG as effconfig   # dirty.
+from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
 
 import os
 from typing import Optional, List, Tuple, Union, Dict
@@ -267,10 +267,7 @@ def job() -> None:
 
     # TODO HT20251126 move to correct location and make proper init with topic-subscription setup!
     client: MosquittoClientWrapper = MosquittoClientWrapper(
-        host=settings.mqtt.host,
-        port=settings.mqtt.port,
-        username=settings.mqtt.username,
-        timeout_connect_seconds=10
+        host=settings.mqtt.host, port=settings.mqtt.port, username=settings.mqtt.username, timeout_connect_seconds=10
     )
 
     send_to_mosquitto(
@@ -326,12 +323,11 @@ def exc_caught_job_loop(maxtries: int = 10) -> int:
 
     return 1
 
+
 def run_test_netatmo() -> None:
     ensure_up2date_netatmo_credentialsfile()
 
-    auth_data = lnetatmo.ClientAuth(
-        credentialFile=Path(expanduser("~/.netatmo.credentials"))
-    )
+    auth_data = lnetatmo.ClientAuth(credentialFile=Path(expanduser("~/.netatmo.credentials")))
     #     clientId=os.environ.get("NETATMO_CLIENT_ID"),
     #     clientSecret=os.environ.get("NETATMO_CLIENT_SECRET"),
     #     refreshToken=refreshToken,
@@ -343,6 +339,7 @@ def run_test_netatmo() -> None:
 
     print(f"{type(station)=}")
     Helper.print_pretty_dict_json(station)
+
 
 if __name__ == "__main__":
     # run_test_netatmo()

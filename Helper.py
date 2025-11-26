@@ -29,6 +29,7 @@ class ComplexEncoder(json.JSONEncoder):
 
 def print_pretty_dict_json(data: Any, indent: int = 4) -> None:
     from loguru import logger
+
     logger.info(json.dumps(data, indent=indent, sort_keys=True, cls=ComplexEncoder, default=str))
 
 
@@ -39,7 +40,8 @@ def get_pretty_dict_json(data: Any, indent: int = 4) -> str:
 def get_pretty_dict_json_no_sort(data: Any, indent: int = 4) -> str:
     return json.dumps(data, indent=indent, sort_keys=False, cls=ComplexEncoder, default=str)
 
-def update_deep(base: Dict[str, Any]|List[Any], u: Dict[str, Any]|List[Any]) -> Dict[str, Any]|List[Any]:
+
+def update_deep(base: Dict[str, Any] | List[Any], u: Dict[str, Any] | List[Any]) -> Dict[str, Any] | List[Any]:
     if isinstance(u, dict):
         if not isinstance(base, dict):
             base = {}
@@ -71,6 +73,7 @@ def update_deep(base: Dict[str, Any]|List[Any], u: Dict[str, Any]|List[Any]) -> 
                 base[i] = v
 
     return base
+
 
 def get_exception_tb_as_string(exc: Exception) -> str:
     tb1: traceback.TracebackException = traceback.TracebackException.from_exception(exc)

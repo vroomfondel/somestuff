@@ -50,16 +50,14 @@ class MWMqttMessage(BaseModel):
         value: Optional[Union[float, str, dict[Any, Any]]] = None
         valuedt: Optional[datetime.datetime] = None
 
-        payload: bytes = pahomsg.payload  #type: ignore[attr-defined]
+        payload: bytes = pahomsg.payload  # type: ignore[attr-defined]
 
         if rettype == "json" or rettype == "valuemsg":
             d: Dict = json.loads(payload.decode("utf-8"))
 
             if rettype == "valuemsg":
                 value = d["value"]
-                valuedt = datetime.datetime.fromisoformat(d["created_at"]).astimezone(
-                    _tz_berlin
-                )
+                valuedt = datetime.datetime.fromisoformat(d["created_at"]).astimezone(_tz_berlin)
             else:
                 value = d
         elif rettype == "str_raw":
@@ -110,13 +108,9 @@ class MosquittoClientWrapper:
 
         self._setup_mqtt_client()
 
-    def on_connect(
-        self, client: Client, userdata: Any, flags: Any, rc: Any, props: Any
-    ) -> None:
+    def on_connect(self, client: Client, userdata: Any, flags: Any, rc: Any, props: Any) -> None:
         if self.noisy_connect:
-            self.logger.debug(
-                f"{threading.get_ident()=} {client=} {userdata=} {flags=} {rc=} {props=}"
-            )
+            self.logger.debug(f"{threading.get_ident()=} {client=} {userdata=} {flags=} {rc=} {props=}")
 
         if "topics" in userdata and userdata["topics"]:
             if isinstance(userdata["topics"], list):
@@ -130,14 +124,10 @@ class MosquittoClientWrapper:
                 client.subscribe(sublist)
             else:
                 if self.noisy_connect:
-                    self.logger.debug(
-                        f'subscribing to SINGLE topic: {userdata["topics"]=} {userdata["qos"]=}'
-                    )
+                    self.logger.debug(f'subscribing to SINGLE topic: {userdata["topics"]=} {userdata["qos"]=}')
                 client.subscribe(userdata["topics"], userdata["qos"])
 
-        if "cond_connected" in userdata and isinstance(
-            userdata["cond_connected"], threading.Condition
-        ):
+        if "cond_connected" in userdata and isinstance(userdata["cond_connected"], threading.Condition):
             cond_connected: threading.Condition = userdata["cond_connected"]
             with cond_connected:
                 cond_connected.notify_all()
@@ -227,20 +217,15 @@ class MosquittoClientWrapper:
 
         self.client.message_callback_add(
             sub,
-            functools.partial(
-                self._on_msg_callback_wrapper, realtargetfunc=callback, rettype=rettype
-            ),
+            functools.partial(self._on_msg_callback_wrapper, realtargetfunc=callback, rettype=rettype),
         )
 
     def remove_message_callback(self, sub: str) -> None:
         assert self.client is not None
         self.client.message_callback_remove(sub)
 
-
     def set_on_msg_callback(
-        self,
-        callback: Callable,
-        rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg"
+        self, callback: Callable, rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg"
     ) -> None:
         assert self.client is not None
         self.client.on_message = functools.partial(
@@ -320,11 +305,7 @@ class MosquittoClientWrapper:
         self.logger.debug("STARTING FOREVER-LOOP")
         self.client.loop_forever()
 
-    def publish_multiple(
-        self,
-        msgs: List[MWMqttMessage],
-        timeout: Optional[int] = None
-    ) -> List[bool]:
+    def publish_multiple(self, msgs: List[MWMqttMessage], timeout: Optional[int] = None) -> List[bool]:
         # msgs_to_send: List[Dict] = []
         assert self.client is not None
 
@@ -340,9 +321,7 @@ class MosquittoClientWrapper:
                 metadata_me = msg.metadata.copy()
 
             if msg.valuedt is not None and metadata_me is not None:
-                metadata_me["created_at"] = msg.valuedt.isoformat(
-                    timespec="milliseconds"
-                )
+                metadata_me["created_at"] = msg.valuedt.isoformat(timespec="milliseconds")
                 # self.logger.debug(f"setting created_at to: {metadata_me['created_at']}")
 
             payload_data: dict = {
@@ -392,12 +371,12 @@ class MosquittoClientWrapper:
     def publish_one(
         self,
         topic: str,
-        value: Union[int, float, str, dict]|None,
+        value: Union[int, float, str, dict] | None,
         created_at: Optional[datetime.datetime] = None,
         metadata: Optional[dict] = None,
         rettype: Literal["json", "str", "int", "float", "valuemsg"] = "valuemsg",
         retain: bool = False,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
     ) -> bool:
 
         msg: MWMqttMessage = MWMqttMessage(
@@ -448,14 +427,10 @@ class MQTTLastDataReader:
                 client.subscribe(sublist)
             else:
                 if noisy:
-                    cls.logger.debug(
-                        f'subscribing to SINGLE topic: {userdata["topics"]=} {userdata["qos"]=}'
-                    )
+                    cls.logger.debug(f'subscribing to SINGLE topic: {userdata["topics"]=} {userdata["qos"]=}')
                 client.subscribe(userdata["topics"], userdata["qos"])
 
-            if "cond_connected" in userdata and isinstance(
-                userdata["cond_connected"], Condition
-            ):
+            if "cond_connected" in userdata and isinstance(userdata["cond_connected"], Condition):
                 cond_connected: Condition = userdata["cond_connected"]
                 with cond_connected:
                     cond_connected.notify_all()
@@ -465,9 +440,7 @@ class MQTTLastDataReader:
             # 2024-03-09 11:16:26.541 | DEBUG    | __main__:on_msg:736 - msg.topic='husqvarna/automower/pongs' msg=<paho.Client.MQTTMessage object at 0x7f3e86545f50> msg.retain=True msg.timestamp=84427.260912895 msg.payload=b'{"value": "PONG", "created_at": "2024-03-09T11:15:59.832+01:00", "lat": 53.64411, "lon": 9.894317, "ele": 62.123}'
 
             if noisy:
-                cls.logger.debug(
-                    f"{msg.topic=} {msg.retain=} {msg.timestamp=} {msg.mid=} {msg.payload=}"
-                )
+                cls.logger.debug(f"{msg.topic=} {msg.retain=} {msg.timestamp=} {msg.mid=} {msg.payload=}")
 
             if msg.retain:
                 if userdata["retained"] == "no":
@@ -482,7 +455,7 @@ class MQTTLastDataReader:
                 received_msgs = []
                 userdata["msgs_received"] = received_msgs
 
-            if max_received_msgs==-1 or len(received_msgs)<max_received_msgs:
+            if max_received_msgs == -1 or len(received_msgs) < max_received_msgs:
                 try:
                     received_msgs.append(MWMqttMessage.from_pahomsg(msg, rettype))
                 except JSONDecodeError as e:  # TODO should also check for other decode orrors than JSONDecodeError
@@ -490,8 +463,6 @@ class MQTTLastDataReader:
                     # if noisy:
                     #     cls.logger.debug(f"Caught JSONDecodeError -> switch to str_raw override for value {msg.payload=}")
                     # logger.opt(exception=e).error(e)
-
-
 
             # userdata["received_a_msg"] = time.time()
             if "cond_msg" in userdata and isinstance(userdata["cond_msg"], Condition):
@@ -554,9 +525,7 @@ class MQTTLastDataReader:
                 #     timeout=timeout_msgreceived_seconds,
                 #     predicate=lambda: "received_a_msg" in callback_userdata,
                 # )
-                my_msg_received: bool = callback_userdata["cond_msg"].wait(
-                    timeout=timeout_msgreceived_seconds
-                )
+                my_msg_received: bool = callback_userdata["cond_msg"].wait(timeout=timeout_msgreceived_seconds)
                 had_one_msg_received = had_one_msg_received or my_msg_received
                 if noisy:
                     cls.logger.debug(f"AFTER wait for MSG_RECEIVED::{callback_userdata["msgs_received"][-1]=}")
@@ -577,11 +546,8 @@ class MQTTLastDataReader:
 
             if noisy:
                 for msg in callback_userdata["msgs_received"]:
-                    cls.logger.debug(
-                        f"MSG_RECEIVED::\n{pprint.pformat(msg.model_dump(), indent=4, sort_dicts=True)}"
-                    )
+                    cls.logger.debug(f"MSG_RECEIVED::\n{pprint.pformat(msg.model_dump(), indent=4, sort_dicts=True)}")
                     cls.logger.debug(f"{msg.topic=} {msg.retained=} {msg.value=}")
-
 
             msgs = callback_userdata["msgs_received"]
 
@@ -600,7 +566,7 @@ if __name__ == "__main__":
         host=settings.mqtt.host,
         port=settings.mqtt.port,
         username=settings.mqtt.username,
-        password=settings.mqtt.password
+        password=settings.mqtt.password,
     )
 
     connected: bool = mqttclient.wait_for_connect_and_start_loop()
@@ -611,7 +577,7 @@ if __name__ == "__main__":
         topic="somestuff/mqttstuff/TEST",
         value=779,
         created_at=datetime.datetime.now(tz=_tz_berlin),
-        metadata=_EFFECTIVE_CONFIG["mqtt_message_default_metadata"]  # type: ignore
+        metadata=_EFFECTIVE_CONFIG["mqtt_message_default_metadata"],  # type: ignore
     )
 
     mqttclient.disconnect()

@@ -98,7 +98,7 @@ completed_states = set(
 # TODO HT20251126 proper implement typed
 print(f"Polling status for job: {job_name}")
 batch_job = client.batches.get(name=job_name)  # Initial get
-while batch_job.state.name not in completed_states: # type: ignore
+while batch_job.state.name not in completed_states:  # type: ignore
     print(f"Current state: {batch_job.state.name}")  # type: ignore
     time.sleep(30)  # Wait for 30 seconds before polling again
     batch_job = client.batches.get(name=job_name)
@@ -118,7 +118,7 @@ client = genai.Client()
 job_name = "YOUR_BATCH_JOB_NAME"
 batch_job = client.batches.get(name=job_name)
 
-if batch_job.state.name == "JOB_STATE_SUCCEEDED": # type: ignore
+if batch_job.state.name == "JOB_STATE_SUCCEEDED":  # type: ignore
 
     # If batch job was created with a file
     if batch_job.dest and batch_job.dest.file_name:

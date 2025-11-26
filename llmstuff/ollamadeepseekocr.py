@@ -129,6 +129,7 @@ def comparedifferentfiletypes() -> List[tuple[str, str, float, int]]:
 
     return comparisons
 
+
 # TODO HT20251126 implement/check/validate this
 def llm_semantic_comparison(text1: str, text2: str) -> Dict:
     """Lasse LLM die semantische Ähnlichkeit bewerten"""
@@ -207,6 +208,7 @@ Return JSON:
 #   pets: list[Pet]
 
 # pets = PetList.model_validate_json(response.message.content)
+
 
 # TODO HT20251126 implement/check/validate this
 def llm_ensemble_best_result(results: Dict[str, str], image_b64: str) -> str:

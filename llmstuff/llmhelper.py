@@ -169,7 +169,7 @@ def request_gemini[T](
     parts: List[google.genai.types.Part] = [google.genai.types.Part(text=airequest.prompt)]
 
     if airequest.image is not None:
-        mt: str|None = mimetypes.guess_file_type(airequest.image)[0]
+        mt: str | None = mimetypes.guess_file_type(airequest.image)[0]
         assert mt is not None
         parts.append(google.genai.types.Part.from_bytes(data=airequest.image.read_bytes(), mime_type=mt))
 
@@ -206,7 +206,11 @@ def request_gemini[T](
 
     # THIS WHOLE BLOCK IS NEEDED FOR MYPY TO BE HAPPY ?!
     assert response is not None and response.candidates is not None
-    assert len(response.candidates) > 0 and response.candidates[0].content is not None and response.candidates[0].content.parts is not None
+    assert (
+        len(response.candidates) > 0
+        and response.candidates[0].content is not None
+        and response.candidates[0].content.parts is not None
+    )
 
     for part in response.candidates[0].content.parts:
         if not part.text:
@@ -388,13 +392,13 @@ def do_test_image_request() -> None:
         image=Path(Path.home(), f"Desktop/traderjoes_h0auyjrjq1n1yshsez3z.jpg"),
     )
 
-    imagedescription, thoughts, rawresponse_google = request_ai(airequest=airequest) # type: ignore  # TODO HT20251126 make it properly typed
+    imagedescription, thoughts, rawresponse_google = request_ai(airequest=airequest)  # type: ignore  # TODO HT20251126 make it properly typed
 
     logger.debug(rawresponse_google)
     logger.debug(f"{"*"*40}")
     logger.debug(thoughts)
     logger.debug(f"{"*"*40}")
-    logger.debug(get_pretty_dict_json_no_sort(imagedescription.model_dump()))  # type: ignore  # TODO HT20251126 make it properly typed 
+    logger.debug(get_pretty_dict_json_no_sort(imagedescription.model_dump()))  # type: ignore  # TODO HT20251126 make it properly typed
 
     # {
     #     "summary": "Ahoy, ye scurvy dogs! Feast yer one good eye on this here parchment of plunder from the merchant known as Trader Joe! It be restin' upon a wooden plank, likely the table in a captain's quarters. This scallywag has traded their doubloons for a bounty of provisions. Look at that! Six bananas? Har har har! Someone's got a hunger for the long, yellow fruit, eh? Maybe they be lonely on the high seas! And sour cream corn? Sounds like something that'd make ye walk the plank in the privy! Why couldn't the pirate play cards? Because he was standing on the deck! Arrrgh!",

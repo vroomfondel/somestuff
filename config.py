@@ -27,11 +27,10 @@ _CONFIGDIRPATH: Path = Path(__file__).parent.resolve()
 _CONFIGDIRPATH = Path(os.getenv(f"{_PKG}_CONFIG_DIR_PATH")) if os.getenv(f"{_PKG}_CONFIG_DIR_PATH") else _CONFIGDIRPATH  # type: ignore
 
 _CONFIGPATH: Path = Path(_CONFIGDIRPATH, "config.yaml")
-_CONFIGPATH= Path(os.getenv(f"{_PKG}_CONFIG_PATH")) if os.getenv(f"{_PKG}_CONFIG_PATH") else _CONFIGPATH # type: ignore
+_CONFIGPATH = Path(os.getenv(f"{_PKG}_CONFIG_PATH")) if os.getenv(f"{_PKG}_CONFIG_PATH") else _CONFIGPATH  # type: ignore
 
 _CONFIGLOCALPATH: Path = Path(_CONFIGDIRPATH, "config.local.yaml")
-_CONFIGLOCALPATH = Path(os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH")) if os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH # type: ignore
-
+_CONFIGLOCALPATH = Path(os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH")) if os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH  # type: ignore
 
 
 from pydantic_settings import (
@@ -60,26 +59,25 @@ logger.configure(extra={"classname": "None"})
 logger.info(f"EFFECTIVE CONFIGPATH: {_CONFIGPATH}")
 logger.info(f"EFFECTIVE CONFIGLOCALPATH: {_CONFIGLOCALPATH}")
 
-_CONFIG_ORIG: Dict[str, Any]|None = None
+_CONFIG_ORIG: Dict[str, Any] | None = None
 try:
     _CONFIG_ORIG = YAML().load(_CONFIGPATH)
 except Exception as e:
     logger.opt(exception=e).exception(f"Error loading local config file: {_CONFIGPATH}")
 
-_CONFIG_LOCAL_ORIG: Dict[str, Any]|None = None
+_CONFIG_LOCAL_ORIG: Dict[str, Any] | None = None
 try:
     _CONFIG_LOCAL_ORIG = YAML().load(stream=_CONFIGLOCALPATH)
 except Exception as e:
     logger.opt(exception=e).exception(f"Error loading local config file: {_CONFIGLOCALPATH}")
 
-_EFFECTIVE_CONFIG: Dict[str, Any]|None = None
+_EFFECTIVE_CONFIG: Dict[str, Any] | None = None
 
 if _CONFIG_ORIG is not None:
     _EFFECTIVE_CONFIG = _CONFIG_ORIG
 
     if _CONFIG_LOCAL_ORIG is not None:
         _EFFECTIVE_CONFIG = Helper.update_deep(_EFFECTIVE_CONFIG, _CONFIG_LOCAL_ORIG)  # type: ignore
-
 
 
 # https://docs.pydantic.dev/latest/concepts/pydantic_settings/
@@ -180,9 +178,9 @@ class Settings(BaseSettings):
     def settings_customise_sources(
         cls,
         settings_cls: Type[BaseSettings],
-        init_settings: InitSettingsSource, # type: ignore
-        env_settings: EnvSettingsSource, # type: ignore
-        dotenv_settings: DotEnvSettingsSource, # type: ignore
+        init_settings: InitSettingsSource,  # type: ignore
+        env_settings: EnvSettingsSource,  # type: ignore
+        dotenv_settings: DotEnvSettingsSource,  # type: ignore
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> Tuple[PydanticBaseSettingsSource, ...]:
         return init_settings, env_settings, YamlConfigSettingsSource(settings_cls)
@@ -217,7 +215,6 @@ def log_settings() -> None:
     logger.info(json.dumps(settings.model_dump(by_alias=True), indent=4, sort_keys=False, default=str))
 
 
-
 settings: Settings = Settings()  # type: ignore
 
 if settings.postgresql.url:
@@ -237,8 +234,6 @@ logger.debug(f"TEMPLATEDIRPATH: {TEMPLATEDIRPATH}")
 
 TIMEZONE: datetime.tzinfo = pytz.timezone(settings.timezone)
 logger.debug(f"TIMEZONE: {TIMEZONE}")
-
-
 
 
 if __name__ == "__main__":

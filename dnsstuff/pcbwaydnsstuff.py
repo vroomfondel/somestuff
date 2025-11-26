@@ -105,7 +105,7 @@ def get_spf_records(domain: str) -> List[str]:
     return spf_records
 
 
-def resolve_spf_to_ipv4(domain: str, visited_domains: Set|None = None) -> List[str]:
+def resolve_spf_to_ipv4(domain: str, visited_domains: Set | None = None) -> List[str]:
     """
     Resolves SPF records recursively and collects all IPv4 addresses.
 
@@ -230,7 +230,6 @@ def ipset_exists(ipset_instance: IPSet, name: str) -> bool:
         return False
     except Exception:
         return False
-
 
 
 def ipset_update_with_swap(
