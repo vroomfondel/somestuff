@@ -51,7 +51,7 @@ class MeasurementValue(BaseModel):
     time_as_datetime: datetime.datetime | None = None
 
     @model_validator(mode="after")
-    def _val_time_to_datetime(self):
+    def _val_time_to_datetime(self) -> "MeasurementValue":
         self.time_as_datetime = datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
         return self
 
@@ -124,7 +124,7 @@ class WeatherStationResponse(BaseModel):
     time_as_datetime: datetime.datetime | None = None
 
     @model_validator(mode="after")
-    def _val_time_to_datetime(self):
+    def _val_time_to_datetime(self) -> "WeatherStationResponse":
         self.time_as_datetime = datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
         return self
 
