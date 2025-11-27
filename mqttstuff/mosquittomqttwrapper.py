@@ -582,5 +582,6 @@ def _main() -> None:
 
     mqttclient.disconnect()
 
+
 if __name__ == "__main__":
     _main()

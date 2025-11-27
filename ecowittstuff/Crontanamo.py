@@ -51,7 +51,9 @@ def send_to_mosquitto(
     msgs: List[MWMqttMessage] = []
 
     topic: str = effconfig["mqtt_topics"]["ecowitt"]["pressure"]["topic"]
-    metadata: Dict[str, Any] = effconfig["mqtt_message_default_metadata"].copy()  # copy just to make sure not to change the original/have some memory problems after a while due to references
+    metadata: Dict[str, Any] = effconfig[
+        "mqtt_message_default_metadata"
+    ].copy()  # copy just to make sure not to change the original/have some memory problems after a while due to references
 
     msgs.append(
         MWMqttMessage(
@@ -60,7 +62,7 @@ def send_to_mosquitto(
             valuedt=wsr.data.pressure.absolute.time_as_datetime,
             retained=False,
             metadata=metadata,
-            rettype="valuemsg"  # Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg"
+            rettype="valuemsg",  # Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg"
         )
     )
 
@@ -75,11 +77,7 @@ def send_to_mosquitto(
 def job(mqttclient: MosquittoClientWrapper) -> None:
     wsr: WeatherStationResponse = get_realtime_data()
 
-    send_to_mosquitto(
-        mqttclient,
-        wsr=wsr
-    )
-
+    send_to_mosquitto(mqttclient, wsr=wsr)
 
 
 def exc_caught_job_loop(mqttclient: MosquittoClientWrapper, maxtries: int = 10) -> int:
@@ -95,8 +93,9 @@ def exc_caught_job_loop(mqttclient: MosquittoClientWrapper, maxtries: int = 10) 
 
     return 1
 
+
 def main() -> int:
-    schedulexseconds: int = 30 #0
+    schedulexseconds: int = 30  # 0
     sleeptimexseconds: int = 10
 
     mqttclient: MosquittoClientWrapper = MosquittoClientWrapper(
@@ -104,7 +103,7 @@ def main() -> int:
         port=settings.mqtt.port,
         username=settings.mqtt.username,
         password=settings.mqtt.password,
-        timeout_connect_seconds=10
+        timeout_connect_seconds=10,
     )
 
     connected: bool = mqttclient.wait_for_connect_and_start_loop()  # starts loop in thread, so we can continue...
@@ -123,18 +122,13 @@ def main() -> int:
 
         logger.info(f"{schedulexseconds=} {sleeptimexseconds=}")
 
-        schedule.every(schedulexseconds).seconds.do(
-            exc_caught_job_loop,
-            mqttclient=mqttclient,
-            maxtries=10
-        )
+        schedule.every(schedulexseconds).seconds.do(exc_caught_job_loop, mqttclient=mqttclient, maxtries=10)
 
         while True:
             run_pending()
             time.sleep(sleeptimexseconds)
     else:
         return ret
-
 
 
 #     def run_day_schedule_loop(self):
@@ -173,4 +167,3 @@ if __name__ == "__main__":
     # sys.argv.append("loopme")
     main_ret: int = main()
     exit(main_ret)
-
