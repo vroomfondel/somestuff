@@ -51,6 +51,12 @@ mqtt:
   port: 1883
   # TLS not used/implemented as of now.
 
+mqtt_topics:
+  ecowitt:
+    pressure:
+        topic: "ecowitt/pressure"
+        subscribe: false
+
 mqtt_defaultmetadata:
   # latitude, longitude, elevation for sensor/actor
   lat: 1.234567
