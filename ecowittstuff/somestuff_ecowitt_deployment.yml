@@ -1,0 +1,46 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: somestuff-ecowitt-deployment
+  namespace: somestuff
+  labels:
+    app: somestuff-ecowitt-crontanamo-deployment
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    # "* /15 * * * *"
+    # Seconds  Minutes  Hours  Day of month   Month  Day of week
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: somestuff-ecowitt-crontanamo
+  template:
+    metadata:
+      labels:
+        app: somestuff-ecowitt-crontanamo
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: somestuff-ecowitt-crontanamo
+          image: xomoxcc/somestuff:latest
+          command: [ "tini", "--", "python3", "ecowittstuff/Crontanamo.py", "LOOP", "300", "10" ]
+          env:
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+# NOTE: to have this work properly, the configmap should be create beforehand and then mounted in the pod like below
+#          volumeMounts:
+#            - name: somestuffconfig
+#              subPath: config.local.yaml
+#              mountPath: /app/config.local.yaml
+#      volumes:
+#        - name: somestuffconfig
+#          configMap:
+#            name: somestuff-config
+#            defaultMode: 0777
+
