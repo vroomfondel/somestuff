@@ -559,7 +559,7 @@ class MQTTLastDataReader:
         return None
 
 
-if __name__ == "__main__":
+def _main() -> None:
     from config import settings, _EFFECTIVE_CONFIG
 
     mqttclient: MosquittoClientWrapper = MosquittoClientWrapper(
@@ -570,7 +570,7 @@ if __name__ == "__main__":
     )
 
     connected: bool = mqttclient.wait_for_connect_and_start_loop()
-    logger.debug(f"mqttclient.is_connected()={mqttclient.is_connected()}")
+    logger.debug(f"mqttclient.is_connected()={mqttclient.is_connected()} {connected=}")
     # mqttclient.connect_and_start_loop_forever()
 
     mqttclient.publish_one(
@@ -581,3 +581,6 @@ if __name__ == "__main__":
     )
 
     mqttclient.disconnect()
+
+if __name__ == "__main__":
+    _main()
