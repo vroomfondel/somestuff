@@ -1,4 +1,4 @@
-.PHONY: tests
+.PHONY: tests help install venv lint dstart isort tcheck build commit-checks prepare
 SHELL := /usr/bin/bash
 .ONESHELL:
 
@@ -20,7 +20,7 @@ help:
 # check for "CI" not in os.environ || "GITHUB_RUN_ID" not in os.environ
 venv_activated=if [ -z $${VIRTUAL_ENV+x} ] && [ -z $${GITHUB_RUN_ID+x} ] ; then printf "activating venv...\n" ; source .venv/bin/activate ; else printf "venv already activated or GITHUB_RUN_ID=$${GITHUB_RUN_ID} is set\n"; fi
 
-install: .venv
+install: venv
 
 venv: .venv/touchfile
 
