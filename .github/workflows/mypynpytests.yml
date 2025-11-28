@@ -37,7 +37,7 @@ jobs:
 
       - name: installing make
         run: |
-          apt update && apt install -y make
+          sudo apt update && sudo apt install -y make
 
       - name: installing pip-packages
         run: |
