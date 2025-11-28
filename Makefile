@@ -25,10 +25,14 @@ install: .venv
 venv: .venv/touchfile
 
 .venv/touchfile: requirements.txt requirements-dev.txt
-	test -d .venv || python3.13 -m .venv
-	source .venv/bin/activate
-	pip install -r requirements-dev.txt
-	touch .venv/touchfile
+	@if [ -z "$${GITHUB_RUN_ID}" ]; then \
+		test -d .venv || python3.13 -m .venv; \
+		source .venv/bin/activate; \
+		pip install -r requirements-dev.txt; \
+		touch .venv/touchfile; \
+	else \
+  		echo "Skipping venv setup because GITHUB_RUN_ID is set"; \
+  	fi
 
 
 tests: venv
