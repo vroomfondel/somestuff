@@ -33,6 +33,20 @@ ecowitt:
   device_info_url: "https://api.ecowitt.net/api/v3/device/info"
   mac: "de:ad:be:ef:fe:ed"
 
+netatmo:
+  username: "someusername"
+  password: "somepassword"
+  client_id: "someclientid"
+  client_secret: "someclientsecret"
+  # refresh_token: "somerefreshtoken"
+  outdoormodule:
+    name: "Außen"
+    id: "01:12:34:56:22:11"
+  rainmodule:
+    name: "RegenModul"
+    id: "01:12:34:56:33:22"
+
+
 postgresql:
   host: "127.0.0.1"
   host_in_cluster: "postgresql.postgresql.svc"
@@ -56,9 +70,26 @@ mqtt_topics:
     pressure:
         topic: "ecowitt/pressure"
         subscribe: false
+  netatmo:
+    temperature:
+      topic: "netatmo/temperature"
+      subscribe: false
+    rainfeed:
+      topic: "netatmo/rain"
+      subscribe: false
+    rainfeed1h:
+      topic: "netatmo/rain1h"
+      subscribe: false
+    rainfeed24h:
+      topic: "netatmo/rain24h"
+      subscribe: false
+    pressurefeed:
+      topic: "netatmo/pressure"
+      subscribe: false
 
 mqtt_defaultmetadata:
   # latitude, longitude, elevation for sensor/actor
   lat: 1.234567
   lon: 2.345678
   ele: 3.456
+

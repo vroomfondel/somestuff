@@ -86,6 +86,21 @@ if _CONFIG_ORIG is not None:
 # https://github.com/pydantic/pydantic/issues/8379
 
 
+class NetatmoModule(BaseModel):
+    name: str
+    id: Optional[MacAddress] = None
+
+
+class Netatmo(BaseModel):
+    username: str
+    password: str
+    client_id: str
+    client_secret: str
+    refresh_token: Optional[str] = None
+    outdoormodule: NetatmoModule
+    rainmodule: NetatmoModule
+
+
 class Ecowitt(BaseModel):
     application_key: str | None = None
     api_key: str | None = None
@@ -173,6 +188,9 @@ class Settings(BaseSettings):
     ecowitt: Ecowitt
     mqtt: Mqtt
     mqtt_message_default_metadata: MqttMessageDefaultMetadata
+    netatmo: Netatmo
+
+    # TODO HT20251128 -> add mqtt_topics from config...
 
     @classmethod
     def settings_customise_sources(
