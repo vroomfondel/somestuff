@@ -1,4 +1,4 @@
-name: black-lint and static type check
+name: black-lint
 
 on:
   push:
@@ -35,6 +35,4 @@ jobs:
       - name: "linting with black :: check only"
         run: black -l 120 --check  .
 
-      - name: static type checking with mypy
-        #run: make tcheck
-        run: mypy *.py ecowittstuff/*py llmstuff/*.py mqttstuff/*.py dnsstuff/*.py
+

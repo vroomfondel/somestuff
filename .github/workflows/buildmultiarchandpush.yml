@@ -9,7 +9,7 @@ name: BuildAndPushMultiarch
 
 on:
   workflow_run:
-    workflows: ["run pytests"]
+    workflows: ["mypy and pytests"]
     branches: ["main"]
     types:
       - completed
