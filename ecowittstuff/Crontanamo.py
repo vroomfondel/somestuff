@@ -58,7 +58,8 @@ def send_to_mosquitto(
     msgs.append(
         MWMqttMessage(
             topic=topic,
-            value=wsr.data.pressure.absolute.value,
+            # value=wsr.data.pressure.absolute.value,
+            value={"absolute": wsr.data.pressure.absolute.value, "relative": wsr.data.pressure.relative.value},
             valuedt=wsr.data.pressure.absolute.time_as_datetime,
             retained=False,
             metadata=metadata,

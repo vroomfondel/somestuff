@@ -155,9 +155,11 @@ def get_realtime_data() -> WeatherStationResponse:
     response = requests.get(str(base_url), params=params)
     response.raise_for_status()
 
-    logger.debug(response.text)
+    # logger.debug(response.text)
 
     response_dict: dict = response.json()
+
+    logger.debug(get_pretty_dict_json_no_sort(response_dict))
 
     rc: ResultType = ResultType(int(response_dict["code"]))
     if rc != ResultType.SUCCESS:
