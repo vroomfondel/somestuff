@@ -1,14 +1,18 @@
-matplotlib
+# .. used in dinogame - enable if playing around with that one...
+#matplotlib
+
+#IPython
+
+#jupyter
+#notebook
+#ipykernel
+
+#pygame
+
+# ^^ used in dinogame - enable if playing around with that one...
 
 numpy
 pillow
-#IPython
-
-jupyter
-notebook
-#ipykernel
-
-pygame
 
 loguru
 
