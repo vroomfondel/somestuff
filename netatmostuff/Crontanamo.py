@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import pytz
 import schedule
+
 # https://github.com/dbader/schedule
 from schedule import run_pending
 
@@ -17,8 +18,7 @@ import config
 import Helper
 from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
 from config import settings
-from mqttstuff.mosquittomqttwrapper import (MosquittoClientWrapper,
-                                            MWMqttMessage)
+from mqttstuff.mosquittomqttwrapper import MosquittoClientWrapper, MWMqttMessage
 
 _tzberlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
@@ -69,10 +69,15 @@ def send_to_mosquitto(
     # msgs: List[Tuple[str, Union[int, float, str, Dict], Optional[datetime.datetime], Optional[Dict]]] = []
     topic: str | None
 
+    logger.debug("Crontanamo::send_to_mosquitto::netatmo_topics:")
+    logger.debug(Helper.get_pretty_dict_json_no_sort(netatmo_topics))
+
+    logger.debug(f"Crontanamo::send_to_mosquitto::{temp=}")
     if temp is not None:
         assert "temperature" in netatmo_topics
         topic = netatmo_topics["temperature"].topic
 
+        logger.debug(f"\t{topic=}")
         if topic is not None:
             msgs.append(
                 MWMqttMessage(
@@ -86,10 +91,12 @@ def send_to_mosquitto(
                 )
             )
 
+    logger.debug(f"Crontanamo::send_to_mosquitto::{rain=}")
     if rain is not None:
         assert "rain" in netatmo_topics
         topic = netatmo_topics["rain"].topic
 
+        logger.debug(f"\t{topic=}")
         if topic is not None:
             msgs.append(
                 MWMqttMessage(
@@ -103,10 +110,12 @@ def send_to_mosquitto(
                 )
             )
 
+    logger.debug(f"Crontanamo::send_to_mosquitto::{rain1h=}")
     if rain1h is not None:
         assert "rain1h" in netatmo_topics
         topic = netatmo_topics["rain1h"].topic
 
+        logger.debug(f"\t{topic=}")
         if topic is not None:
             msgs.append(
                 MWMqttMessage(
@@ -120,10 +129,12 @@ def send_to_mosquitto(
                 )
             )
 
+    logger.debug(f"Crontanamo::send_to_mosquitto::{rain24h=}")
     if rain24h is not None:
         assert "rain24h" in netatmo_topics
         topic = netatmo_topics["rain24h"].topic
 
+        logger.debug(f"\t{topic=}")
         if topic is not None:
             msgs.append(
                 MWMqttMessage(
@@ -137,6 +148,7 @@ def send_to_mosquitto(
                 )
             )
 
+    logger.debug(f"Crontanamo::send_to_mosquitto::{pressure=} {absolute_pressure=}")
     if pressure is not None or absolute_pressure is not None:
         pd: Dict[str, float] = {}
         if pressure is not None:
@@ -147,6 +159,7 @@ def send_to_mosquitto(
         assert "pressure" in netatmo_topics
         topic = netatmo_topics["pressure"].topic
 
+        logger.debug(f"\t{topic=}")
         if topic is not None:
             msgs.append(
                 MWMqttMessage(
@@ -165,7 +178,11 @@ def send_to_mosquitto(
         logger.debug(msgs)
         return
 
-    mqttclient.publish_multiple(msgs)
+
+    send_results: List[bool] = mqttclient.publish_multiple(msgs)
+    logger.debug(f"Crontanamo::send_to_mosquitto::send_results:")
+    for i, res in enumerate(send_results):
+        logger.debug(f"{msgs[i].topic} -> {res}")
 
 
 def write_netatmo_credentials_to_shared_file() -> None:
