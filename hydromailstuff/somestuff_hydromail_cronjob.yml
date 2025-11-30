@@ -1,0 +1,64 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: somestuff-hydromail-cronjob
+  namespace: somestuff
+spec:
+  # ┌───────────── minute (0 - 59)
+  # │ ┌───────────── hour (0 - 23)
+  # │ │ ┌───────────── day of the month (1 - 31)
+  # │ │ │ ┌───────────── month (1 - 12)
+  # │ │ │ │ ┌───────────── day of the week (0 - 6) (Sunday to Saturday;
+  # │ │ │ │ │                                   7 is also Sunday on some systems)
+  # │ │ │ │ │                                   OR sun, mon, tue, wed, thu, fri, sat
+  # │ │ │ │ │
+  # * * * * *
+  schedule: "15 12 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Replace
+  timeZone: "Europe/Berlin"
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          #  nodeSelector:
+          #    kubernetes.io/arch: "arm64"
+          containers:
+            - name: somestuff-hydromail-cronjob
+              image: xomoxcc/somestuff:latest
+              command: [ "tini", "--", "python3", "hydromailstuff/hydromail.py"]
+              env:
+                - name: DISABLE_MAIL_SEND
+                  value: "False"
+                - name: STORAGEPATH
+                  value: /shared
+                - name: SMTP_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+# NOTE: to have this work properly, the configmap should be create beforehand and then mounted in the pod like below
+#              volumeMounts:
+#                - mountPath: /shared
+#                  name: shared
+#                - name: somestuffconfig
+#                  subPath: config.local.yaml
+#                  mountPath: /app/config.local.yaml
+#          volumes:
+#            - name: shared
+#              hostPath:
+#                path: /mnt/nfs/somestuff_shared
+#                type: DirectoryOrCreate
+#            - name: somestuffconfig
+#              configMap:
+#                name: somestuff-config
+#                defaultMode: 0777
+#          imagePullSecrets:
+#            - name: privateregcred
+          restartPolicy: OnFailure
