@@ -12,6 +12,7 @@ import config
 import Helper
 from config import TIMEZONE, is_in_cluster, settings
 from mqttstuff.mosquittomqttwrapper import MQTTLastDataReader, MWMqttMessage
+from netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
 
 # from netatmostuff.Crontanamo import write_netatmo_credentials_to_shared_file
 # import netatmostuff.lnetatmo as lnetatmo
@@ -51,6 +52,7 @@ def mail_stuff(
     wasserandma_dt: datetime.datetime | None,
     current_busvoltage: float | None,
 ) -> None:
+    global DISABLE_MAIL_SEND
 
     fp: Path = Path(_templatedirpath, "mailtemplate.html.j2")
     logger.debug(f"{fp.absolute()=}")
@@ -97,8 +99,12 @@ def mail_stuff(
         mt_html: str = template.render(values)
         logger.debug(mt_html)
 
-        if not DISABLE_MAIL_SEND:
+        if DISABLE_MAIL_SEND:
+            logger.debug("NOT sending email... DISABLE_MAIL_SEND is activated...")
+        else:
+            logger.debug("now trying to send email...")
             sendmail.send(html=mt_html)
+
 
 
 def _get_latest_from_mqtt(
@@ -181,6 +187,9 @@ def get_current_waterlevel_and_busvoltage_and_ma(
 
 
 def read_netatmo() -> dict:
+    from netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
+    # import needed since module import has side effects -> creates ~/.netatmo.credentials
+
     import netatmostuff.lnetatmo as lnetatmo
 
     # Example: USERNAME and PASSWORD supposed to be defined by one of the previous methods
@@ -207,9 +216,9 @@ def read_netatmo() -> dict:
 
         logger.debug(Helper.get_pretty_dict_json_no_sort(mod))
 
-        if n == settings.netatmo.outdoormodule.name or mod["_id"] == str(settings.netatmo.outdoormodule.id):
+        if n == settings.netatmo.outdoormodule.name or (mod is not None and mod["_id"] == str(settings.netatmo.outdoormodule.id)):
             aussen = mod
-        if n == settings.netatmo.rainmodule.name or mod["_id"] == str(settings.netatmo.rainmodule.id):
+        if n == settings.netatmo.rainmodule.name or (mod is not None and mod["_id"] == str(settings.netatmo.rainmodule.id)):
             regen = mod
 
     logger.debug(f"Found Aussen-Module: {aussen=}")
@@ -237,7 +246,7 @@ def read_netatmo() -> dict:
         device_id=weather_data.default_station_data["_id"],  # "70:ee:50:02:ed:4c",  # "Indoor" | homestationid!
         scale="1hour",  # Timeframe between two measurements {30min, 1hour, 3hours, 1day, 1week, 1month}
         mtype="sum_rain",
-        module_id=regenroep["_id"],  # type: ignore
+        module_id=regen["_id"],  # type: ignore
         date_begin=int(begin.timestamp()),
         date_end=int(end.timestamp()),
         limit=None,
@@ -303,21 +312,17 @@ def do_main_stuff() -> None:
             get_current_waterlevel_and_busvoltage_and_ma(noisy=True)
         )
 
-        if DISABLE_MAIL_SEND:
-            logger.debug("NOT sending email... DISABLE_MAIL_SEND is activated...")
-        else:
-            logger.debug("now trying to send email...")
-            mail_stuff(
-                netatmo_data,
-                netatmo_data["current_temp"],
-                netatmo_data["rain_lasthour"],
-                netatmo_data["rain_overall_today"],
-                netatmo_data["rain_overall_yesterday"],
-                wasserbisoberkante,
-                currentma,
-                currentmadt,
-                currentbusvoltage,
-            )
+        mail_stuff(
+            netatmo_data,
+            netatmo_data["current_temp"],
+            netatmo_data["rain_lasthour"],
+            netatmo_data["rain_overall_today"],
+            netatmo_data["rain_overall_yesterday"],
+            wasserbisoberkante,
+            currentma,
+            currentmadt,
+            currentbusvoltage,
+        )
     except Exception as ex:
         logger.opt(exception=ex).exception(ex)
     finally:
