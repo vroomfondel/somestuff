@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: somestuff-netatmo-deployment
+  namespace: somestuff
+  labels:
+    app: somestuff-netatmo-crontanamo-deployment
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    # "* /15 * * * *"
+    # Seconds  Minutes  Hours  Day of month   Month  Day of week
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: somestuff-netatmo-crontanamo
+  template:
+    metadata:
+      labels:
+        app: somestuff-netatmo-crontanamo
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: somestuff-netatmo-crontanamo
+          image: xomoxcc/somestuff:latest
+          command: [ "tini", "--", "python3", "netatmostuff/Crontanamo.py", "LOOP", "300", "10" ]
+          env:
+            - name: STORAGEPATH
+              value: /shared
+            - name: SMTP_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+# NOTE: to have this work properly, the configmap should be create beforehand and then mounted in the pod like below
+#          volumeMounts:
+#            - mountPath: /shared
+#              name: shared
+#            - name: somestuffconfig
+#              subPath: config.local.yaml
+#              mountPath: /app/config.local.yaml
+#      volumes:
+#        - name: shared
+#          hostPath:
+#            path: /mnt/nfs/somestuff_shared
+#            type: DirectoryOrCreate
+#        - name: somestuffconfig
+#          configMap:
+#            name: somestuff-config
+#            defaultMode: 0777
+#      imagePullSecrets:
+#        - name: privateregcred
+
