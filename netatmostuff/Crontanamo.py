@@ -178,7 +178,6 @@ def send_to_mosquitto(
         logger.debug(msgs)
         return
 
-
     send_results: List[bool] = mqttclient.publish_multiple(msgs)
     logger.debug(f"Crontanamo::send_to_mosquitto::send_results:")
     for i, res in enumerate(send_results):
@@ -348,9 +347,13 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
             continue
 
         logger.debug(Helper.get_pretty_dict_json_no_sort(mod))
-        if n == settings.netatmo.outdoormodule.name or (mod is not None and mod["_id"] == str(settings.netatmo.outdoormodule.id)):
+        if n == settings.netatmo.outdoormodule.name or (
+            mod is not None and mod["_id"] == str(settings.netatmo.outdoormodule.id)
+        ):
             aussen = mod
-        if n == settings.netatmo.rainmodule.name or (mod is not None and mod["_id"] == str(settings.netatmo.rainmodule.id)):
+        if n == settings.netatmo.rainmodule.name or (
+            mod is not None and mod["_id"] == str(settings.netatmo.rainmodule.id)
+        ):
             regen = mod
 
     if not aussen:

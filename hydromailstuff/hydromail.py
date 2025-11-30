@@ -106,7 +106,6 @@ def mail_stuff(
             sendmail.send(html=mt_html)
 
 
-
 def _get_latest_from_mqtt(
     topic: str, value_fieldname: str, created_at_fieldname: str = "orig_time", noisy: bool = False
 ) -> Tuple[float | None, datetime.datetime | None]:
@@ -188,6 +187,7 @@ def get_current_waterlevel_and_busvoltage_and_ma(
 
 def read_netatmo() -> dict:
     from netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
+
     # import needed since module import has side effects -> creates ~/.netatmo.credentials
 
     import netatmostuff.lnetatmo as lnetatmo
@@ -216,9 +216,13 @@ def read_netatmo() -> dict:
 
         logger.debug(Helper.get_pretty_dict_json_no_sort(mod))
 
-        if n == settings.netatmo.outdoormodule.name or (mod is not None and mod["_id"] == str(settings.netatmo.outdoormodule.id)):
+        if n == settings.netatmo.outdoormodule.name or (
+            mod is not None and mod["_id"] == str(settings.netatmo.outdoormodule.id)
+        ):
             aussen = mod
-        if n == settings.netatmo.rainmodule.name or (mod is not None and mod["_id"] == str(settings.netatmo.rainmodule.id)):
+        if n == settings.netatmo.rainmodule.name or (
+            mod is not None and mod["_id"] == str(settings.netatmo.rainmodule.id)
+        ):
             regen = mod
 
     logger.debug(f"Found Aussen-Module: {aussen=}")
