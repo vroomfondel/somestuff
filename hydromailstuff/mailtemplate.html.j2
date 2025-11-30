@@ -1,0 +1,31 @@
+<html>
+<body>
+Datum der Niederschlagsmenge sind wie angegeben.<br />
+Meßwert der hydrostatischen Pegelsonde und berechneter Abstand von Wasseroberfläche bis Oberkante Rohr ist von {{wasserandma_dt}}.<br /><br /><br />
+
+<table border="1">
+    <tr><td>Meßwert (V)</td><td>{{ '%0.3f' % current_busvoltage | float }}</td></tr>
+    <tr><td>Meßwert (mA)</td><td>{{ '%0.3f' % current_ma | float }}</td></tr>
+    <tr><td>Wasseroberfläche bis Oberkante (cm)</td><td>{{ '%0.3f' % wasserbisoberkante | float }}</td></tr>
+
+    <tr><td colspan="2"><br /><br /><br /></td></tr>
+
+    {% for data, overall in [(netatmodata["measures_yesterday"], rain_overall_yesterday), (netatmodata["measures_today"], rain_overall_today)] -%}
+        {% for mss in data %}
+            {% set rain = mss["rain"] | float -%}
+            {% set date = mss["date"] -%}
+            {% set datetime = mss["datetime"]  -%}
+            {% set time_millis = mss["time_millis"] | float -%}
+            <tr>
+                <td>{{ datetime }}</td>
+                <td>{{ '%0.3f' % rain }}</td>
+            </tr>
+        {% endfor -%}
+        <tr><td><b>OVERALL</b></td><td>{{ '%0.3f' % overall }} mm/m²</td></tr>
+        {% if loop.index == 1 %}<tr><td colspan="2"><br /><br /><br /></td></tr>{% endif -%}
+    {% endfor -%}
+
+</table><br /><br /><br />
+</body>
+</html>
+
