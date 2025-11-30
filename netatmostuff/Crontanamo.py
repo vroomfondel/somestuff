@@ -2,6 +2,7 @@ import json
 from os.path import expanduser, exists
 from pathlib import Path
 
+import config
 from config import settings
 from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
 
@@ -61,30 +62,20 @@ def send_to_mosquitto(
     # msgs: List[Tuple[str, Union[int, float, str, Dict], Optional[datetime.datetime], Optional[Dict]]] = []
     msgs: List[MWMqttMessage] = []
 
-    netatmo_topics: Dict[str, Dict[str, str]] = effconfig["mqtt_topics"]["netatmo"]
-    assert isinstance(netatmo_topics, dict)
+    netatmo_topics: Dict[str, config.MqttTopic] = settings.mqtt_topics.root.get("netatmo", {})  #effconfig["mqtt_topics"]["netatmo"]
+    # assert isinstance(netatmo_topics, dict)
 
-    metadata: Dict[str, Any] = effconfig[
-        "mqtt_message_default_metadata"
-    ].copy()  # copy just to make sure not to change the original/have some memory problems after a while due to references
+    metadata: Dict[str, Any] = effconfig["mqtt_message_default_metadata"].copy()
+    # NOPE: copy just to make sure not to change the original/have some memory problems after a while due to references
+    # for that reason metadata is already/will be copied in MosquittoClientWrapper.publish or MosquittoClientWrapper.publish_multiple
 
-    # msgs.append(
-    #     MWMqttMessage(
-    #         topic=topic,
-    #         # value=wsr.data.pressure.absolute.value,
-    #         value={"absolute": wsr.data.pressure.absolute.value, "relative": wsr.data.pressure.relative.value},
-    #         valuedt=wsr.data.pressure.absolute.time_as_datetime,
-    #         retained=False,
-    #         metadata=metadata,
-    #         rettype="valuemsg",  # Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg"
-    #     )
-    # )
 
     # msgs: List[Tuple[str, Union[int, float, str, Dict], Optional[datetime.datetime], Optional[Dict]]] = []
     topic: str | None
 
     if temp is not None:
-        topic = netatmo_topics.get("temperature", {}).get("topic", None)
+        assert "temperature" in netatmo_topics
+        topic = netatmo_topics["temperature"].topic
 
         if topic is not None:
             msgs.append(
@@ -92,14 +83,16 @@ def send_to_mosquitto(
                     topic=topic,
                     value=temp,
                     valuedt=created_at_temp,
-                    retained=False,
+                    retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
+                    qos=1
                 )
             )
 
     if rain is not None:
-        topic = netatmo_topics.get("rain", {}).get("topic", None)
+        assert "rain" in netatmo_topics
+        topic = netatmo_topics["rain"].topic
 
         if topic is not None:
             msgs.append(
@@ -107,14 +100,16 @@ def send_to_mosquitto(
                     topic=topic,
                     value=rain,
                     valuedt=created_at_rain,
-                    retained=False,
+                    retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
+                    qos=1
                 )
             )
 
     if rain1h is not None:
-        topic = netatmo_topics.get("rain1h", {}).get("topic", None)
+        assert "rain1h" in netatmo_topics
+        topic = netatmo_topics["rain1h"].topic
 
         if topic is not None:
             msgs.append(
@@ -122,14 +117,16 @@ def send_to_mosquitto(
                     topic=topic,
                     value=rain1h,
                     valuedt=created_at_rain1h,
-                    retained=False,
+                    retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
+                    qos=1
                 )
             )
 
     if rain24h is not None:
-        topic = netatmo_topics.get("rain24h", {}).get("topic", None)
+        assert "rain24h" in netatmo_topics
+        topic = netatmo_topics["rain24h"].topic
 
         if topic is not None:
             msgs.append(
@@ -137,9 +134,10 @@ def send_to_mosquitto(
                     topic=topic,
                     value=rain24h,
                     valuedt=created_at_rain24h,
-                    retained=False,
+                    retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
+                    qos=1
                 )
             )
 
@@ -150,7 +148,8 @@ def send_to_mosquitto(
         if absolute_pressure is not None:
             pd["absolute_pressure"] = absolute_pressure
 
-        topic = netatmo_topics.get("pressure", {}).get("topic", None)
+        assert "pressure" in netatmo_topics
+        topic = netatmo_topics["pressure"].topic
 
         if topic is not None:
             msgs.append(
@@ -158,9 +157,10 @@ def send_to_mosquitto(
                     topic=topic,
                     value=pd,
                     valuedt=created_at_pressure,
-                    retained=False,
+                    retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
+                    qos=1
                 )
             )
 
