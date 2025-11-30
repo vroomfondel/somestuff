@@ -105,6 +105,9 @@ mqtt_topics:
     busvoltage:
       topic: "esp32/esp32_9191919191/busvoltage"
       subscribe: false
+    wasserstandfeed:
+      topic: "nodered/hydrostatics/hydrostatic0/status"
+      subscribe: false
 
 mqtt_defaultmetadata:
   # latitude, longitude, elevation for sensor/actor

@@ -17,12 +17,11 @@ import pytz
 from typing import Type, Tuple, Optional, Literal, List, Any, Dict, ClassVar
 
 from cachetools import cached, TTLCache
-from pydantic import BaseModel, Field, HttpUrl, RootModel, PostgresDsn, field_validator
-from pydantic import EmailStr  # , NameEmail
+from pydantic import BaseModel, Field, HttpUrl, EmailStr, model_validator
 from pydantic_extra_types.mac_address import MacAddress
 from pydantic.networks import IPvAnyAddress
-from pydantic import RootModel
-
+# from pydantic import RootModel
+# from pydantic import RootModel, PostgresDsn, field_validator, NameEmail
 
 
 _PKG = "SOMESTUFF"
@@ -95,8 +94,15 @@ class MqttTopic(BaseModel):
     topic: str
     subscribe: bool = False
 
-class MqttTopics(RootModel):
+class MqttTopics(BaseModel):
     root: Dict[str, Dict[str, MqttTopic]]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_root(cls, v: Any) -> Any:
+        if isinstance(v, dict) and "root" not in v:
+            return {"root": v}
+        return v
 
     def __iter__(self) -> Any:
         return iter(self.root)  # type: ignore
