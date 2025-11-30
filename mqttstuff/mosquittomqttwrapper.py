@@ -37,7 +37,8 @@ class MWMqttMessage(BaseModel):
     topic: str
     value: Optional[Union[float, str, Dict[Any, Any]]] = None
     valuedt: Optional[datetime.datetime] = None
-    retained: Optional[bool] = None
+    retained: bool = False
+    qos: int = 0  # setting default here to something more robust than qos=0 ?!
     metadata: Optional[Dict[str, Any]] = None
     rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg"
 
@@ -50,6 +51,7 @@ class MWMqttMessage(BaseModel):
         value: Optional[Union[float, str, dict[Any, Any]]] = None
         valuedt: Optional[datetime.datetime] = None
 
+        qos: int = pahomsg.qos
         payload: bytes = pahomsg.payload  # type: ignore[attr-defined]
 
         if rettype == "json" or rettype == "valuemsg":
@@ -78,6 +80,7 @@ class MWMqttMessage(BaseModel):
             valuedt=valuedt,
             retained=pahomsg.retain,
             rettype=rettype,
+            qos=qos
         )
 
 
@@ -313,7 +316,8 @@ class MosquittoClientWrapper:
 
         for msg in msgs:
             rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = msg.rettype
-            retain: bool = msg.retained is not None and msg.retained
+            retain: bool = msg.retained
+            qos: int = msg.qos
 
             metadata_me: Optional[Dict] = None
 
@@ -349,7 +353,7 @@ class MosquittoClientWrapper:
                 # payload=json.dumps(payload_data, default=str),
                 payload=payload,
                 retain=retain,
-                qos=1,
+                qos=qos,
             )
 
             # self.logger.debug("AFTER PUBLISH")
