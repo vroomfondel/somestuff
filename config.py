@@ -37,10 +37,15 @@ _CONFIGLOCALPATH = Path(os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH")) if os.getenv(f"{
 
 
 from loguru import logger
-from pydantic_settings import (BaseSettings, DotEnvSettingsSource,
-                               EnvSettingsSource, InitSettingsSource,
-                               PydanticBaseSettingsSource, SettingsConfigDict,
-                               YamlConfigSettingsSource)
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
+    InitSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 # https://buildmedia.readthedocs.org/media/pdf/loguru/latest/loguru.pdf
 os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")  # standard is DEBUG
