@@ -323,8 +323,7 @@ def do_main_stuff() -> None:
     finally:
         try:
             import netatmostuff.lnetatmo as lnetatmo
-            from netatmostuff.Crontanamo import \
-                write_netatmo_credentials_to_shared_file
+            from netatmostuff.Crontanamo import write_netatmo_credentials_to_shared_file
 
             write_netatmo_credentials_to_shared_file()
         except Exception as ex:
