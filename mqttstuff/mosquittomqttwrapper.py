@@ -47,6 +47,7 @@ class MWMqttMessage(BaseModel):
         cls,
         pahomsg: MQTTMessage,
         rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg",
+        created_at_fieldname: str = "created_at"
     ) -> "MWMqttMessage":
         value: Optional[Union[float, str, dict[Any, Any]]] = None
         valuedt: Optional[datetime.datetime] = None
@@ -59,7 +60,7 @@ class MWMqttMessage(BaseModel):
 
             if rettype == "valuemsg":
                 value = d["value"]
-                valuedt = datetime.datetime.fromisoformat(d["created_at"]).astimezone(_tz_berlin)
+                valuedt = datetime.datetime.fromisoformat(d[created_at_fieldname]).astimezone(_tz_berlin)
             else:
                 value = d
         elif rettype == "str_raw":
@@ -410,6 +411,7 @@ class MQTTLastDataReader:
         max_received_msgs: int = 1,
         rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "str_raw",
         fallback_rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "str_raw",
+        created_at_fieldname: str = "created_at"
     ) -> Optional[list[MWMqttMessage]]:
         if noisy:
             cls.logger.debug(
@@ -461,9 +463,10 @@ class MQTTLastDataReader:
 
             if max_received_msgs == -1 or len(received_msgs) < max_received_msgs:
                 try:
-                    received_msgs.append(MWMqttMessage.from_pahomsg(msg, rettype))
+                    received_msgs.append(MWMqttMessage.from_pahomsg(msg, rettype, created_at_fieldname=created_at_fieldname))
                 except JSONDecodeError as e:  # TODO should also check for other decode orrors than JSONDecodeError
-                    received_msgs.append(MWMqttMessage.from_pahomsg(msg, fallback_rettype))
+                    logger.error(f"CAUGHT JSON-decoding error: {e}")
+                    received_msgs.append(MWMqttMessage.from_pahomsg(msg, fallback_rettype, created_at_fieldname=created_at_fieldname))
                     # if noisy:
                     #     cls.logger.debug(f"Caught JSONDecodeError -> switch to str_raw override for value {msg.payload=}")
                     # logger.opt(exception=e).error(e)
