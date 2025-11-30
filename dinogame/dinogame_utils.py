@@ -1,10 +1,8 @@
-from enum import Enum, auto
-from random import random, randint, shuffle, choices
-from typing import Set, Tuple, Optional, Dict, List, Callable, Any, ClassVar
-
-from dataclasses import dataclass, field
-
 from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from random import choices, randint, random, shuffle
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 

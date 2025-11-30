@@ -1,11 +1,10 @@
 import datetime
 import json
+import locale
 import os
 import sys
 from enum import StrEnum, auto
 from pathlib import Path
-
-import locale
 
 from ruamel.yaml import YAML
 
@@ -13,13 +12,14 @@ import Helper
 
 locale.setlocale(locale.LC_ALL, "de_DE.UTF-8")
 
-import pytz
-from typing import Type, Tuple, Optional, Literal, List, Any, Dict, ClassVar
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type
 
-from cachetools import cached, TTLCache
-from pydantic import BaseModel, Field, HttpUrl, EmailStr, model_validator
-from pydantic_extra_types.mac_address import MacAddress
+import pytz
+from cachetools import TTLCache, cached
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 from pydantic.networks import IPvAnyAddress
+from pydantic_extra_types.mac_address import MacAddress
+
 # from pydantic import RootModel
 # from pydantic import RootModel, PostgresDsn, field_validator, NameEmail
 
@@ -36,17 +36,11 @@ _CONFIGLOCALPATH: Path = Path(_CONFIGDIRPATH, "config.local.yaml")
 _CONFIGLOCALPATH = Path(os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH")) if os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH  # type: ignore
 
 
-from pydantic_settings import (
-    BaseSettings,
-    SettingsConfigDict,
-    PydanticBaseSettingsSource,
-    EnvSettingsSource,
-    YamlConfigSettingsSource,
-    InitSettingsSource,
-    DotEnvSettingsSource,
-)
-
 from loguru import logger
+from pydantic_settings import (BaseSettings, DotEnvSettingsSource,
+                               EnvSettingsSource, InitSettingsSource,
+                               PydanticBaseSettingsSource, SettingsConfigDict,
+                               YamlConfigSettingsSource)
 
 # https://buildmedia.readthedocs.org/media/pdf/loguru/latest/loguru.pdf
 os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")  # standard is DEBUG
@@ -88,11 +82,13 @@ if _CONFIG_ORIG is not None:
 # alias in settings not correctly handled for pydantic v2
 # https://github.com/pydantic/pydantic/issues/8379
 
+
 class MqttTopic(BaseModel):
     # modulename: str
     # submodulename: str
     topic: str
     subscribe: bool = False
+
 
 class MqttTopics(BaseModel):
     root: Dict[str, Dict[str, MqttTopic]]
@@ -109,6 +105,7 @@ class MqttTopics(BaseModel):
 
     def __getitem__(self, item: Any) -> Any:
         return self.root[item]
+
 
 class NetatmoModule(BaseModel):
     name: str
@@ -186,6 +183,7 @@ class MqttMessageDefaultMetadata(BaseModel):
     lon: None | float = Field(default=None)
     ele: None | float = Field(default=None)
 
+
 class Hydromail(BaseModel):
     smtpip: IPvAnyAddress
     mailfrom: EmailStr
@@ -193,6 +191,7 @@ class Hydromail(BaseModel):
     mailsubject_base: str
     mailrecipients_to: List[EmailStr]
     mailrecipients_cc: List[EmailStr]
+
 
 class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
@@ -252,6 +251,7 @@ def is_in_cluster() -> bool:
         return os.getenv("KUBERNETES_SERVICE_HOST") is not None
     return False
 
+
 def log_settings() -> None:
     for k, v in os.environ.items():
         if k.startswith("PSQL_"):
@@ -290,5 +290,3 @@ if __name__ == "__main__":
     # logger.info(json.dumps(_CONFIG_ORIG, indent=4, sort_keys=False, default=str))
     # logger.info(json.dumps(_CONFIG_LOCAL_ORIG, indent=4, sort_keys=False, default=str))
     logger.info(json.dumps(_EFFECTIVE_CONFIG, indent=4, sort_keys=False, default=str))
-
-

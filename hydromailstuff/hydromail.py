@@ -1,25 +1,21 @@
-import config
-from config import settings, is_in_cluster, TIMEZONE
-
-import os
 import datetime
-
-import Helper
-
+import os
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Dict, List, Optional, Tuple
 
 # import pytz
 from jinja2 import Template
-
+from loguru import logger
 from reputils import MailReport
 
+import config
+import Helper
+from config import TIMEZONE, is_in_cluster, settings
 from mqttstuff.mosquittomqttwrapper import MQTTLastDataReader, MWMqttMessage
 
 # from netatmostuff.Crontanamo import write_netatmo_credentials_to_shared_file
 # import netatmostuff.lnetatmo as lnetatmo
 
-from loguru import logger
 
 _templatedirpath: Path = Path(__file__).parent.resolve()
 
@@ -43,22 +39,28 @@ _sdfE_formatstring: str = "%Y%m%d"
 
 DISABLE_MAIL_SEND: bool = os.getenv("DISABLE_MAIL_SEND", "False") == "True"
 
-def mail_stuff(netatmodata: dict, current_temp: float, rain_lasthour: float, rain_overall_today: float,
-               rain_overall_yesterday: float, wasserbisoberkante: float|None, current_ma: float|None,
-               wasserandma_dt: datetime.datetime|None, current_busvoltage: float|None) -> None:
 
-    fp: Path = Path(_templatedirpath, 'mailtemplate.html.j2')
+def mail_stuff(
+    netatmodata: dict,
+    current_temp: float,
+    rain_lasthour: float,
+    rain_overall_today: float,
+    rain_overall_yesterday: float,
+    wasserbisoberkante: float | None,
+    current_ma: float | None,
+    wasserandma_dt: datetime.datetime | None,
+    current_busvoltage: float | None,
+) -> None:
+
+    fp: Path = Path(_templatedirpath, "mailtemplate.html.j2")
     logger.debug(f"{fp.absolute()=}")
 
     with open(fp) as file_:
         template = Template(file_.read())
 
         serverinfo = MailReport.SMTPServerInfo(
-            smtp_server=smtpip,
-            smtp_port=25,
-            useStartTLS=True,
-            wantsdebug=False,
-            ignoresslerrors=True)
+            smtp_server=smtpip, smtp_port=25, useStartTLS=True, wantsdebug=False, ignoresslerrors=True
+        )
 
         now: datetime.datetime = datetime.datetime.now(tz=TIMEZONE)
         sdd: str = now.strftime(_sdfD_formatstring)
@@ -67,7 +69,7 @@ def mail_stuff(netatmodata: dict, current_temp: float, rain_lasthour: float, rai
             serverinfo=serverinfo,
             returnpath=MailReport.EmailAddress.fromSTR(mailfrom),
             replyto=MailReport.EmailAddress.fromSTR(mailreplyto),
-            subject=f"{mailsubject_base} :: {sdd}"
+            subject=f"{mailsubject_base} :: {sdd}",
         )
         sendmail.tos = [MailReport.EmailAddress.fromSTR(k) for k in mailrecipients_to]
 
@@ -86,7 +88,11 @@ def mail_stuff(netatmodata: dict, current_temp: float, rain_lasthour: float, rai
             "rain_overall_today": rain_overall_today,
             "rain_overall_yesterday": rain_overall_yesterday,
             "netatmodata": netatmodata,
-            "wasserandma_dt": None if wasserandma_dt is None else wasserandma_dt.astimezone(tz=TIMEZONE).strftime(_sdfDHM_formatstring)
+            "wasserandma_dt": (
+                None
+                if wasserandma_dt is None
+                else wasserandma_dt.astimezone(tz=TIMEZONE).strftime(_sdfDHM_formatstring)
+            ),
         }
         mt_html: str = template.render(values)
         logger.debug(mt_html)
@@ -94,7 +100,10 @@ def mail_stuff(netatmodata: dict, current_temp: float, rain_lasthour: float, rai
         if not DISABLE_MAIL_SEND:
             sendmail.send(html=mt_html)
 
-def _get_latest_from_mqtt(topic: str, value_fieldname: str, created_at_fieldname: str = "orig_time", noisy: bool = False) -> Tuple[float|None, datetime.datetime|None]:
+
+def _get_latest_from_mqtt(
+    topic: str, value_fieldname: str, created_at_fieldname: str = "orig_time", noisy: bool = False
+) -> Tuple[float | None, datetime.datetime | None]:
     data_received: List[MWMqttMessage] | None = MQTTLastDataReader.get_most_recent_data_with_timeout(
         host=settings.mqtt.host,
         port=settings.mqtt.port,
@@ -117,24 +126,31 @@ def _get_latest_from_mqtt(topic: str, value_fieldname: str, created_at_fieldname
     logger.debug(f"{type(data)=}")
     logger.debug(Helper.get_pretty_dict_json_no_sort(data, 4))
 
-    retv: float|None = data.get(value_fieldname)  # type: ignore
-    ret_dt: datetime.datetime|None = None
-    ret_dt_s: str|None|float = data.get(created_at_fieldname)
+    retv: float | None = data.get(value_fieldname)  # type: ignore
+    ret_dt: datetime.datetime | None = None
+    ret_dt_s: str | None | float = data.get(created_at_fieldname)
     if ret_dt_s is not None and isinstance(ret_dt_s, str):
         ret_dt = datetime.datetime.fromisoformat(ret_dt_s).astimezone(tz=TIMEZONE)
 
     logger.debug(f"Value from MQTT topic '{topic}' is {retv} with created_at '{ret_dt_s}'")
     return retv, ret_dt
 
-def get_current_waterlevel_and_busvoltage_and_ma(noisy: bool = False) -> Tuple[Tuple[float|None, datetime.datetime|None], Tuple[float|None, datetime.datetime|None], Tuple[float|None, datetime.datetime|None]]:
-    wasserstand_created_at: datetime.datetime|None
-    wasserstand: float|None
 
-    ma_created_at: datetime.datetime|None
-    ma: float|None
+def get_current_waterlevel_and_busvoltage_and_ma(
+    noisy: bool = False,
+) -> Tuple[
+    Tuple[float | None, datetime.datetime | None],
+    Tuple[float | None, datetime.datetime | None],
+    Tuple[float | None, datetime.datetime | None],
+]:
+    wasserstand_created_at: datetime.datetime | None
+    wasserstand: float | None
 
-    busvoltage_created_at: datetime.datetime|None
-    busvoltage: float|None
+    ma_created_at: datetime.datetime | None
+    ma: float | None
+
+    busvoltage_created_at: datetime.datetime | None
+    busvoltage: float | None
 
     topic: str
     wasserstandsmesser_topics: Dict[str, config.MqttTopic] = settings.mqtt_topics.root.get("wasserstandsmesser", {})
@@ -143,17 +159,23 @@ def get_current_waterlevel_and_busvoltage_and_ma(noisy: bool = False) -> Tuple[T
     assert "wasserstand" in wasserstandsmesser_topics
     topic = wasserstandsmesser_topics["wasserstand"].topic
 
-    wasserstand, wasserstand_created_at = _get_latest_from_mqtt(topic=topic, value_fieldname="unteroberkante", created_at_fieldname="orig_time", noisy=noisy)
+    wasserstand, wasserstand_created_at = _get_latest_from_mqtt(
+        topic=topic, value_fieldname="unteroberkante", created_at_fieldname="orig_time", noisy=noisy
+    )
 
     assert "ma" in wasserstandsmesser_topics
     topic = wasserstandsmesser_topics["ma"].topic
 
-    ma, ma_created_at = _get_latest_from_mqtt(topic=topic, value_fieldname="value", created_at_fieldname="created_at", noisy=noisy)
+    ma, ma_created_at = _get_latest_from_mqtt(
+        topic=topic, value_fieldname="value", created_at_fieldname="created_at", noisy=noisy
+    )
 
     assert "busvoltage" in wasserstandsmesser_topics
     topic = wasserstandsmesser_topics["busvoltage"].topic
 
-    busvoltage, busvoltage_created_at = _get_latest_from_mqtt(topic=topic, value_fieldname="value", created_at_fieldname="created_at", noisy=noisy)
+    busvoltage, busvoltage_created_at = _get_latest_from_mqtt(
+        topic=topic, value_fieldname="value", created_at_fieldname="created_at", noisy=noisy
+    )
 
     return (wasserstand, wasserstand_created_at), (busvoltage, busvoltage_created_at), (ma, ma_created_at)
 
@@ -190,18 +212,18 @@ def read_netatmo() -> dict:
         if n == settings.netatmo.rainmodule.name or mod["_id"] == str(settings.netatmo.rainmodule.id):
             regen = mod
 
-    logger.debug(f'Found Aussen-Module: {aussen=}')
-    logger.debug(f'Found Regen-Module: {regen=}')
+    logger.debug(f"Found Aussen-Module: {aussen=}")
+    logger.debug(f"Found Regen-Module: {regen=}")
     current_temp: float = aussen["dashboard_data"]["Temperature"]  # type: ignore
-    lasthourrain: float = regenroep["dashboard_data"]["sum_rain_1"]  # type: ignore
-    logger.debug(f'Current Temperature: {current_temp}')
-    logger.debug(f'Current Rain: {lasthourrain}')  # Rain | sum_rain_24
+    lasthourrain: float = regen["dashboard_data"]["sum_rain_1"]  # type: ignore
+    logger.debug(f"Current Temperature: {current_temp}")
+    logger.debug(f"Current Rain: {lasthourrain}")  # Rain | sum_rain_24
 
     ret["current_temp"] = current_temp
     ret["rain_lasthour"] = lasthourrain
 
     begin: datetime.datetime = datetime.datetime.now(TIMEZONE)
-    begin = begin.replace(day=begin.day-1, hour=0, minute=0, second=0, microsecond=0)
+    begin = begin.replace(day=begin.day - 1, hour=0, minute=0, second=0, microsecond=0)
     logger.debug(f" {begin=} {begin}")
 
     end: datetime.datetime = datetime.datetime.now(TIMEZONE)
@@ -220,7 +242,7 @@ def read_netatmo() -> dict:
         date_end=int(end.timestamp()),
         limit=None,
         optimize=False,
-        real_time=False
+        real_time=False,
     )
     logger.debug(f"{type(measures)=} {measures}")
     bms: dict = measures["body"]
@@ -255,12 +277,14 @@ def read_netatmo() -> dict:
         else:
             ret["rain_overall_yesterday"] += measures_here_0
 
-        tgt.append({
-            "date": measure_sdf_d,
-            "datetime": measure_date.strftime(_sdfDHM_formatstring),
-            "time_millis": measure_date.timestamp(),  # begin auf die stunde ?!
-            "rain": measures_here_0
-        })
+        tgt.append(
+            {
+                "date": measure_sdf_d,
+                "datetime": measure_date.strftime(_sdfDHM_formatstring),
+                "time_millis": measure_date.timestamp(),  # begin auf die stunde ?!
+                "rain": measures_here_0,
+            }
+        )
 
     return ret
 
@@ -275,25 +299,36 @@ def do_main_stuff() -> None:
         netatmo_data: dict = read_netatmo()
 
         logger.debug("new getting current_waterlevel and stuff...")
-        (wasserbisoberkante, wasserdt), (currentbusvoltage, currentbusvoltagedt), (currentma, currentmadt) = get_current_waterlevel_and_busvoltage_and_ma(noisy=True)
+        (wasserbisoberkante, wasserdt), (currentbusvoltage, currentbusvoltagedt), (currentma, currentmadt) = (
+            get_current_waterlevel_and_busvoltage_and_ma(noisy=True)
+        )
 
         if DISABLE_MAIL_SEND:
             logger.debug("NOT sending email... DISABLE_MAIL_SEND is activated...")
         else:
             logger.debug("now trying to send email...")
-            mail_stuff(netatmo_data, netatmo_data["current_temp"], netatmo_data["rain_lasthour"],
-                       netatmo_data["rain_overall_today"], netatmo_data["rain_overall_yesterday"], wasserbisoberkante, currentma,
-                       currentmadt, currentbusvoltage)
+            mail_stuff(
+                netatmo_data,
+                netatmo_data["current_temp"],
+                netatmo_data["rain_lasthour"],
+                netatmo_data["rain_overall_today"],
+                netatmo_data["rain_overall_yesterday"],
+                wasserbisoberkante,
+                currentma,
+                currentmadt,
+                currentbusvoltage,
+            )
     except Exception as ex:
         logger.opt(exception=ex).exception(ex)
     finally:
         try:
-            from netatmostuff.Crontanamo import write_netatmo_credentials_to_shared_file
             import netatmostuff.lnetatmo as lnetatmo
+            from netatmostuff.Crontanamo import \
+                write_netatmo_credentials_to_shared_file
+
             write_netatmo_credentials_to_shared_file()
         except Exception as ex:
             logger.opt(exception=ex).exception(ex)
-
 
 
 if __name__ == "__main__":
@@ -301,8 +336,6 @@ if __name__ == "__main__":
     # exit(0)
 
     do_main_stuff()
-
-
 
     # Timestamp of the first measure to retrieve (Local Unix Time in seconds).
     # By default, it will retrieve the oldest data available.
@@ -314,4 +347,3 @@ if __name__ == "__main__":
     # Noise data (db) = {noise, min_noise, max_noise, date_min_noise, date_max_noise}
     # Rain data (mm) = {rain, min_rain, max_rain, sum_rain, date_min_rain, date_max_rain}
     # Wind data (km/h, °) = {windstrength, windangle, guststrength, gustangle, date_min_gust, date_max_gust}
-

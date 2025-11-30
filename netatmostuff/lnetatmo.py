@@ -17,17 +17,18 @@ from datetime import datetime
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")  # For installation test only
 
-from sys import version_info
+import json
+import logging
+import time
 from os import getenv
 from os.path import expanduser
-import json, time
-import logging
+from sys import version_info
 
 # Just in case method could change
 PYTHON3 = version_info.major > 2
 
-import urllib.parse, urllib.request
-
+import urllib.parse
+import urllib.request
 
 ######################## AUTHENTICATION INFORMATION ######################
 

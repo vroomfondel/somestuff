@@ -1,8 +1,9 @@
-import pygame
 import sys
 from enum import Enum, auto
 from random import random
-from typing import Tuple, List, Optional
+from typing import List, Optional, Tuple
+
+import pygame
 
 
 class Hats(Enum):

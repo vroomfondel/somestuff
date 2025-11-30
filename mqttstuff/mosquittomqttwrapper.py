@@ -1,23 +1,17 @@
+import datetime
 import functools
+import json
 import pprint
-
 import threading
 import time
 from json import JSONDecodeError
-
-from pydantic import BaseModel
-
-import json
-
-import datetime
-from typing import Optional, Union, Tuple, Dict, List, Any, Callable, Literal
+from threading import Condition
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import pytz
-
-from paho.mqtt.client import MQTTv311, MQTTMessage, MQTTMessageInfo, Client
+from paho.mqtt.client import Client, MQTTMessage, MQTTMessageInfo, MQTTv311
 from paho.mqtt.enums import CallbackAPIVersion
-
-from threading import Condition
+from pydantic import BaseModel
 
 _tz_berlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
@@ -47,7 +41,7 @@ class MWMqttMessage(BaseModel):
         cls,
         pahomsg: MQTTMessage,
         rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "valuemsg",
-        created_at_fieldname: str = "created_at"
+        created_at_fieldname: str = "created_at",
     ) -> "MWMqttMessage":
         value: Optional[Union[float, str, dict[Any, Any]]] = None
         valuedt: Optional[datetime.datetime] = None
@@ -76,12 +70,7 @@ class MWMqttMessage(BaseModel):
             value = float(payload.decode("utf-8"))
 
         return MWMqttMessage(
-            topic=pahomsg.topic,
-            value=value,
-            valuedt=valuedt,
-            retained=pahomsg.retain,
-            rettype=rettype,
-            qos=qos
+            topic=pahomsg.topic, value=value, valuedt=valuedt, retained=pahomsg.retain, rettype=rettype, qos=qos
         )
 
 
@@ -411,7 +400,7 @@ class MQTTLastDataReader:
         max_received_msgs: int = 1,
         rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "str_raw",
         fallback_rettype: Literal["json", "str", "int", "float", "valuemsg", "str_raw"] = "str_raw",
-        created_at_fieldname: str = "created_at"
+        created_at_fieldname: str = "created_at",
     ) -> Optional[list[MWMqttMessage]]:
         if noisy:
             cls.logger.debug(
@@ -463,10 +452,14 @@ class MQTTLastDataReader:
 
             if max_received_msgs == -1 or len(received_msgs) < max_received_msgs:
                 try:
-                    received_msgs.append(MWMqttMessage.from_pahomsg(msg, rettype, created_at_fieldname=created_at_fieldname))
+                    received_msgs.append(
+                        MWMqttMessage.from_pahomsg(msg, rettype, created_at_fieldname=created_at_fieldname)
+                    )
                 except JSONDecodeError as e:  # TODO should also check for other decode orrors than JSONDecodeError
                     logger.error(f"CAUGHT JSON-decoding error: {e}")
-                    received_msgs.append(MWMqttMessage.from_pahomsg(msg, fallback_rettype, created_at_fieldname=created_at_fieldname))
+                    received_msgs.append(
+                        MWMqttMessage.from_pahomsg(msg, fallback_rettype, created_at_fieldname=created_at_fieldname)
+                    )
                     # if noisy:
                     #     cls.logger.debug(f"Caught JSONDecodeError -> switch to str_raw override for value {msg.payload=}")
                     # logger.opt(exception=e).error(e)
@@ -567,7 +560,7 @@ class MQTTLastDataReader:
 
 
 def _main() -> None:
-    from config import settings, _EFFECTIVE_CONFIG
+    from config import _EFFECTIVE_CONFIG, settings
 
     mqttclient: MosquittoClientWrapper = MosquittoClientWrapper(
         host=settings.mqtt.host,

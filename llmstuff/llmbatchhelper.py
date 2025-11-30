@@ -1,4 +1,5 @@
 import time
+
 from google import genai
 from google.genai.types import CreateBatchJobConfig
 from pydantic import BaseModel, TypeAdapter
@@ -77,6 +78,7 @@ for i, inline_response in enumerate(batch_job_inline.dest.inlined_responses, sta
 
 
 import time
+
 from google import genai
 
 client = genai.Client()
@@ -109,6 +111,7 @@ if batch_job.state.name == "JOB_STATE_FAILED":  # type: ignore
 
 
 import json
+
 from google import genai
 
 client = genai.Client()

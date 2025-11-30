@@ -1,29 +1,24 @@
+import datetime
 import json
-from os.path import expanduser, exists
-from pathlib import Path
-
-import config
-from config import settings
-from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
-
 import os
-from typing import Optional, List, Dict, Any
-
 import sys
+import time
 from datetime import timedelta
+from os.path import exists, expanduser
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import pytz
-
+import schedule
 # https://github.com/dbader/schedule
 from schedule import run_pending
-import schedule
 
-
-import datetime, time
-
+import config
 import Helper
-
-from mqttstuff.mosquittomqttwrapper import MosquittoClientWrapper, MWMqttMessage
+from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
+from config import settings
+from mqttstuff.mosquittomqttwrapper import (MosquittoClientWrapper,
+                                            MWMqttMessage)
 
 _tzberlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
@@ -62,13 +57,14 @@ def send_to_mosquitto(
     # msgs: List[Tuple[str, Union[int, float, str, Dict], Optional[datetime.datetime], Optional[Dict]]] = []
     msgs: List[MWMqttMessage] = []
 
-    netatmo_topics: Dict[str, config.MqttTopic] = settings.mqtt_topics.root.get("netatmo", {})  #effconfig["mqtt_topics"]["netatmo"]
+    netatmo_topics: Dict[str, config.MqttTopic] = settings.mqtt_topics.root.get(
+        "netatmo", {}
+    )  # effconfig["mqtt_topics"]["netatmo"]
     # assert isinstance(netatmo_topics, dict)
 
     metadata: Dict[str, Any] = effconfig["mqtt_message_default_metadata"].copy()
     # NOPE: copy just to make sure not to change the original/have some memory problems after a while due to references
     # for that reason metadata is already/will be copied in MosquittoClientWrapper.publish or MosquittoClientWrapper.publish_multiple
-
 
     # msgs: List[Tuple[str, Union[int, float, str, Dict], Optional[datetime.datetime], Optional[Dict]]] = []
     topic: str | None
@@ -86,7 +82,7 @@ def send_to_mosquitto(
                     retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
-                    qos=1
+                    qos=1,
                 )
             )
 
@@ -103,7 +99,7 @@ def send_to_mosquitto(
                     retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
-                    qos=1
+                    qos=1,
                 )
             )
 
@@ -120,7 +116,7 @@ def send_to_mosquitto(
                     retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
-                    qos=1
+                    qos=1,
                 )
             )
 
@@ -137,7 +133,7 @@ def send_to_mosquitto(
                     retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
-                    qos=1
+                    qos=1,
                 )
             )
 
@@ -160,7 +156,7 @@ def send_to_mosquitto(
                     retained=True,
                     metadata=metadata,
                     rettype="valuemsg",
-                    qos=1
+                    qos=1,
                 )
             )
 

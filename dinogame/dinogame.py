@@ -1,14 +1,13 @@
-from pathlib import Path
-
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.patches import Rectangle, Circle
-import numpy as np
-from enum import Enum, auto
-from random import random
-from typing import Tuple, List, Optional
-
 import warnings
+from enum import Enum, auto
+from pathlib import Path
+from random import random
+from typing import List, Optional, Tuple
+
+import matplotlib.animation as animation
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.patches import Circle, Rectangle
 
 # Noto Sans als Standard mit Emoji-Fallback
 plt.rcParams["font.family"] = "sans-serif"

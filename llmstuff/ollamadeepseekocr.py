@@ -1,14 +1,11 @@
-from pathlib import Path
-from typing import Iterator, Dict, List
+import base64
+import difflib
 import json
+from pathlib import Path
+from typing import Dict, Iterator, List
 
 import ollama
 from loguru import logger
-
-import base64
-
-import difflib
-
 from ollama import GenerateResponse
 
 # if TYPE_CHECKING:

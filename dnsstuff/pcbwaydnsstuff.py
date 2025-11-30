@@ -1,15 +1,13 @@
-from typing import List, Set
-
-import dns.resolver
-import dns.rdtypes.ANY.SPF
-import dns.rdtypes.ANY.TXT
-
-import socket
+import os
 import random
+import socket
 import string
 import sys
-import os
+from typing import List, Set
 
+import dns.rdtypes.ANY.SPF
+import dns.rdtypes.ANY.TXT
+import dns.resolver
 from pyroute2.ipset import IPSet, PortEntry, PortRange
 
 
