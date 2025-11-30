@@ -22,9 +22,15 @@ pydantic
 pydantic-settings
 pytz
 pydantic-extra-types
+email-validator
 
 paho-mqtt
 schedule
 
+jinja2
+
 # PyYAML
 ruamel.yaml
+
+# FRESH FRESH FOR ME MYSELF AND I
+reputils==0.0.12
