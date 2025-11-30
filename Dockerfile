@@ -39,6 +39,8 @@ COPY --chown=${UID}:${GID} ecowittstuff /app/ecowittstuff
 COPY --chown=${UID}:${GID} llmstuff /app/llmstuff
 COPY --chown=${UID}:${GID} dnsstuff /app/dnsstuff
 COPY --chown=${UID}:${GID} mqttstuff /app/mqttstuff
+COPY --chown=${UID}:${GID} netatmostuff /app/netatmostuff
+COPY --chown=${UID}:${GID} hydromailstuff /app/hydromailstuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 # COPY --chown=${UID}:${GID} config.local.yaml /app/
