@@ -18,7 +18,11 @@ from typing import Type, Tuple, Optional, Literal, List, Any, Dict, ClassVar
 
 from cachetools import cached, TTLCache
 from pydantic import BaseModel, Field, HttpUrl, RootModel, PostgresDsn, field_validator
+from pydantic import EmailStr  # , NameEmail
 from pydantic_extra_types.mac_address import MacAddress
+from pydantic.networks import IPvAnyAddress
+from pydantic import RootModel
+
 
 
 _PKG = "SOMESTUFF"
@@ -85,6 +89,20 @@ if _CONFIG_ORIG is not None:
 # alias in settings not correctly handled for pydantic v2
 # https://github.com/pydantic/pydantic/issues/8379
 
+class MqttTopic(BaseModel):
+    # modulename: str
+    # submodulename: str
+    topic: str
+    subscribe: bool = False
+
+class MqttTopics(RootModel):
+    root: Dict[str, Dict[str, MqttTopic]]
+
+    def __iter__(self) -> Any:
+        return iter(self.root)  # type: ignore
+
+    def __getitem__(self, item: Any) -> Any:
+        return self.root[item]
 
 class NetatmoModule(BaseModel):
     name: str
@@ -162,6 +180,13 @@ class MqttMessageDefaultMetadata(BaseModel):
     lon: None | float = Field(default=None)
     ele: None | float = Field(default=None)
 
+class Hydromail(BaseModel):
+    smtpip: IPvAnyAddress
+    mailfrom: EmailStr
+    mailreplyto: EmailStr
+    mailsubject_base: str
+    mailrecipients_to: List[EmailStr]
+    mailrecipients_cc: List[EmailStr]
 
 class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
@@ -189,8 +214,8 @@ class Settings(BaseSettings):
     mqtt: Mqtt
     mqtt_message_default_metadata: MqttMessageDefaultMetadata
     netatmo: Netatmo
-
-    # TODO HT20251128 -> add mqtt_topics from config...
+    hydromail: Hydromail
+    mqtt_topics: MqttTopics
 
     @classmethod
     def settings_customise_sources(
@@ -220,7 +245,6 @@ def is_in_cluster() -> bool:
     if sa.exists() and sa.is_dir():
         return os.getenv("KUBERNETES_SERVICE_HOST") is not None
     return False
-
 
 def log_settings() -> None:
     for k, v in os.environ.items():
@@ -260,3 +284,5 @@ if __name__ == "__main__":
     # logger.info(json.dumps(_CONFIG_ORIG, indent=4, sort_keys=False, default=str))
     # logger.info(json.dumps(_CONFIG_LOCAL_ORIG, indent=4, sort_keys=False, default=str))
     logger.info(json.dumps(_EFFECTIVE_CONFIG, indent=4, sort_keys=False, default=str))
+
+

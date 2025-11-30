@@ -16,6 +16,18 @@ emailsettings:
     - "onecorp.bizme"
     - "secondcorp.bizme"
 
+hydromail:
+  smtpip: "127.0.0.1"
+  mailfrom: "hydromail@local.host.local"
+  mailreplyto: "hydromail@extern.host.tld"
+  mailsubject_base: "Regenmessdaten :: Some Where There"
+  mailrecipients_to:
+    - "otherone@extern.host.tld"
+  mailrecipients_cc:
+    - "someone@extern.othercorp.tld"
+    - "somehone@extern.host.tld"
+
+
 redis:
   host: "127.0.0.1"
   port: 6379
@@ -68,8 +80,8 @@ mqtt:
 mqtt_topics:
   ecowitt:
     pressure:
-        topic: "ecowitt/pressure"
-        subscribe: false
+      topic: "ecowitt/pressure"
+      subscribe: false
   netatmo:
     temperature:
       topic: "netatmo/temperature"
@@ -85,6 +97,13 @@ mqtt_topics:
       subscribe: false
     pressurefeed:
       topic: "netatmo/pressure"
+      subscribe: false
+  wasserstandsmesser:
+    mafeed:
+      topic: "esp32/esp32_9191919191/ma"
+      subscribe: false
+    busvoltage:
+      topic: "esp32/esp32_9191919191/busvoltage"
       subscribe: false
 
 mqtt_defaultmetadata:
