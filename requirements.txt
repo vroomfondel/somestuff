@@ -33,7 +33,7 @@ schedule
 
 jinja2
 
-# PyYAML
+PyYAML
 ruamel.yaml
 
 # FRESH FRESH FOR ME MYSELF AND I
