@@ -183,6 +183,7 @@ The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory s
 ## Python 3.14 JIT experiment (sub‑project)
 There is a dedicated subfolder `python314jit/` with its own `Dockerfile`, `build.sh`, and `README.md` for experimenting with Python 3.14’s new features and performance. See `python314jit/README.md` for details.
 
+[https://hub.docker.com/r/xomoxcc/python314-jit/tags](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
 
 ## Versioning
 This is a living collection; no strict semantic versioning. Expect occasional breaking changes. A rough, humorous version might be “-0.42”.

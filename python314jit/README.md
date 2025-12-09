@@ -1,3 +1,6 @@
+
+[https://hub.docker.com/r/xomoxcc/python314-jit/tags](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
+
 Python 3.14 with Experimental JIT (Docker)
 
 This directory builds a Docker image that contains CPython 3.14 compiled from source with the experimental JIT enabled. It also includes a small Python script to inspect build/runtime JIT status.
