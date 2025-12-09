@@ -5,6 +5,7 @@ import time
 
 print(f"Python Version: {sys.version}")
 
+
 def info_test():
     # 1. Prüfen ob GIL aktiv ist
     # Ab Python 3.13 gibt es _is_gil_enabled()
@@ -33,6 +34,7 @@ def info_test():
     # has_jit = any(x for x in dir(_opcode) if "JIT" in x) # Grober Check
     # print(f"JIT Support:    {'Möglich' if has_jit else 'Unwahrscheinlich'}")
 
+
 def deep_jit_test():
 
     print(f"--- Python JIT Diagnose für {sys.version.split()[0]} ---")
@@ -45,7 +47,8 @@ def deep_jit_test():
     jit_compiled = "enable-experimental-jit" in config_args
 
     print(
-        f"1. Build Config:      {'✅ Mit JIT Support kompiliert' if jit_compiled else '❌ Kein JIT im Build gefunden'}")
+        f"1. Build Config:      {'✅ Mit JIT Support kompiliert' if jit_compiled else '❌ Kein JIT im Build gefunden'}"
+    )
 
     if not jit_compiled:
         print("   -> Abbruch: Dieser Python-Build kann keinen JIT nutzen.")
@@ -93,7 +96,7 @@ def deep_jit_test():
     try:
         # Ansatz 1: Prüfe alle gültigen Bytecode-Offsets
         executor_found = False
-        
+
         # Iteriere durch alle möglichen Offsets im Bytecode
         for offset in range(0, len(code_obj.co_code), 2):  # Bytecode ist in 2-Byte-Einheiten
             try:
