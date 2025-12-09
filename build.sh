@@ -5,7 +5,7 @@ medir=$(realpath "${medir}")
 cd "${medir}" || exit 123
 
 buildtime=$(date +'%Y-%m-%d %H:%M:%S %Z')
-DOCKER_IMAGE="UNDEFINED"
+DOCKER_IMAGE="xomoxcc/somestuff:py314trixie"
 dockerfile=Dockerfile
 
 source scripts/include.sh
@@ -39,6 +39,12 @@ if [ $builder_found -ne 0 ] ; then
 fi
 
 docker_base_args=("build" "-f" "${dockerfile}" "--build-arg" "buildtime=\"${buildtime}\"" "-t" "${DOCKER_IMAGE}")
+
+if ! [ "${DOCKER_IMAGE}" = *latest ] ; then
+  echo "DOCKER_IMAGE ${DOCKER_IMAGE} not tagged :latest -> adding second tag with :latest"
+  DOCKER_IMAGE_2=${DOCKER_IMAGE%\:*}\:latest
+  docker_base_args+=("-t" "${DOCKER_IMAGE_2}")
+fi
 
 if [ $# -eq 1 ] ; then
         if [ "$1" == "onlylocal" ] ; then
