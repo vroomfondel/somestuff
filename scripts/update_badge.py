@@ -1,19 +1,24 @@
 import os
 import json
 
+
 def install_and_import(packagename: str, pipname: str) -> None:
     import importlib
+
     try:
         importlib.import_module(packagename)
     except ImportError:
         import pip
-        pip.main(['install', pipname])
+
+        pip.main(["install", pipname])
     finally:
         globals()[packagename] = importlib.import_module(packagename)
+
 
 install_and_import(packagename="github", pipname="pygithub")
 
 from github import Github, InputFileContent, Clones, Auth
+
 
 def main() -> None:
     print("update_badge.py::main()")
@@ -38,7 +43,7 @@ def main() -> None:
     repo = g_repo.get_repo(repo_name)
 
     # Clones der letzten 14 Tage holen
-    clones_data: Clones.Clones|None = repo.get_clones_traffic()
+    clones_data: Clones.Clones | None = repo.get_clones_traffic()
 
     ndata: int = len(clones_data.clones) if clones_data else 0
     print(f"Datenpunkte erhalten: {ndata}")
@@ -63,10 +68,7 @@ def main() -> None:
         for c in clones_data.clones:
             # Timestamp zu String konvertieren für JSON Key
             key = str(c.timestamp)
-            history[key] = {
-                "count": c.count,
-                "uniques": c.uniques
-            }
+            history[key] = {"count": c.count, "uniques": c.uniques}
 
     # --- 4. SUMME BERECHNEN ---
     total_clones = sum(d["count"] for d in history.values())
@@ -79,14 +81,14 @@ def main() -> None:
         "message": str(total_clones),
         "color": "blue",
         "namedLogo": "python",  # Kleines Python Logo als Gimmick ;)
-        "logoColor": "white"
+        "logoColor": "white",
     }
 
     # --- 6. UPDATE DURCHFÜHREN ---
     gist.edit(
         files={
             history_filename: InputFileContent(json.dumps(history, indent=2)),
-            badge_filename: InputFileContent(json.dumps(badge_data))
+            badge_filename: InputFileContent(json.dumps(badge_data)),
         }
     )
     print("Gist erfolgreich aktualisiert!")
