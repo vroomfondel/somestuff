@@ -1,3 +1,8 @@
+[![mypy and pytests](https://github.com/vroomfondel/somestuff/actions/workflows/mypynpytests.yml/badge.svg)](https://github.com/vroomfondel/somestuff/actions/workflows/mypynpytests.yml)
+[![BuildAndPushMultiarch](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml/badge.svg)](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml)
+![Cumulative Clones](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/vroomfondel/22c802be25a8241e81e98a28d00c6036/raw/somestuff_clone_count.json)
+
+
 # somestuff
 
 some more or less usefull stuff. sometimes just code snippets and whatever.
