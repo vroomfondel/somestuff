@@ -4,7 +4,7 @@
 # FROM pypy:bookwork  # ist aktuell python 3.11.13
 # FROM pypy:trixie  # ist aktuell bei python 3.11.13
 # https://blog.miguelgrinberg.com/post/python-3-14-is-here-how-fast-is-it
-FROM python:3.14-bookworm
+FROM python:3.14-trixie
 
 # https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
 
