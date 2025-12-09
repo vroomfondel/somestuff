@@ -1,5 +1,10 @@
 # FROM python:3.13-trixie
-FROM python:3.13-bookworm
+# FROM python:3.13-bookworm
+# FROM python:3.14-trixie
+# FROM pypy:bookwork  # ist aktuell python 3.11.13
+# FROM pypy:trixie  # ist aktuell bei python 3.11.13
+# https://blog.miguelgrinberg.com/post/python-3-14-is-here-how-fast-is-it
+FROM python:3.14-bookworm
 
 # https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
 
