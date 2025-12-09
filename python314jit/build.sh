@@ -25,7 +25,7 @@ fi
 
 export BUILDER_NAME=mbuilder
 # --progress=plain --no-cache
-export BUILDKIT_PROGRESS=plain
+# export BUILDKIT_PROGRESS=plain
 # export DOCKER_CLI_EXPERIMENTAL=enabled
 # apt -y install qemu-user-binfmt qemu-user binfmt-support
 
@@ -40,6 +40,12 @@ if [ $builder_found -ne 0 ] ; then
 fi
 
 docker_base_args=("build" "-f" "${dockerfile}" "--build-arg" "buildtime=\"${buildtime}\"" "-t" "${DOCKER_IMAGE}")
+
+if ! [ "${DOCKER_IMAGE}" = *latest ] ; then
+  echo "DOCKER_IMAGE ${DOCKER_IMAGE} not tagged :latest -> adding second tag with :latest"
+  DOCKER_IMAGE_2=${DOCKER_IMAGE%\:*}\:latest
+  docker_base_args+=("-t" "${DOCKER_IMAGE_2}")
+fi
 
 if [ $# -eq 1 ] ; then
         if [ "$1" == "onlylocal" ] ; then
