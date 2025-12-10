@@ -1,5 +1,4 @@
-
-[https://hub.docker.com/r/xomoxcc/python314-jit/tags](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
+[![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/python314-jit?logo=docker)](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
 
 Python 3.14 with Experimental JIT (Docker)
 

@@ -1,7 +1,7 @@
 [![mypy and pytests](https://github.com/vroomfondel/somestuff/actions/workflows/mypynpytests.yml/badge.svg)](https://github.com/vroomfondel/somestuff/actions/workflows/mypynpytests.yml)
 [![BuildAndPushMultiarch](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml/badge.svg)](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml)
 ![Cumulative Clones](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/vroomfondel/22c802be25a8241e81e98a28d00c6036/raw/somestuff_clone_count.json)
-
+[![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/somestuff?logo=docker)](https://hub.docker.com/r/xomoxcc/somestuff/tags)
 
 # somestuff
 
