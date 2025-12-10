@@ -62,6 +62,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Get Berlin Time
+        id: berlin_time
+        run: |
+          BUILDTIME=$(TZ='Europe/Berlin' date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -69,7 +75,11 @@ jobs:
           platforms: linux/amd64,linux/aarch64
           # github.event_name ist hier dann immer "workflow_run"
           push: ${{ github.event_name != 'pull_request' }}
-          tags: "xomoxcc/somestuff:latest,xomoxcc/somestuff:py314trixie"
+          tags: "xomoxcc/somestuff:latest,xomoxcc/somestuff:python-3.14-trixie"
+          build-args: |
+            buildtime=${{ steps.berlin_time.outputs.buildtime }}
+            python_version=3.14
+            debian_version=trixie
           # tags: ${{ steps.<meta_id>.outputs.tags }}
           # labels: ${{ steps.<meta_id>.outputs.labels }}
 
