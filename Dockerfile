@@ -47,6 +47,8 @@ USER ${UNAME}
 COPY --chown=${UID}:${GID} requirements.txt /
 RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
 
+# ADD --chown=${UID}:${GID} "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
+
 COPY --chown=${UID}:${GID} dinogame /app/dinogame
 COPY --chown=${UID}:${GID} ecowittstuff /app/ecowittstuff
 COPY --chown=${UID}:${GID} llmstuff /app/llmstuff
@@ -56,7 +58,8 @@ COPY --chown=${UID}:${GID} netatmostuff /app/netatmostuff
 COPY --chown=${UID}:${GID} hydromailstuff /app/hydromailstuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
-# COPY --chown=${UID}:${GID} config.local.yaml /app/
+
+# RUN rm skipcache
 
 WORKDIR /app
 
@@ -65,6 +68,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 ENV PYTHONPATH=${PYTHONPATH:+${PYTHONPATH}:}/app
+ENV PATH="/home/pythonuser/.local/bin:$PATH"
+
+
+
 
 
 ARG gh_ref=gh_ref_is_undefined

@@ -4,18 +4,20 @@ medir=$(dirname "$0")
 medir=$(realpath "${medir}")
 cd "${medir}" || exit 123
 
-buildtime=$(date +'%Y-%m-%d %H:%M:%S %Z')
-
 python_version=3.14
+pandas_version=2.2.3
 debian_version=trixie
 
-DOCKER_IMAGE="xomoxcc/somestuff:python-${python_version}-${debian_version}"
+DOCKER_IMAGE=xomoxcc/pythonpandasmultiarch:python-${python_version}-pandas-${pandas_version}-${debian_version}
+dockerfile=Dockerfile
+
+buildtime=$(date +'%Y-%m-%d %H:%M:%S %Z')
 
 dockerfile=Dockerfile
 
-source scripts/include.sh
+source ../scripts/include.sh
 
-export DOCKER_CONFIG=$(pwd)/docker-config
+export DOCKER_CONFIG=$(realpath $(pwd)/../docker-config)
 
 if ! [ -e "${DOCKER_CONFIG}/config.json" ] ; then
   echo "${DOCKER_TOKEN}" | docker login --username "${DOCKER_TOKENUSER}" --password-stdin
@@ -27,9 +29,10 @@ if ! [ -e "${DOCKER_CONFIG}/config.json" ] ; then
   fi
 fi
 
+
 export BUILDER_NAME=mbuilder
 # --progress=plain --no-cache
-# BUILDKIT_PROGRESS=plain
+# export BUILDKIT_PROGRESS=plain
 # export DOCKER_CLI_EXPERIMENTAL=enabled
 # apt -y install qemu-user-binfmt qemu-user binfmt-support
 
@@ -43,32 +46,26 @@ if [ $builder_found -ne 0 ] ; then
   docker buildx use ${BUILDER_NAME}
 fi
 
-docker_base_args=("build"
-  "-f" "${dockerfile}"
-  "--build-arg" "python_version=${python_version}"
-  "--build-arg" "debian_version=${debian_version}"
-  "--build-arg" "buildtime=\"${buildtime}\"" "-t" "${DOCKER_IMAGE}")
+docker_base_args=("build" "-f" "${dockerfile}" "--build-arg" "buildtime=\"${buildtime}\"" "-t" "${DOCKER_IMAGE}")
 
-if ! [[ "${DOCKER_IMAGE}" == *latest ]] ; then
+if ! [ "${DOCKER_IMAGE}" = *latest ] ; then
   echo "DOCKER_IMAGE ${DOCKER_IMAGE} not tagged :latest -> adding second tag with :latest"
   DOCKER_IMAGE_2=${DOCKER_IMAGE%\:*}\:latest
   docker_base_args+=("-t" "${DOCKER_IMAGE_2}")
 fi
 
-
 if [ $# -eq 1 ] ; then
         if [ "$1" == "onlylocal" ] ; then
           export BUILDKIT_PROGRESS=plain  # plain|tty|auto
-                docker --debug "${docker_base_args[@]}" .
+                docker "${docker_base_args[@]}" .
                 exit $?
         fi
 fi
 
 
-# takes some extra time...
+
 # docker "${docker_base_args[@]}" . > docker_build_local.log 2>&1 &
 
 docker buildx "${docker_base_args[@]}" --platform linux/amd64,linux/aarch64 --push .
+# docker buildx "${docker_base_args[@]}" --platform linux/amd64 --push .
 
-wait
-date
