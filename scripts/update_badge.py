@@ -1,5 +1,9 @@
 import os
 import json
+import sys
+from pprint import pprint
+
+from github.Rate import Rate
 
 
 def install_and_import(packagename: str, pipname: str) -> None:
@@ -17,8 +21,7 @@ def install_and_import(packagename: str, pipname: str) -> None:
 
 install_and_import(packagename="github", pipname="pygithub")
 
-from github import Github, InputFileContent, Clones, Auth
-
+from github import Github, InputFileContent, Clones, Auth, RateLimitOverview
 
 def main() -> None:
     print("update_badge.py::main()")
@@ -93,6 +96,39 @@ def main() -> None:
     )
     print("Gist erfolgreich aktualisiert!")
 
+def get_usage_info() -> None:
+    full_api_token: str = os.environ.get("PRIV_FULL_TOKEN", os.environ.get("REPO_TOKEN", ""))
+
+    assert full_api_token is not None and len(full_api_token)>0
+
+    # Authentifizierung
+    g = Github(auth=Auth.Token(full_api_token))
+
+    # Limits abrufen
+    limits: RateLimitOverview.RateLimitOverview = g.get_rate_limit()
+    print(f"{type(limits)=}")
+    print(limits)
+
+    print(f"{type(limits.raw_data)=}")
+    pprint(limits.raw_data)
+
+
+    core = limits.resources.core
+    print(f"{type(core)=}")
+    print(f"{core=}")
+
+    search = limits.resources.search
+    print(f"{type(search)=}")
+    print(f"{search=}")
+
+    code_search = limits.resources.code_search
+    print(f"{type(code_search)=}")
+    print(f"{code_search=}")
+
+
+
 
 if __name__ == "__main__":
+    #get_usage_info()
     main()
+
