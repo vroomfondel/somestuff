@@ -9,7 +9,7 @@ KUBECTL_CONTEXT="arley@local"
 # echo \$0 in include.sh: $0
 
 declare -a include_local_sh
-include_local_sh[0]="$(dirname "$0")/include.local.sh"
+include_local_sh[0]="include.local.sh"
 include_local_sh[1]="$(dirname "$0")/scripts/include.local.sh"
 include_local_sh[2]="$(dirname "$0")/../scripts/include.local.sh"
 found=false
