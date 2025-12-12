@@ -1,5 +1,8 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/python314-jit?logo=docker)](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
 
+
+![Gemini_Generated_Image_python314jit_5sz66e5sz66e5sz6_250x250.png](Gemini_Generated_Image_python314jit_5sz66e5sz66e5sz6_250x250.png)
+
 Python 3.14 with Experimental JIT (Docker)
 
 This directory builds a Docker image that contains CPython 3.14 compiled from source with the experimental JIT enabled. It also includes a small Python script to inspect build/runtime JIT status.

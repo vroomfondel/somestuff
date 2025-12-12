@@ -1,5 +1,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/pythonpandasmultiarch?logo=docker)](https://hub.docker.com/r/xomoxcc/pythonpandasmultiarch/tags)
 
+![Gemini_Generated_Image_python314pandasmultiarch_1scj0x1scj0x1scj_250x250.png](Gemini_Generated_Image_python314pandasmultiarch_1scj0x1scj0x1scj_250x250.png)
+
 Python 3.14 + Pandas 2.2.3 (Multi‑Arch Docker Base Image)
 
 This directory provides a minimal, multi‑architecture Docker base image that ships with:
