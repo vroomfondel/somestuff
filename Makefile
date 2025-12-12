@@ -26,7 +26,7 @@ venv: .venv/touchfile
 
 .venv/touchfile: requirements.txt requirements-dev.txt
 	@if [ -z "$${GITHUB_RUN_ID}" ]; then \
-		test -d .venv || python3.14 -m .venv; \
+		test -d .venv || python3.14 -m venv .venv; \
 		source .venv/bin/activate; \
 		pip install -r requirements-dev.txt; \
 		touch .venv/touchfile; \
