@@ -1,7 +1,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/python314-jit?logo=docker)](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
 
 
-![Gemini_Generated_Image_python314jit_5sz66e5sz66e5sz6_250x250.png](Gemini_Generated_Image_python314jit_5sz66e5sz66e5sz6_250x250.png)
+[![Gemini_Generated_Image_python314jit_5sz66e5sz66e5sz6_250x250.png](Gemini_Generated_Image_python314jit_5sz66e5sz66e5sz6_250x250.png)](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
 
 Python 3.14 with Experimental JIT (Docker)
 

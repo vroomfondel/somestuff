@@ -3,7 +3,7 @@
 ![Cumulative Clones](https://img.shields.io/endpoint?logo=github&url=https://gist.githubusercontent.com/vroomfondel/22c802be25a8241e81e98a28d00c6036/raw/somestuff_clone_count.json)
 [![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/somestuff?logo=docker)](https://hub.docker.com/r/xomoxcc/somestuff/tags)
 
-![Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png](Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png)
+[![Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png](Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png)](https://hub.docker.com/r/xomoxcc/somestuff/tags)
 
 # somestuff
 
