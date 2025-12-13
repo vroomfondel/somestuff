@@ -6,6 +6,61 @@ from enum import Enum
 from typing import Any, Dict, List
 
 
+def get_loguru_logger_info() -> None:
+    # deferred import
+    from loguru import logger
+    def inspect_loggers() -> List[Dict[str, Any]]:
+        """Gibt eine Liste aller konfigurierten Logger-Handler zurück."""
+        handlers_info = []
+
+        lvint_to_lvname: Dict[int, str] = {lvv.no: lvv.name for lvv in logger._core.levels.values()}  # type: ignore
+
+        for handler_id, handler in logger._core.handlers.items(): # type: ignore
+            info = {
+                "id": handler_id,
+                "level": handler._levelno,
+                "level_name": lvint_to_lvname[handler._levelno],  #handler._level_name,
+                "format": handler._formatter,
+                "sink": str(handler._sink),
+                "filter": handler._filter.__name__ if callable(handler._filter) else str(handler._filter),
+                "colorize": getattr(handler, "_colorize", None),
+                "serialize": getattr(handler, "_serialize", None),
+            }
+            handlers_info.append(info)
+
+        return handlers_info
+
+
+    def get_all_filters() -> List[Any]:
+        """Gibt alle Filter aller Handler zurück."""
+        filters = []
+
+        for handler_id, handler in logger._core.handlers.items():  # type: ignore
+            filter_func = handler._filter
+            if filter_func is not None:
+                filters.append({
+                    "handler_id": handler_id,
+                    "filter": filter_func,
+                    "filter_name": filter_func.__name__ if callable(filter_func) else str(filter_func),
+                })
+
+        return filters
+
+    for handler in inspect_loggers():
+        logger.info(f"Handler {handler['id']}:")
+        logger.info(f"  Level: {handler['level_name']} ({handler['level']})")
+        logger.info(f"  Format: {handler['format']}")
+        logger.info(f"  Sink: {handler['sink']}")
+        logger.info(f"  Filter: {handler['filter']}")
+        logger.info("")
+
+
+    # only filters:
+    for f in get_all_filters():
+        logger.info(f"Handler {f['handler_id']}: {f['filter_name']}")
+
+
+
 class ComplexEncoder(json.JSONEncoder):
     def default(self, obj: Any) -> Any:
         if hasattr(obj, "repr_json"):
