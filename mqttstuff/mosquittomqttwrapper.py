@@ -6,7 +6,7 @@ import threading
 import time
 from json import JSONDecodeError
 from threading import Condition
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union, ClassVar
 
 import pytz
 from paho.mqtt.client import Client, MQTTMessage, MQTTMessageInfo, MQTTv311
@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 _tz_berlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
-from loguru import logger
+from loguru import logger, Logger
 
 logger.debug(f"{__name__} DEBUG")
 logger.info(f"{__name__} INFO")
@@ -75,7 +75,7 @@ class MWMqttMessage(BaseModel):
 
 
 class MosquittoClientWrapper:
-    logger = logger.bind(classname=__qualname__)
+    logger: ClassVar[Logger] = logger.bind(classname=__qualname__)
 
     def __init__(
         self,
