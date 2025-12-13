@@ -3,8 +3,6 @@ import json
 import sys
 from pprint import pprint
 
-from github.Rate import Rate
-
 
 def install_and_import(packagename: str, pipname: str) -> None:
     import importlib
@@ -22,6 +20,7 @@ def install_and_import(packagename: str, pipname: str) -> None:
 install_and_import(packagename="github", pipname="pygithub")
 
 from github import Github, InputFileContent, Clones, Auth, RateLimitOverview
+from github.Rate import Rate
 
 def main() -> None:
     print("update_badge.py::main()")
