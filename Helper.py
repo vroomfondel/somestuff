@@ -9,17 +9,18 @@ from typing import Any, Dict, List
 def get_loguru_logger_info() -> None:
     # deferred import
     from loguru import logger
+
     def inspect_loggers() -> List[Dict[str, Any]]:
         """Gibt eine Liste aller konfigurierten Logger-Handler zurück."""
         handlers_info = []
 
         lvint_to_lvname: Dict[int, str] = {lvv.no: lvv.name for lvv in logger._core.levels.values()}  # type: ignore
 
-        for handler_id, handler in logger._core.handlers.items(): # type: ignore
+        for handler_id, handler in logger._core.handlers.items():  # type: ignore
             info = {
                 "id": handler_id,
                 "level": handler._levelno,
-                "level_name": lvint_to_lvname[handler._levelno],  #handler._level_name,
+                "level_name": lvint_to_lvname[handler._levelno],  # handler._level_name,
                 "format": handler._formatter,
                 "sink": str(handler._sink),
                 "filter": handler._filter.__name__ if callable(handler._filter) else str(handler._filter),
@@ -30,7 +31,6 @@ def get_loguru_logger_info() -> None:
 
         return handlers_info
 
-
     def get_all_filters() -> List[Any]:
         """Gibt alle Filter aller Handler zurück."""
         filters = []
@@ -38,11 +38,13 @@ def get_loguru_logger_info() -> None:
         for handler_id, handler in logger._core.handlers.items():  # type: ignore
             filter_func = handler._filter
             if filter_func is not None:
-                filters.append({
-                    "handler_id": handler_id,
-                    "filter": filter_func,
-                    "filter_name": filter_func.__name__ if callable(filter_func) else str(filter_func),
-                })
+                filters.append(
+                    {
+                        "handler_id": handler_id,
+                        "filter": filter_func,
+                        "filter_name": filter_func.__name__ if callable(filter_func) else str(filter_func),
+                    }
+                )
 
         return filters
 
@@ -54,11 +56,9 @@ def get_loguru_logger_info() -> None:
         logger.info(f"  Filter: {handler['filter']}")
         logger.info("")
 
-
     # only filters:
     for f in get_all_filters():
         logger.info(f"Handler {f['handler_id']}: {f['filter_name']}")
-
 
 
 class ComplexEncoder(json.JSONEncoder):
