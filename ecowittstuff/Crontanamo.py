@@ -16,7 +16,7 @@ import Helper
 from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
 from config import settings
 from ecowittstuff.ecowittapi import WeatherStationResponse, get_realtime_data
-from mqttstuff.mosquittomqttwrapper import MosquittoClientWrapper, MWMqttMessage
+from mqttstuff import MosquittoClientWrapper, MWMqttMessage
 
 _tzberlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
