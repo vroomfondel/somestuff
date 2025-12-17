@@ -1,6 +1,6 @@
 ARG python_version=3.14
 ARG pandas_version=2.2.3
-ARG debian_version=trixie
+ARG debian_version=slim-trixie
 
 FROM python:${python_version}-${debian_version} AS builder
 
