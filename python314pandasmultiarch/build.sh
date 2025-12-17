@@ -6,7 +6,7 @@ cd "${medir}" || exit 123
 
 python_version=3.14
 pandas_version=2.2.3
-debian_version=trixie
+debian_version=slim-trixie
 
 DOCKER_IMAGE=xomoxcc/pythonpandasmultiarch:python-${python_version}-pandas-${pandas_version}-${debian_version}
 dockerfile=Dockerfile
@@ -66,6 +66,6 @@ fi
 
 # docker "${docker_base_args[@]}" . > docker_build_local.log 2>&1 &
 
-docker buildx "${docker_base_args[@]}" --platform linux/amd64,linux/aarch64 --push .
+docker buildx "${docker_base_args[@]}" --platform linux/amd64,linux/arm64 --push .
 # docker buildx "${docker_base_args[@]}" --platform linux/amd64 --push .
 
