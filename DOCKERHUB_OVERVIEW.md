@@ -164,7 +164,7 @@ docker run --rm -it \
 This repo includes a helper script `build.sh` that:
 - Logs in (expects `DOCKER_TOKENUSER` and `DOCKER_TOKEN` in env on first run)
 - Ensures a `buildx` builder exists (and installs binfmt/qemu if needed)
-- Builds locally and also performs a `docker buildx build --platform linux/amd64,linux/aarch64 --push` with tags
+- Builds locally and also performs a `docker buildx build --platform linux/amd64,linux/arm64 --push` with tags
 - Writes local build logs to `docker_build_local.log`
 
 Usage:
