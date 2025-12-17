@@ -111,6 +111,7 @@ Minimal MQTT wrapper(s) and helpers.
 - File: `mqttstuff/mosquittomqttwrapper.py`.
 - Config: `mqtt.*` and `mqtt_topics.*` in `config.yaml` (topics include metadata such as subscribe flag and default metadata).
 - Usefulness: standardize how topics are named and read/published across scripts.
+- **⚠️ Warning:** this is now an external module (https://github.com/vroomfondel/mqttstuff) and included as library via pypi (https://pypi.org/project/mqttstuff/)
 
 
 ### netatmostuff

@@ -58,9 +58,6 @@ COPY --chown=${UID}:${GID} dnsstuff /app/dnsstuff
 COPY --chown=${UID}:${GID} netatmostuff /app/netatmostuff
 COPY --chown=${UID}:${GID} hydromailstuff /app/hydromailstuff
 
-# mqttstuff is now a submodule
-COPY --chown=${UID}:${GID} mqttstuff /app/mqttstuff
-
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 
 # RUN rm skipcache
@@ -72,12 +69,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 #ENV PYTHONPATH=${PYTHONPATH:+${PYTHONPATH}:}/app:/app/mqttstuff
-ENV PYTHONPATH=/app:/app/mqttstuff
-
-
-
-
-
+ENV PYTHONPATH=/app
 
 ARG gh_ref=gh_ref_is_undefined
 ENV GITHUB_REF=$gh_ref

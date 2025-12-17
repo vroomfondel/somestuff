@@ -1,4 +1,0 @@
-[submodule "mqttstuff"]
-	path = mqttstuff
-	url = git@github.com:vroomfondel/mqttstuff.git
-	branch = main

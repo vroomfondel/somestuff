@@ -36,5 +36,5 @@ jinja2
 PyYAML
 ruamel.yaml
 
-# FRESH FRESH FOR ME MYSELF AND I
+mqttstuff==0.0.5
 reputils==0.0.16
