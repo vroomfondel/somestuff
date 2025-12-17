@@ -109,7 +109,7 @@ docker build \
   -f Dockerfile \
   --build-arg python_version=3.14 \
   --build-arg pandas_version=2.2.3 \
-  --build-arg debian_version=trixie \
+  --build-arg debian_version=slim-trixie \
   -t your/image:tag .
 ```
 
