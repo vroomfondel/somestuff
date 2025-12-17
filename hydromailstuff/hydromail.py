@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple
 # import pytz
 from jinja2 import Template
 from loguru import logger
-from reputils import MailReport
+from reputils import MRSendmail, SMTPServerInfo, SendResult, EmailAddress
 
 import config
 import Helper
@@ -60,26 +60,26 @@ def mail_stuff(
     with open(fp) as file_:
         template = Template(file_.read())
 
-        serverinfo = MailReport.SMTPServerInfo(
-            smtp_server=smtpip, smtp_port=25, useStartTLS=True, wantsdebug=False, ignoresslerrors=True
+        serverinfo = SMTPServerInfo(
+            smtp_server=smtpip, smtp_port=25, use_start_tls=True, wantsdebug=False, ignoresslerrors=True
         )
 
         now: datetime.datetime = datetime.datetime.now(tz=TIMEZONE)
         sdd: str = now.strftime(_sdfD_formatstring)
 
-        sendmail: MailReport.MRSendmail = MailReport.MRSendmail(
+        sendmail: MRSendmail = MRSendmail(
             serverinfo=serverinfo,
-            returnpath=MailReport.EmailAddress.fromSTR(mailfrom),
-            replyto=MailReport.EmailAddress.fromSTR(mailreplyto),
+            returnpath=EmailAddress.from_str(mailfrom),
+            replyto=EmailAddress.from_str(mailreplyto),
             subject=f"{mailsubject_base} :: {sdd}",
         )
-        sendmail.tos = [MailReport.EmailAddress.fromSTR(k) for k in mailrecipients_to]
+        sendmail.tos = [EmailAddress.from_str(k) for k in mailrecipients_to]
 
         # for to in mailrecipients_to:
         #     sendmail.addTo(MailReport.EmailAddress.fromSTR(to))
 
         if mailrecipients_cc is not None:
-            sendmail.ccs = [MailReport.EmailAddress.fromSTR(k) for k in mailrecipients_cc]
+            sendmail.ccs = [EmailAddress.from_str(k) for k in mailrecipients_cc]
 
         values: dict = {
             "wasserbisoberkante": wasserbisoberkante,

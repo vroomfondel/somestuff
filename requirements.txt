@@ -37,4 +37,4 @@ PyYAML
 ruamel.yaml
 
 # FRESH FRESH FOR ME MYSELF AND I
-reputils==0.0.15
+reputils==0.0.16
