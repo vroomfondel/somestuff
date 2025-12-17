@@ -26,7 +26,7 @@ Contents overview (Python packages/modules):
 ## Getting started
 
 Local prerequisites:
-- Python 3.14+ recommended (repo and Docker image currently use `python:3.14-trixie`)
+- Python 3.14+ recommended (repo and Docker image currently use `python:3.14-slim-trixie`)
 - `pip` and a virtualenv of your choice
 
 Install dependencies:
@@ -132,7 +132,7 @@ Read Netatmo measurements and provide a deployment example.
 ## Docker: build process, use, and usefulness
 
 There is a single Docker image defined by the repo‑root `Dockerfile`. The image:
-- Uses `python:3.14-trixie` base (commented alternatives exist for 3.13/ PyPy).
+- Uses `python:3.14-slim-trixie` base (commented alternatives exist for 3.13/ PyPy).
 - Installs a few system tools (`htop`, `dnsutils`, `tini`, etc.) and Python deps via `requirements.txt`.
 - Creates a non‑root user (`pythonuser`, configurable via build args `UID`, `GID`, `UNAME`).
 - Copies the packages into `/app` and sets `PYTHONPATH` accordingly.
@@ -148,7 +148,7 @@ Why this is useful:
 ```bash
 docker build \
   --build-arg buildtime="$(date +'%Y-%m-%d %H:%M:%S %Z')" \
-  -t xomoxcc/somestuff:py314trixie \
+  -t xomoxcc/somestuff:python-3.14-slim-trixie \
   .
 ```
 
@@ -156,7 +156,7 @@ Run interactively (example):
 ```bash
 docker run --rm -it \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
-  xomoxcc/somestuff:py314trixie \
+  xomoxcc/somestuff:python-3.14-slim-trixie \
   python -m dnsstuff.pcbwaydnsstuff pcbway.com
 ```
 
@@ -173,7 +173,7 @@ Usage:
 ./build.sh onlylocal  # local build only (no push)
 ```
 
-The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory so the builder state is isolated per‑repo. The primary tag is `xomoxcc/somestuff:py314trixie` and an additional `:latest` tag is automatically added if missing.
+The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory so the builder state is isolated per‑repo. The primary tag is `xomoxcc/somestuff:python-3.14-slim-trixie` and an additional `:latest` tag is automatically added if missing.
 
 ### GitHub Actions
 - `.github/workflows/buildmultiarchandpush.yml` builds and pushes multi‑arch images on CI.

@@ -149,7 +149,7 @@ Why this is useful:
 ```
 docker build \
   --build-arg buildtime="$(date +'%Y-%m-%d %H:%M:%S %Z')" \
-  -t xomoxcc/somestuff:py314trixie \
+  -t xomoxcc/somestuff:python-3.14-slim-trixie \
   .
 ```
 
@@ -157,7 +157,7 @@ Run interactively (example):
 ```
 docker run --rm -it \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
-  xomoxcc/somestuff:py314trixie \
+  xomoxcc/somestuff:python-3.14-slim-trixie \
   python -m dnsstuff.pcbwaydnsstuff pcbway.com
 ```
 
@@ -174,7 +174,7 @@ Usage:
 ./build.sh onlylocal  # local build only (no push)
 ```
 
-The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory so the builder state is isolated per‑repo. The primary tag is `xomoxcc/somestuff:py314trixie` and an additional `:latest` tag is automatically added if missing.
+The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory so the builder state is isolated per‑repo. The primary tag is `xomoxcc/somestuff:python-3.14-slim-trixie` and an additional `:latest` tag is automatically added if missing.
 
 ### GitHub Actions
 - `.github/workflows/buildmultiarchandpush.yml` builds and pushes multi‑arch images on CI.

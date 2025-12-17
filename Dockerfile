@@ -6,7 +6,7 @@
 # https://blog.miguelgrinberg.com/post/python-3-14-is-here-how-fast-is-it
 
 ARG python_version=3.14
-ARG debian_version=trixie
+ARG debian_version=slim-trixie
 
 FROM python:${python_version}-${debian_version}
 
@@ -18,7 +18,7 @@ ARG debian_version
 
 RUN apt update && \
     apt -y full-upgrade && \
-    apt -y install htop procps iputils-ping locales vim tini bind9-dnsutils && \
+    apt -y install htop procps iputils-ping locales vim tini bind9-dnsutils ipset && \
     pip install --upgrade pip && \
     rm -rf /var/lib/apt/lists/*
 

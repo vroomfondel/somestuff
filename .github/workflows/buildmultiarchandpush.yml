@@ -74,10 +74,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/aarch64
+          platforms: linux/amd64,linux/arm64
           # github.event_name ist hier dann immer "workflow_run"
           push: ${{ github.event_name != 'pull_request' }}
-          tags: "xomoxcc/somestuff:latest,xomoxcc/somestuff:python-3.14-trixie"
+          tags: "xomoxcc/somestuff:latest,xomoxcc/somestuff:python-3.14-slim-trixie"
           build-args: |
             buildtime=${{ steps.berlin_time.outputs.buildtime }}
             python_version=3.14

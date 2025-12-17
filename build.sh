@@ -7,7 +7,7 @@ cd "${medir}" || exit 123
 buildtime=$(date +'%Y-%m-%d %H:%M:%S %Z')
 
 python_version=3.14
-debian_version=trixie
+debian_version=slim-trixie
 
 DOCKER_IMAGE="xomoxcc/somestuff:python-${python_version}-${debian_version}"
 
