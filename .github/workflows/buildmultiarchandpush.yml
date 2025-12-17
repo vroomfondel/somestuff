@@ -81,7 +81,7 @@ jobs:
           build-args: |
             buildtime=${{ steps.berlin_time.outputs.buildtime }}
             python_version=3.14
-            debian_version=trixie
+            debian_version=slim-trixie
           # tags: ${{ steps.<meta_id>.outputs.tags }}
           # labels: ${{ steps.<meta_id>.outputs.labels }}
 
