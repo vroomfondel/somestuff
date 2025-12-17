@@ -53,8 +53,7 @@ isort: venv
 
 tcheck: venv
 	@$(venv_activated)
-	mypy *.py ecowittstuff/*py llmstuff/*.py mqttstuff/*.py dnsstuff/*.py netatmostuff/*.py hydromailstuff/*.py
-    # mypy *.py **/*.py
+	mypy *.py ecowittstuff/*py llmstuff/*.py dnsstuff/*.py netatmostuff/*.py hydromailstuff/*.py mqttstuff/mqttstuff/*.py
 
 build: venv
 	git submodule update --remote
