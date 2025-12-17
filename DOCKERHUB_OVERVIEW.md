@@ -2,7 +2,7 @@
 [![BuildAndPushMultiarch](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml/badge.svg)](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml)
 ![Cumulative Clones](https://img.shields.io/endpoint?logo=github&url=https://gist.githubusercontent.com/vroomfondel/22c802be25a8241e81e98a28d00c6036/raw/somestuff_clone_count.json)
 
-[![https://github.com/vroomfondel/somestuff/raw/main/Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png](https://github.com/vroomfondel/somestuff/raw/main/Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png)](https://hub.docker.com/r/xomoxcc/somestuff/tags)
+[![Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png](Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png)](https://github.com/vroomfondel/somestuff)
 
 # somestuff
 
@@ -38,6 +38,12 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 Configuration:
 - `config.yaml` contains sample/defaults. Do not commit secrets. If needed, create `config.local.yaml` to override locally (kept out of the image by default). Some modules read credentials/API keys from here (e.g. Ecowitt, Netatmo, MQTT, email settings). Adjust as needed before running modules that require it.
+
+Run tests and type checks:
+```bash
+pytest -q
+mypy .
+```
 
 
 ## Modules and their usefulness
