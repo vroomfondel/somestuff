@@ -44,6 +44,8 @@ RUN groupadd -g ${GID} -o ${UNAME} && \
 
 USER ${UNAME}
 
+ENV PATH="/home/pythonuser/.local/bin:$PATH"
+
 COPY --chown=${UID}:${GID} requirements.txt /
 RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
 
@@ -53,9 +55,11 @@ COPY --chown=${UID}:${GID} dinogame /app/dinogame
 COPY --chown=${UID}:${GID} ecowittstuff /app/ecowittstuff
 COPY --chown=${UID}:${GID} llmstuff /app/llmstuff
 COPY --chown=${UID}:${GID} dnsstuff /app/dnsstuff
-COPY --chown=${UID}:${GID} mqttstuff /app/mqttstuff
 COPY --chown=${UID}:${GID} netatmostuff /app/netatmostuff
 COPY --chown=${UID}:${GID} hydromailstuff /app/hydromailstuff
+
+# mqttstuff is now a submodule
+COPY --chown=${UID}:${GID} mqttstuff /app/mqttstuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 
@@ -67,8 +71,9 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-ENV PYTHONPATH=${PYTHONPATH:+${PYTHONPATH}:}/app
-ENV PATH="/home/pythonuser/.local/bin:$PATH"
+#ENV PYTHONPATH=${PYTHONPATH:+${PYTHONPATH}:}/app:/app/mqttstuff
+ENV PYTHONPATH=/app:/app/mqttstuff
+
 
 
 

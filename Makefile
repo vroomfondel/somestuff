@@ -57,6 +57,8 @@ tcheck: venv
     # mypy *.py **/*.py
 
 build: venv
+	git submodule update --remote
+	# git submodule update --init --recursive
 	./build.sh
 
 .git/hooks/pre-commit: venv
