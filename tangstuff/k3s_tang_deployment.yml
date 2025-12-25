@@ -1,0 +1,116 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tang
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tang-deployment
+  namespace: tang
+  labels:
+    app: tang-deployment
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tang
+  template:
+    metadata:
+      labels:
+        app: tang
+      annotations:
+        kubectl.kubernetes.io/default-container: tang
+    spec:
+      restartPolicy: Always
+      initContainers:
+        - name: chowner-tang
+          image: alpine:latest
+          command: [ "chown", "100:101", "-R", "/var/lib/tang" ]
+          securityContext:
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ "all" ]
+              add: [ "CHOWN" ]
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: tang-keydir
+              mountPath: /var/lib/tang
+      containers:
+        - name: tang
+          image: xomoxcc/tang:latest
+          ports:
+            - containerPort: 9090
+              name: tangport
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          volumeMounts:
+            - name: tang-keydir
+              mountPath: /var/lib/tang
+      volumes:
+        - name: tang-keydir
+          hostPath:
+            path: /mnt/DATA/tang
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tang
+  namespace: tang
+spec:
+  ports:
+    - port: 9090
+      targetPort: 9090
+      name: tangport
+  selector:
+    app: tang
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: tang-ip-source-limiter
+  namespace: tang
+spec:
+  ipAllowList:
+    sourceRange:
+      - "127.0.0.1/32"
+      - "192.168.123.0/24"
+      - "192.168.210.0/24"
+      - "10.0.0.0/8"
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: tangingress
+  namespace: tang
+spec:
+  entryPoints:                      # [1]
+    - web
+  routes:                           # [2]
+  - kind: Rule
+    match: Host(`tang.some.where.tld`) || Query(`action=tang`) # [3]
+    priority: 10                    # [4]
+    middlewares:
+      - name: tang-ip-source-limiter
+        namespace: tang
+    services:                       # [8]
+    - kind: Service
+      name: tang
+      namespace: tang
+      passHostHeader: true
+      port: 9090                      # [9]
