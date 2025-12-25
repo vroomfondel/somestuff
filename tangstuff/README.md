@@ -121,6 +121,27 @@ sudo apt install cryptsetup clevis clevis-luks clevis-initramfs
     sudo umount /mnt
     sudo lvremove /dev/mapper/vg0-lv_data_old
     ```
+    
+### changes to /etc/fstab
+
+To ensure the encrypted volume is mounted automatically and that the system waits for the network if necessary (for Tang), add a line to `/etc/fstab`:
+
+```text
+/dev/mapper/data_crypt  /path/to/data  ext4  defaults,_netdev  0  2
+```
+
+*Note: `_netdev` is important if the volume depends on network-bound decryption.*
+
+### changes to /etc/crypttab
+
+Add the mapping to `/etc/crypttab`. It is recommended to use the `UUID` of the underlying partition instead of the device path:
+
+```text
+# <name>       <device>                                 <password>  <options>
+data_crypt     UUID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  none        luks,_netdev
+```
+
+You can find the UUID using `sudo blkid /dev/mapper/vg0-lv_data`.
 
 ### Automated Decryption with Clevis
 
