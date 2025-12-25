@@ -69,7 +69,7 @@ To manage LUKS partitions and Clevis bindings:
 
 ```bash
 sudo apt update
-sudo apt install cryptsetup clevis clevis-luks clevis-initramfs
+sudo apt install cryptsetup clevis clevis-luks clevis-initramfs clevis-systemd
 ```
 
 ### Encrypting an Existing Partition (LVM)
