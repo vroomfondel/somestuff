@@ -1,0 +1,323 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mosquitto
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto-deployment
+  namespace: mosquitto
+  labels:
+    app: mosquitto
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mosquitto
+  template:
+    metadata:
+      labels:
+        app: mosquitto
+      annotations:
+        kubectl.kubernetes.io/default-container: mosquitto
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: mosquitto
+          image: xomoxcc/mosquitto:2.1
+          ports:
+            - containerPort: 1883
+              name: mqtt
+            - containerPort: 9001
+              name: websocket
+            - containerPort: 9883
+              name: http-api
+          livenessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          volumeMounts:
+            - name: mosquitto-data
+              mountPath: /mosquitto/data
+            - name: mosquitto-config
+              mountPath: /mosquitto/config
+            - name: mosquitto-log
+              mountPath: /mosquitto/log
+      volumes:
+        - name: mosquitto-data
+          persistentVolumeClaim:
+            claimName: mosquitto-data-pvc
+        - name: mosquitto-config
+          persistentVolumeClaim:
+            claimName: mosquitto-config-pvc
+        - name: mosquitto-log
+          persistentVolumeClaim:
+            claimName: mosquitto-log-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-data-pvc
+  namespace: mosquitto
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-config-pvc
+  namespace: mosquitto
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-log-pvc
+  namespace: mosquitto
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mosquitto
+  namespace: mosquitto
+spec:
+  ports:
+    - port: 1883
+      targetPort: 1883
+      name: mqtt
+    - port: 9001
+      targetPort: 9001
+      name: websocket
+    - port: 9883
+      targetPort: 9883
+      name: http-api
+  selector:
+    app: mosquitto
+  # could also be a headless service with clusterIP: None
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mosquitto-httpapi-ingress
+  namespace: mosquitto
+spec:
+  entryPoints:
+    - web
+  routes:
+  - kind: Rule
+    match: Host(`mosquittohttpapi.some.where.tld`)
+    priority: 10
+    services:
+      - kind: Service
+        name: mosquitto
+        namespace: mosquitto
+        port: 9883
+        #passHostHeader: true  # either passHostHeader or proxyProtocol -> needs to match config of mosquitto
+        proxyProtocol:
+          version: 2
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mosquitto-httpapi-tls-ingress
+  namespace: mosquitto
+spec:
+  entryPoints:
+    - websecure
+  routes:
+  - kind: Rule
+    match: HostSNI(`mosquittohttpapi.some.where.tld`)
+    priority: 10
+    services:
+      - kind: Service
+        name: mosquitto
+        namespace: mosquitto
+        port: 9883
+        #passHostHeader: true  # either passHostHeader or proxyProtocol -> needs to match config of mosquitto
+        proxyProtocol:
+          version: 2
+  tls:
+    secretName: mosquittows.some.where.tld
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mosquitto-websocket-ingress
+  namespace: mosquitto
+spec:
+  entryPoints:
+    - web
+  routes:
+  - kind: Rule
+    match: Host(`mosquittows.some.where.tld`)
+    priority: 10
+    services:
+      - kind: Service
+        name: mosquitto
+        namespace: mosquitto
+        port: 9001
+        #passHostHeader: true  # either passHostHeader or proxyProtocol -> needs to match config of mosquitto
+        proxyProtocol:
+          version: 2
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mosquitto-websocket-tls-ingress
+  namespace: mosquitto
+spec:
+  entryPoints:
+    - websecure
+  routes:
+  - kind: Rule
+    match: HostSNI(`mosquittows.some.where.tld`)
+    priority: 10
+    services:
+      - kind: Service
+        name: mosquitto
+        namespace: mosquitto
+        port: 9001
+        #passHostHeader: true  # either passHostHeader or proxyProtocol -> needs to match config of mosquitto
+        proxyProtocol:
+          version: 2
+  tls:
+    secretName: mosquittows.some.where.tld
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: mosquitto-ingress
+  namespace: mosquitto
+spec:
+  entryPoints:
+    - mosquitto  # please note: k3s traefik has to be configured with an extra entrypoint and proxyprotocol enabled
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: mosquitto
+          namespace: mosquitto
+          port: 1883
+          proxyProtocol:
+            version: 2
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: mosquitto-tls
+  namespace: mosquitto
+spec:
+  entryPoints:
+    - mosquittotls # please note: k3s traefik has to be configured with an extra entrypoint and proxyprotocol enabled for this port
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: mosquitto
+          port: 1883
+          proxyProtocol:
+            version: 2
+  tls:
+    secretName: mosquitto.some.where.tld
+---
+# example traefik "extend" file cat /var/lib/rancher/k3s/server/manifests/traefik-extend.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    logs:
+      general:
+        level: INFO
+      access:
+        enabled: true
+        format: json  # common or json
+    service:
+      ipFamilies:
+        - IPv4
+      ipFamilyPolicy: SingleStack
+    ingressRoute:
+      dashboard:        
+        enabled: true
+    dashboard.enabled: true
+    api.dashboard: true    
+    ports:
+      web:
+        # changing default web port80 to 8181 in order to be placed behind haproxy running on the same host and forwarding with proxyProtocol_v2
+        port: 8181
+        exposedPort: 8181
+        proxyProtocol:
+          # !please make sure to not make this port available if trustedIPs are not set and insecure: true
+          insecure: true
+          #trustedIPs: [ ]
+          #  - 192.168.123.230
+          #  - 127.0.0.1        
+      websecure:
+        # changing default websecure port443 to 4430 in order to be placed behind haproxy running on the same host and forwarding with proxyProtocol_v2
+        port: 4430
+        exposedPort: 4430
+        proxyProtocol:
+          # !please make sure to not make this port available if trustedIPs are not set and insecure: true
+          insecure: true
+        forwardedHeaders:
+          # !please make sure to not make this port available if trustedIPs are not set and insecure: true
+          # both forwardedHeaders AND proxyProtocl may be enabled at the same time!
+          # insecure: true
+          trustedIPs:
+            - 192.168.123.230
+            - 127.0.0.1
+      mosquittotls:
+        port: 8883
+        exposedPort: 8883
+        proxyProtocol:
+          # !please make sure to not make this port available if trustedIPs are not set and insecure: true
+          insecure: true
+          #trustedIPs: [ ]
+          #  - 192.168.123.230
+          #  - 127.0.0.1 
+        expose:
+          default: true
+      mosquitto:        
+        port: 1883
+        exposedPort: 1883
+        proxyProtocol:
+          # !please make sure to not make this port available if trustedIPs are not set and insecure: true
+          insecure: true
+          #trustedIPs: [ ]
+          #  - 192.168.123.230
+          #  - 127.0.0.1 
+        expose:
+          default: true

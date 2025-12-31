@@ -1,0 +1,26 @@
+# topic [read|write|readwrite|deny] <topic>
+# pattern write sensor/%u/data
+#
+# The patterns available for substition are:
+# %c to match the client id of the client
+# %u to match the username of the client
+
+# GENERAL SECTION
+
+topic read $SYS/#
+
+# PER USER SECTION
+user admin
+topic readwrite #
+
+# PATTERN SECTION
+
+pattern write $SYS/broker/connection/%c/state
+
+pattern readwrite tele/%u/#
+pattern readwrite cmnd/%u/#
+pattern readwrite cmnd/%c_fb/#
+pattern readwrite stat/%u/#
+
+# needed ?!
+topic deny #
