@@ -1,5 +1,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/mosquitto?logo=docker)](https://hub.docker.com/r/xomoxcc/mosquitto/tags)
 
+[![Gemini_Generated_Image_mosquitto_7f2v9m7f2v9m7f2v_250x250.png](Gemini_Generated_Image_mosquitto_7f2v9m7f2v9m7f2v_250x250.png)](https://hub.docker.com/r/xomoxcc/mosquitto/tags)
+
 # Mosquitto 2.1 MQTT Broker
 
 This directory contains a custom, production-ready build of **Mosquitto 2.1.0-test1**. It is specifically tailored for deployment on Ubuntu-based environments (Ubuntu 24.04) and includes support for modern MQTT features, enhanced security, and containerized orchestration via Kubernetes.
