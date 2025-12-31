@@ -146,6 +146,9 @@ COPY mosquitto_test.acl /mosquitto_test.acl
 COPY mosquitto_test.passwd /mosquitto_test.passwd
 COPY mosquitto_test.conf /mosquitto_test.conf
 COPY mosquitto_dynamic-security_test.json /mosquitto_dynamic-security_test.json
+COPY README.md /README.md
+COPY k3s_mosquitto_deployment.yml /k3s_mosquitto_deployment.yml
+
 
 RUN rm -vf /mosquitto/config/mosquitto.conf
 
