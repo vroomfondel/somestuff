@@ -245,6 +245,8 @@ EOF
 
 ADD $BPATH/s6-initstuff/ /etc/
 
+# /etc/cont-init.d/01-check-env
+
 # ENTRYPOINT ["tini", "--"]
 # CMD ["/runtang.sh"]
 
