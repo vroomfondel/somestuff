@@ -246,6 +246,8 @@ EOF
 ADD $BPATH/s6-initstuff/ /etc/
 
 ENV S6_STAGE2_HOOK=/etc/s6-check-env-services.sh
+# needed ?!
+# RUN chmod a+x /etc/s6-check-env-services.sh
 
 # ENTRYPOINT ["tini", "--"]
 # CMD ["/runtang.sh"]
