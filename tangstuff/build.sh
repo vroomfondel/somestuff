@@ -6,7 +6,7 @@ cd "${medir}" || exit 123
 
 buildtime=$(date +'%Y-%m-%d %H:%M:%S %Z')
 
-debian_version=slim-trixie
+debian_version=trixie-slim
 
 DOCKER_IMAGE="xomoxcc/tang:${debian_version}"
 

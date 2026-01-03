@@ -1,0 +1,22 @@
+#!/command/with-contenv bash
+
+echo EXECUTING s6-rc.d/nginx/run
+
+
+rm -vf /etc/nginx/sites-enabled/default
+
+if [ -e /etc/nginx/sites-available/tang-local.conf.pre ] ; then
+  NGINXACCEPT=""
+  if [ $NGINXACCEPTPROXY -eq 1 ] ; then
+    NGINXACCEPT="proxy_protocol"
+  fi
+  export NGINXACCEPT
+  cat /etc/nginx/sites-available/tang-local.conf.pre | envsubst > /etc/nginx/sites-enabled/tang-local.conf
+fi
+
+if [ $USENGINX -eq 0 ] ; then
+  echo s6-rc.d/nginx/run: USENGINX is disabled - running dummy...
+  tail -f /dev/null
+else
+  /usr/sbin/nginx -g "daemon off;"
+fi
