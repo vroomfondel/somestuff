@@ -1,0 +1,171 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tang
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tang-deployment
+  namespace: tang
+  labels:
+    app: tang-deployment
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tang
+  template:
+    metadata:
+      labels:
+        app: tang
+      annotations:
+        kubectl.kubernetes.io/default-container: tang
+    spec:
+      restartPolicy: Always
+      initContainers:
+        - name: chowner-tang
+          image: alpine:latest
+          command: [ "chown", "100:101", "-R", "/var/lib/tang" ]
+          securityContext:
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ "all" ]
+              add: [ "CHOWN" ]
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: tang-keydir
+              mountPath: /var/lib/tang
+        - name: tang-haproxy-sidecar
+          image: xomoxcc/tang:latest
+          command: [ "/init", "tail", "-f", "/dev/null" ]
+          restartPolicy: Always
+          ports:
+            - containerPort: 80
+              name: tangproxyport
+          env:
+            - name: USEHAPROXY
+              value: "1"
+            - name: USENGINX
+              value: "0"
+            - name: HAPROXYPORT
+              value: "80"
+            - name: HAPROXYACCEPTPROXY
+              value: "1"
+            - name: TZ
+              value: Europe/Berlin
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+      containers:
+        - name: tang
+          image: xomoxcc/tang:latest
+          securityContext:
+            capabilities:
+              add: [ "NET_ADMIN" ]
+          ports:
+            - containerPort: 9090
+              name: tangport
+          env:
+            - name: USEHAPROXY
+              value: "0"
+            - name: USENGINX
+              value: "0"
+            - name: TANGPORT
+              value: "9090"
+            - name: TZ
+              value: Europe/Berlin
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          volumeMounts:
+            - name: tang-keydir
+              mountPath: /var/lib/tang
+      volumes:
+        - name: tang-keydir
+          hostPath:
+            path: /mnt/DATA/tang
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tang
+  namespace: tang
+spec:
+  ports:
+    - port: 9090
+      targetPort: tangport
+      name: tangport
+    - port: 80
+      targetPort: tangproxyport
+      name: tangproxyport
+  selector:
+    app: tang
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: tang-ip-source-limiter
+  namespace: tang
+spec:
+  ipAllowList:
+    sourceRange:
+      - "127.0.0.1/32"
+      - "192.168.123.0/24"
+      - "192.168.210.0/24"
+      - "10.0.0.0/8"
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: tangingress
+  namespace: tang
+spec:
+  entryPoints:                      # [1]
+    - transport
+  routes:                           # [2]
+  - kind: Rule
+    match: HostSNI(`*`) # [3]
+    priority: 10                    # [4]
+    middlewares:
+      - name: tang-ip-source-limiter
+        namespace: tang
+    services:                       # [8]
+    - name: tang
+      namespace: tang
+      port: 80
+      proxyProtocol:
+        version: 2
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: tangingress
+  namespace: tang
+spec:
+  entryPoints:                      # [1]
+    - web
+  routes:                           # [2]
+  - kind: Rule
+    match: Host(`tang.some.where.tld`) || Query(`action=tang`) # [3]
+    priority: 10                    # [4]
+    middlewares:
+      - name: tang-ip-source-limiter
+        namespace: tang
+    services:                       # [8]
+    - name: tang
+      namespace: tang
+      port: 80
+      passHostHeader: true
