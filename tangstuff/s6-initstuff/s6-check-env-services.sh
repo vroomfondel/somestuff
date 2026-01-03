@@ -1,7 +1,5 @@
 #!/command/with-contenv bash
 
-set -x
-
 if [ $USENGINX -eq 1 ] ; then
     echo creating /etc/s6-overlay/s6-rc.d/user/contents.d/nginx
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/nginx

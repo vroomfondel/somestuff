@@ -2,7 +2,6 @@
 
 echo EXECUTING s6-rc.d/nginx/run
 
-
 rm -vf /etc/nginx/sites-enabled/default
 
 if [ -e /etc/nginx/sites-available/tang-local.conf.pre ] ; then
