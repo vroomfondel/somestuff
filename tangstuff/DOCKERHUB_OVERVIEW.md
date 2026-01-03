@@ -25,7 +25,7 @@ docker run -it --cap-add=NET_ADMIN -p 9090:80 \
   -e TANGDATADIR=/var/lib/tang \
   -e USEHAPROXY=1 \
   -e HAPROXYPORT=80 \
-  -e HAPROXYACCEPTPROXY=1 \
+  -e HAPROXYACCEPTPROXY=0 \
   -v $(pwd)/TANGDATA:/var/lib/tang \
   --rm xomoxcc/tang:latest
 ```

@@ -133,6 +133,7 @@ defaults
 # ---------------------------------------------------------------------
 frontend tang_frontend
     bind *:${HAPROXYPORT} ${HAPROXYACCEPT}
+
     # Falls HTTPS gewünscht ist (empfohlen für Produktion):
     # bind *:443 ssl crt /etc/haproxy/certs/site.pem
 
@@ -143,9 +144,14 @@ frontend tang_frontend
     # Alles blockieren, was NICHT in der ACL ist
     # http-request deny if !network_allowed
 
+    # acl from_proxy src 10.0.0.0/8 192.168.123.0/24 127.0.0.1
+    acl from_proxy src -f /etc/haproxy/trusted_proxies.lst
+    http-request set-src hdr(x-forwarded-for) if from_proxy
+
     # 2. Option: Logging & Header
     # Fügt den "X-Forwarded-For" Header hinzu
     option forwardfor
+    # option forwardfor header X-Real-IP
 
     # Weiterleitung ans Backend
     default_backend tang_backend
@@ -157,9 +163,14 @@ backend tang_backend
     mode http
     balance roundrobin
 
+    option forwarded
+
     server tang1 127.0.0.1:${TANGPORT} check
 
 EOF
+
+RUN printf "10.0.0.0/8\n127.0.0.1" > /etc/haproxy/trusted_proxies.lst
+
 
 # https://github.com/latchset/tang
 #
@@ -195,7 +206,7 @@ COPY --chown=_tang:_tang --chmod=0755 <<'EOF' /runtang.sh
 
 echo executing /runtang.sh
 
-if [ $USENGINX -eq 1 ] || [ $USEHAPROXY -eq 1] ; then
+if [ $USENGINX -eq 1 ] || [ $USEHAPROXY -eq 1 ] ; then
     # env
     # test if i can set iptables needes either --privileged or --cap-add=NET_ADMIN
     iptables -L -n >/dev/null 2>&1

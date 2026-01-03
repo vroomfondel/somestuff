@@ -4,13 +4,15 @@
 
 # Tang, LUKS, and Clevis: Automated Network-Bound Disk Encryption (NBDE)
 
-This directory provides a comprehensive solution for setting up a **Tang** server and utilizing **Clevis** for automated decryption of **LUKS**-encrypted partitions upon system boot. It is specifically designed for high availability and flexibility using modern container orchestration patterns.
-
+This directory provides a comprehensive solution for setting up a **Tang** server and utilizing **Clevis** for automated decryption of **LUKS**-encrypted partitions upon system boot. It is specifically designed for high availability and flexibility using modern container orchestration patterns and robust process management.
 
 ## Table of Contents
 1. [Architecture Overview](#architecture-overview)
 2. [Tang Server Container](#tang-server-container)
-    - [Container Features & Process Management](#container-features--process-management)
+    - [Process Management (s6-overlay)](#process-management-s6-overlay)
+    - [Integrated Frontends (HAProxy & Nginx)](#integrated-frontends-haproxy--nginx)
+    - [Proxy Modes: PROXY Protocol vs. HTTP Forwarded](#proxy-modes-proxy-protocol-vs-http-forwarded)
+    - [Trusted Proxies Configuration](#trusted-proxies-configuration)
     - [Configuration (Environment Variables)](#configuration-environment-variables)
     - [Docker Usage](#docker-usage)
 3. [Deployment (Kubernetes / k3s)](#deployment-kubernetes--k3s)
@@ -31,9 +33,9 @@ This directory provides a comprehensive solution for setting up a **Tang** serve
 Network-Bound Disk Encryption (NBDE) allows for secure, automated unlocking of encrypted drives when the system is connected to a trusted network.
 
 - **LUKS (Linux Unified Key Setup)**: The standard disk encryption layer for Linux.
-- **Tang**: A stateless, lightweight server that facilitates network-bound key exchange. It doesn't store keys; it derives them.
+- **Tang**: A stateless, lightweight server that facilitates network-bound key exchange. It doesn't store keys; it derives them using cryptographic exchange (ECMR).
 - **Clevis**: A decryption framework that resides on the client. It uses "pins" (like Tang or TPM2) to automatically unlock LUKS volumes.
-- **s6-overlay**: Used within the container to manage multiple processes (Tang, HAProxy, Nginx) reliably.
+- **s6-overlay**: A process supervisor used within the container to manage multiple services reliably and handle container lifecycle signals properly.
 
 ---
 
@@ -41,20 +43,50 @@ Network-Bound Disk Encryption (NBDE) allows for secure, automated unlocking of e
 
 The provided [Dockerfile](Dockerfile) builds a robust Tang server image based on Debian Trixie.
 
-### Container Features & Process Management
+### Process Management (s6-overlay)
 
-- **s6-overlay (v3)**: We use [s6-overlay](https://github.com/just-containers/s6-overlay) for clean process supervision. It ensures that if the Tang server, HAProxy, or Nginx crashes, they are automatically restarted.
-- **Integrated Frontends**: 
-    - **HAProxy**: Provides a high-performance TCP/HTTP load balancer. It's configured to support the PROXY protocol, allowing the Tang server to see the real client IP even when behind another load balancer.
-    - **Nginx**: Can be used as an alternative frontend or for serving static content/logs.
-- **Configuration Templates**: Both HAProxy and Nginx use `.pre` template files. At startup, `envsubst` populates these templates with environment variables, creating the final configuration files.
-- **Security**: 
-    - **iptables Isolation**: When `USENGINX` or `USEHAPROXY` is enabled, the container can use `iptables` (requires `--cap-add=NET_ADMIN`) to block direct external access to the `TANGPORT`, forcing all traffic through the configured frontend.
-- **Multi-Architecture**: The build script [build.sh](build.sh) supports building for both `amd64` and `arm64`.
+We use [s6-overlay](https://github.com/just-containers/s6-overlay) (v3) to manage the container's processes. Unlike traditional "one process per container" approaches, s6-overlay allows us to run `tangd` alongside a frontend (HAProxy or Nginx) while ensuring:
+- **Clean initialization**: Services start in the correct order.
+- **Reliable supervision**: If `tangd`, HAProxy, or Nginx crashes, s6-overlay restarts them immediately.
+- **Zombie reaping**: Properly handles defunct processes.
+- **Signal handling**: Gracefully shuts down all services when the container receives a termination signal.
+
+The service definitions are located in `s6-initstuff/s6-overlay/s6-rc.d/`.
+
+### Integrated Frontends (HAProxy & Nginx)
+
+The container includes both **HAProxy** and **Nginx** as optional frontends. They serve several purposes:
+1. **SSL Termination**: Although Tang is often used over HTTP in trusted networks, frontends can provide HTTPS.
+2. **Access Control**: Filter requests based on IP or headers.
+3. **Logging**: Enhanced request logging for auditing.
+4. **Real IP Transparency**: Passing the actual client IP to the backend.
+
+### Proxy Modes: PROXY Protocol vs. HTTP Forwarded
+
+Understanding how the frontend receives and passes client information is crucial:
+
+#### 1. PROXY Protocol Mode (`HAPROXYACCEPTPROXY=1` or `NGINXACCEPTPROXY=1`)
+*   **Usage**: Use this when your container is behind another load balancer (like Traefik in k3s) that is configured to send the [PROXY protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) header.
+*   **How it works**: The external load balancer prepends a small header to the TCP connection containing the original source and destination IP/ports. The internal frontend (HAProxy/Nginx) parses this header to identify the real client.
+*   **Reference**: See `k3s_tang_deployment.yml` where `IngressRouteTCP` uses `proxyProtocol: { version: 2 }`.
+
+#### 2. HTTP Forwarded Mode (Non-Proxy Protocol)
+*   **Usage**: Use this when the external proxy sends standard HTTP headers like `X-Forwarded-For` but does NOT use the binary PROXY protocol.
+*   **How it works**: The frontend trusts the `X-Forwarded-For` header ONLY if it comes from a "trusted proxy" (see below).
+
+### Trusted Proxies Configuration
+
+The file `/etc/haproxy/trusted_proxies.lst` (populated via `Dockerfile` and used in `haproxy.cfg.pre`) defines which upstream IP addresses are allowed to provide `X-Forwarded-For` headers.
+
+*   **Mechanism**: In `haproxy.cfg`, we use an ACL:
+    ```haproxy
+    acl from_proxy src -f /etc/haproxy/trusted_proxies.lst
+    http-request set-src hdr(x-forwarded-for) if from_proxy
+    ```
+*   **Dynamic Behavior**: If `HAPROXYACCEPTPROXY=1` is enabled, the `run` script for HAProxy clears this list to prevent mixing PROXY protocol data with potentially spoofed HTTP headers.
+*   **Customization**: You can modify this list in the `Dockerfile` or mount a custom version to allow specific upstream proxies in your network.
 
 ### Configuration (Environment Variables)
-
-The container's behavior is highly configurable:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -62,10 +94,10 @@ The container's behavior is highly configurable:
 | `TANGDATADIR` | `/var/lib/tang` | Directory where Tang keys are stored. |
 | `USEHAPROXY` | `1` | Enable/Disable HAProxy (1 to enable, 0 to disable). |
 | `HAPROXYPORT` | `80` | Port HAProxy listens on. |
-| `HAPROXYACCEPTPROXY`| `1` | Enable PROXY protocol support in HAProxy (`accept-proxy`). |
+| `HAPROXYACCEPTPROXY`| `1` | Enable PROXY protocol support in HAProxy. |
 | `USENGINX` | `0` | Enable/Disable Nginx (1 to enable, 0 to disable). |
 | `NGINXPORT` | `80` | Port Nginx listens on. |
-| `NGINXACCEPTPROXY` | `1` | Enable PROXY protocol support in Nginx (`proxy_protocol`). |
+| `NGINXACCEPTPROXY` | `1` | Enable PROXY protocol support in Nginx. |
 
 ### Docker Usage
 
@@ -74,9 +106,9 @@ The container's behavior is highly configurable:
 ./build.sh
 ```
 
-**Run (with HAProxy and PROXY protocol):**
+**Run (with HAProxy and PROXY protocol enabled):**
 ```bash
-docker run -it --cap-add=NET_ADMIN -p 9090:80 \
+docker run -it --cap-add=NET_ADMIN -p 80:80 \
   -e TANGDATADIR=/var/lib/tang \
   -e USEHAPROXY=1 \
   -e HAPROXYPORT=80 \
@@ -84,28 +116,25 @@ docker run -it --cap-add=NET_ADMIN -p 9090:80 \
   -v $(pwd)/TANGDATA:/var/lib/tang \
   --rm xomoxcc/tang:latest
 ```
-*Note: The `TANGPORT` (default 9090) is protected by iptables inside the container if a frontend is used.*
+*Note: `--cap-add=NET_ADMIN` is required if you want the container to automatically set up `iptables` rules to protect the internal `TANGPORT`.*
 
 ---
 
 ## Deployment (Kubernetes / k3s)
 
-For production-grade deployments, the [`k3s_tang_deployment.yml`](k3s_tang_deployment.yml) file provides a complete manifest.
+The [`k3s_tang_deployment.yml`](k3s_tang_deployment.yml) file provides a production-ready manifest.
 
 ### Service & Routing
 
-The deployment includes:
-- **Deployment**: Single replica (stateless, but keys must be persisted).
-- **Service**: A standard ClusterIP service exposing port `9090`.
-- **IngressRoute (Traefik)**: Defines how external traffic reaches the service. It uses advanced matching rules:
-  - `Host('tang.example.com')`
-  - `Query('action=tang')` (as a "breadcrumb" for custom routing logic)
+*   **IngressRouteTCP**: Configured for maximum transparency. It uses Traefik's TCP entrypoint and passes the PROXY protocol v2 to the container. This is the preferred way for Tang as it allows HAProxy to see the real client IP for all types of requests.
+*   **IngressRoute (HTTP)**: A standard HTTP route that can be used for health checks or monitoring. It includes a "breadcrumb" query parameter `action=tang` which can be used for specific routing logic in more complex setups.
 
 ### Security Middlewares
 
-To protect the Tang server from unauthorized network access at the ingress level:
-- **Middleware (IP Allow-List)**: A Traefik `Middleware` is defined to restrict access to specific IP ranges (e.g., your local network or VPN).
-- **InitContainer**: A small init container ensures the persistent volume at `/var/lib/tang` has the correct ownership (`_tang` user) before the main server starts.
+To protect the Tang server:
+- **IP Allow-List**: A Traefik `Middleware` restricts access to authorized subnets only.
+- **iptables (Internal)**: The container's `runtang.sh` script attempts to block direct access to port `9090` from outside the container, forcing traffic through HAProxy/Nginx.
+- **InitContainer**: Ensures the host-mounted volume `/var/lib/tang` has correct permissions for the `_tang` user.
 
 ---
 

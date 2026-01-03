@@ -6,6 +6,12 @@ if [ -e /etc/haproxy/haproxy.cfg.pre ] ; then
   HAPROXYACCEPT=""
   if [ $HAPROXYACCEPTPROXY -eq 1 ] ; then
     HAPROXYACCEPT="accept-proxy"
+    # When using PROXY protocol, we usually don't rely on X-Forwarded-For from a list of proxies in the same way,
+    # or we want to ensure we don't mix them up if not intended.
+    # For now, we follow the breadcrumb and clear the trusted proxies list if PROXY protocol is used
+    # because the PROXY protocol header itself provides the source information.
+    # Alternatively, if we DON'T use PROXY protocol, we might want to trust X-Forwarded-For from specific IPs.
+    echo "" > /etc/haproxy/trusted_proxies.lst
   fi
   export HAPROXYACCEPT
   cat /etc/haproxy/haproxy.cfg.pre | envsubst > /etc/haproxy/haproxy.cfg

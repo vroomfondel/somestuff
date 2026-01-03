@@ -48,10 +48,25 @@ spec:
       containers:
         - name: tang
           image: xomoxcc/tang:latest
+          securityContext:
+            capabilities:
+              add: [ "NET_ADMIN" ]
           ports:
             - containerPort: 9090
               name: tangport
+            - containerPort: 80
+              name: tangproxyport
           env:
+            - name: USEHAPROXY
+              value: "1"
+            - name: USENGINX
+              value: "0"
+            - name: HAPROXYPORT
+              value: "80"
+            - name: TANGPORT
+              value: "9090"
+            - name: HAPROXYACCEPTPROXY
+              value: "1"
             - name: TZ
               value: Europe/Berlin
             - name: NODE_IP
@@ -75,8 +90,11 @@ metadata:
 spec:
   ports:
     - port: 9090
-      targetPort: 9090
+      targetPort: tangport
       name: tangport
+    - port: 80
+      targetPort: tangproxyport
+      name: tangproxyport
   selector:
     app: tang
 ---
@@ -94,6 +112,28 @@ spec:
       - "10.0.0.0/8"
 ---
 apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: tangingress
+  namespace: tang
+spec:
+  entryPoints:                      # [1]
+    - transport
+  routes:                           # [2]
+  - kind: Rule
+    match: HostSNI(`*`) # [3]
+    priority: 10                    # [4]
+    middlewares:
+      - name: tang-ip-source-limiter
+        namespace: tang
+    services:                       # [8]
+    - name: tang
+      namespace: tang
+      port: 80
+      proxyProtocol:
+        version: 2
+---
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: tangingress
@@ -109,8 +149,7 @@ spec:
       - name: tang-ip-source-limiter
         namespace: tang
     services:                       # [8]
-    - kind: Service
-      name: tang
+    - name: tang
       namespace: tang
+      port: 80
       passHostHeader: true
-      port: 9090                      # [9]
