@@ -214,3 +214,7 @@ This script tests all Clevis slots by attempting a trial decryption.
 - **Key Persistence**: If you lose the keys in `TANGDATADIR`, you will lose access to your encrypted data unless you have the manual passphrase. **Backup your keys!**
 - **Network Trust**: Tang does not authenticate the client. Security relies on the client's ability to reach the server. Use network-level protections (VPNs, VLANs, Firewalls, or the included Traefik Middlewares) to limit who can talk to Tang.
 - **Production Warning**: This project demonstrates a secure setup but should be reviewed by your security team. Use at your own risk.
+
+## ⚠️ Note
+
+This is a development/experimental project. For production use, review security settings, customize configurations, and test thoroughly in your environment. Provided "as is" without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the use or other dealings in the software. Use at your own risk.
