@@ -243,9 +243,13 @@ EOF
 # https://skarnet.org/software/s6-linux-init/overview.html
 #   Run user s6-rc services declared in /etc/s6-overlay/s6-rc.d, following dependencies
 
+COPY tang_check_connection.sh /
+
 ADD $BPATH/s6-initstuff/ /etc/
 
+# https://github.com/just-containers/s6-overlay?tab=readme-ov-file#using-cmd
 ENV S6_STAGE2_HOOK=/etc/s6-check-env-services.sh
+
 # needed ?!
 # RUN chmod a+x /etc/s6-check-env-services.sh
 
