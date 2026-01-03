@@ -1,9 +1,11 @@
-# Tang, LUKS, and Clevis: Automated Network-Bound Disk Encryption (NBDE)
-
 [![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/tang?logo=docker)](https://hub.docker.com/r/xomoxcc/tang/tags)
+
 [![Container Image](Gemini_Generated_Image_tangstuff_y9wdi7y9wdi7y9wd_250x250.png)](https://hub.docker.com/r/xomoxcc/tang/tags)
 
+# Tang, LUKS, and Clevis: Automated Network-Bound Disk Encryption (NBDE)
+
 This directory provides a comprehensive solution for setting up a **Tang** server and utilizing **Clevis** for automated decryption of **LUKS**-encrypted partitions upon system boot. It is specifically designed for high availability and flexibility using modern container orchestration patterns.
+
 
 ## Table of Contents
 1. [Architecture Overview](#architecture-overview)
