@@ -47,7 +47,8 @@ spec:
               mountPath: /var/lib/tang
         - name: tang-haproxy-sidecar
           image: xomoxcc/tang:latest
-          command: [ "/init", "tail", "-f", "/dev/null" ]
+          # command: [ "/init", "tail", "-f", "/dev/null" ]
+          command: [ "tini", "--", "/bin/bash", "/etc/s6-overlay/s6-rc.d/haproxy/run" ]
           restartPolicy: Always
           ports:
             - containerPort: 80
