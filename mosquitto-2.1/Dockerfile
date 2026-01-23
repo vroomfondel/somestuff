@@ -35,7 +35,7 @@ FROM ubuntu:24.04
 
 # ORIG FILE from https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/2.1.0-test1.tar.gz :: docker :: 2.1-ubuntu
 
-ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/2.1.0-test1.tar.gz"
+ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/v2.1.0rc2.tar.gz"
 
 RUN set -x && \
     apt-get update && \
