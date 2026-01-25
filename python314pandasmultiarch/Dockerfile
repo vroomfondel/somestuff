@@ -9,6 +9,12 @@ ARG python_version
 ARG pandas_version
 ARG debian_version
 
+# MULTIARCH-BUILD-INFO: https://itnext.io/building-multi-cpu-architecture-docker-images-for-arm-and-x86-1-the-basics-2fa97869a99b
+ARG TARGETOS
+ARG TARGETARCH
+RUN echo "I'm building BUILDER-stage for $TARGETOS/$TARGETARCH"
+
+
 RUN apt update && \
     apt -y full-upgrade && \
     apt -y install --no-install-recommends build-essential htop procps iputils-ping locales vim tini gcc && \
@@ -21,11 +27,6 @@ RUN sed -i -e 's/# de_DE.UTF-8 UTF-8/de_DE.UTF-8 UTF-8/' /etc/locale.gen && \
     rm -f /etc/localtime && \
     ln -s /usr/share/zoneinfo/Europe/Berlin /etc/localtime
 
-
-# MULTIARCH-BUILD-INFO: https://itnext.io/building-multi-cpu-architecture-docker-images-for-arm-and-x86-1-the-basics-2fa97869a99b
-ARG TARGETOS
-ARG TARGETARCH
-RUN echo "I'm building BUILDER-stage for $TARGETOS/$TARGETARCH"
 
 # https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
 
