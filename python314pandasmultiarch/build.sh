@@ -31,7 +31,8 @@ log() {
 }
 
 is_podman() {
-  docker --version 2>&1 | grep -qi podman
+  # Note: Don't use grep -q with pipefail, causes SIGPIPE (exit 141)
+  docker --version 2>&1 | grep -i podman >/dev/null
 }
 
 #=============================================================================
@@ -177,13 +178,15 @@ build_with_podman() {
   log "Creating manifest: ${DOCKER_IMAGE}"
   podman manifest create "${DOCKER_IMAGE}" "${platform_tags[@]}"
 
-  # Tag with latest
-  log "Tagging as latest: ${DOCKER_IMAGE_LATEST}"
-  podman tag "${DOCKER_IMAGE}" "${DOCKER_IMAGE_LATEST}"
+  # Tag with latest (if not already latest)
+  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+    log "Tagging as latest: ${DOCKER_IMAGE_LATEST}"
+    podman tag "${DOCKER_IMAGE}" "${DOCKER_IMAGE_LATEST}"
+  fi
 
-  # Push (currently just echoed)
-  log "To push, run:"
-  echo "  podman manifest push ${DOCKER_IMAGE} docker://${DOCKER_IMAGE}"
+  # log "To push, run:"
+  # echo "  podman manifest push ${DOCKER_IMAGE} docker://${DOCKER_IMAGE}"
+  podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE}"
 }
 
 build_local_only() {
