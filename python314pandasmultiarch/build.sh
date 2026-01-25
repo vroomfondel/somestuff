@@ -133,7 +133,8 @@ build_with_podman() {
   buildtime="$(date +'%Y-%m-%d %H:%M:%S %Z')"
 
   # Remove existing manifest if it exists
-  docker manifest rm "${DOCKER_IMAGE}" 2>/dev/null || true
+  echo podman manifest rm "${DOCKER_IMAGE}"
+  podman manifest rm "${DOCKER_IMAGE}" 2>/dev/null || true
 
   # Track platform-specific data
   local -a platform_tags=()
@@ -176,6 +177,7 @@ build_with_podman() {
 
   # Create manifest from all platform images
   log "Creating manifest: ${DOCKER_IMAGE}"
+  echo podman manifest create "${DOCKER_IMAGE}" "${platform_tags[@]}"
   podman manifest create "${DOCKER_IMAGE}" "${platform_tags[@]}"
 
   # Tag with latest (if not already latest)
@@ -186,6 +188,7 @@ build_with_podman() {
 
   # log "To push, run:"
   # echo "  podman manifest push ${DOCKER_IMAGE} docker://${DOCKER_IMAGE}"
+  echo podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE}"
   podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE}"
 }
 
