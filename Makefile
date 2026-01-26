@@ -64,7 +64,7 @@ build: venv
 	./build.sh
 
 build-nfs:
-	git submodule update --init --remote nfs-subdir-external-provisioner
+	git submodule update --init nfs-subdir-external-provisioner
 	cp overlays/nfs-subdir-external-provisioner/* nfs-subdir-external-provisioner/
 	cd nfs-subdir-external-provisioner && make && ./build.sh
 	# cd nfs-subdir-external-provisioner && make clean && make && ./build.sh
