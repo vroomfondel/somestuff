@@ -2,7 +2,7 @@
 [![BuildAndPushMultiarch](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml/badge.svg)](https://github.com/vroomfondel/somestuff/actions/workflows/buildmultiarchandpush.yml)
 ![Cumulative Clones](https://img.shields.io/endpoint?logo=github&url=https://gist.githubusercontent.com/vroomfondel/22c802be25a8241e81e98a28d00c6036/raw/somestuff_clone_count.json)
 
-[![Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png](Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png)](https://github.com/vroomfondel/somestuff)
+[![Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png](https://raw.githubusercontent.com/vroomfondel/somestuff/main/Gemini_Generated_Image_somestuff_64yrkh64yrkh64yr_250x250.png)](https://github.com/vroomfondel/somestuff)
 
 # somestuff
 
@@ -21,6 +21,14 @@ Contents overview (Python packages/modules):
 - `mqttstuff`: tiny MQTT wrapper utility
 - `netatmostuff`: Netatmo data fetch helper and deployment example
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
+- External packages: `mqttstuff` and `reputils` (via PyPI)
+
+Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh`):
+- `tangstuff`: Tang server for LUKS/Clevis network‑bound disk encryption
+- `mosquitto-2.1`: Mosquitto 2.1 MQTT broker with dynamic security
+- `python314jit`: Python 3.14 base image with JIT support
+- `python314pandasmultiarch`: Python 3.14 base image with pandas (multi‑arch)
+- `nfs-subdir-external-provisioner`: Kubernetes NFS provisioner (external submodule with local overlay)
 
 
 ## Getting started
@@ -182,10 +190,34 @@ The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory s
 - `.github/workflows/update-clone-badge.yml` updates the clones badge.
 
 
-## Python 3.14 JIT experiment (sub‑project)
-There is a dedicated subfolder `python314jit/` with its own `Dockerfile`, `build.sh`, and `README.md` for experimenting with Python 3.14’s new features and performance. See `python314jit/README.md` for details.
+## Standalone Docker Image Sub‑projects
 
-[https://hub.docker.com/r/xomoxcc/python314-jit/tags](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
+Each sub‑project has its own `Dockerfile`, `build.sh`, and `README.md`:
+
+### python314jit
+Python 3.14 base image with JIT support for experimenting with Python 3.14's new features and performance.
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
+- See `python314jit/README.md` for details.
+
+### python314pandasmultiarch
+Python 3.14 base image with pandas pre‑installed, built for multi‑arch (amd64 + arm64).
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/pythonpandasmultiarch/tags)
+- See `python314pandasmultiarch/README.md` for details.
+
+### mosquitto-2.1
+Mosquitto 2.1 MQTT broker with dynamic security plugin, multi‑arch build.
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/mosquitto/tags)
+- See `mosquitto-2.1/README.md` for details.
+
+### tangstuff
+Tang server for LUKS/Clevis network‑bound disk encryption (NBDE), enabling automatic disk unlock on trusted networks.
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/tang/tags)
+- See `tangstuff/README.md` for details.
+
+### nfs-subdir-external-provisioner
+Kubernetes NFS external provisioner (git submodule from upstream). Local modifications are stored in `overlays/nfs-subdir-external-provisioner/` and applied at build time.
+- Build: `make build-nfs` (applies overlay, then builds)
+- See upstream repo for documentation.
 
 ## Versioning
 This is a living collection; no strict semantic versioning. Expect occasional breaking changes. A rough, humorous version might be “-0.42”.

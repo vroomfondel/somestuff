@@ -1,4 +1,4 @@
-.PHONY: tests help install venv lint dstart isort tcheck build build-nfs commit-checks prepare
+.PHONY: tests help install venv lint dstart isort tcheck build build-nfs update-all-dockerhub-readmes commit-checks prepare
 SHELL := /usr/bin/bash
 .ONESHELL:
 
@@ -14,6 +14,7 @@ help:
 	# @printf "\nstart \n\tstart app in gunicorn - listening on port 8055\n"
 	@printf "\nbuild \n\tbuild docker image\n"
 	@printf "\nbuild-nfs \n\tbuild nfs-subdir-external-provisioner (applies overlay)\n"
+	@printf "\nupdate-all-dockerhub-readmes \n\tupdate ALL Docker Hub repo descriptions from DOCKERHUB_OVERVIEW.md resp */DOCKERHUB_OVERVIEW.md\n"
 	@printf "\ndstart \n\tlaunch \"app\" in docker\n"
 
 
@@ -67,6 +68,35 @@ build-nfs:
 	cp overlays/nfs-subdir-external-provisioner/* nfs-subdir-external-provisioner/
 	cd nfs-subdir-external-provisioner && make && ./build.sh
 	# cd nfs-subdir-external-provisioner && make clean && make && ./build.sh
+
+update-all-dockerhub-readmes:
+	@AUTH=$$(jq -r '.auths["https://index.docker.io/v1/"].auth' docker-config/config.json | base64 -d) && \
+	USERNAME=$$(echo "$$AUTH" | cut -d: -f1) && \
+	PASSWORD=$$(echo "$$AUTH" | cut -d: -f2-) && \
+	TOKEN=$$(curl -s -X POST https://hub.docker.com/v2/users/login/ \
+	  -H "Content-Type: application/json" \
+	  -d '{"username":"'"$$USERNAME"'","password":"'"$$PASSWORD"'"}' \
+	  | jq -r .token) && \
+	for mapping in \
+	  ".:xomoxcc/somestuff" \
+	  "python314jit:xomoxcc/python314-jit" \
+	  "python314pandasmultiarch:xomoxcc/pythonpandasmultiarch" \
+	  "mosquitto-2.1:xomoxcc/mosquitto" \
+	  "tangstuff:xomoxcc/tang"; do \
+	  DIR=$$(echo "$$mapping" | cut -d: -f1) && \
+	  REPO=$$(echo "$$mapping" | cut -d: -f2) && \
+	  FILE="$$DIR/DOCKERHUB_OVERVIEW.md" && \
+	  if [ -f "$$FILE" ]; then \
+	    echo "Updating $$REPO from $$FILE..." && \
+	    curl -s -X PATCH "https://hub.docker.com/v2/repositories/$$REPO/" \
+	      -H "Authorization: Bearer $$TOKEN" \
+	      -H "Content-Type: application/json" \
+	      -d "{\"full_description\": $$(jq -Rs . "$$FILE")}" \
+	      | jq -r '.full_description | length | "  Updated: \(.) chars"'; \
+	  else \
+	    echo "Skipping $$REPO - $$FILE not found"; \
+	  fi; \
+	done
 
 .git/hooks/pre-commit: venv
 	@$(venv_activated)

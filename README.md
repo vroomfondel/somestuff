@@ -28,6 +28,7 @@ Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh
 - `mosquitto-2.1`: Mosquitto 2.1 MQTT broker with dynamic security
 - `python314jit`: Python 3.14 base image with JIT support
 - `python314pandasmultiarch`: Python 3.14 base image with pandas (multi‑arch)
+- `nfs-subdir-external-provisioner`: Kubernetes NFS provisioner (external submodule with local overlay)
 
 
 ## Getting started
@@ -180,6 +181,13 @@ Usage:
 
 The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory so the builder state is isolated per‑repo. The primary tag is `xomoxcc/somestuff:python-3.14-slim-trixie` and an additional `:latest` tag is automatically added if missing.
 
+### Update Docker Hub READMEs
+To update the Docker Hub repository descriptions from the `DOCKERHUB_OVERVIEW.md` files:
+```
+make update-all-dockerhub-readmes
+```
+This updates all Docker Hub repos (somestuff, python314-jit, pythonpandasmultiarch, mosquitto, tang) using the credentials from `docker-config/config.json`.
+
 ### GitHub Actions
 - `.github/workflows/buildmultiarchandpush.yml` builds and pushes multi‑arch images on CI.
 - `.github/workflows/mypynpytests.yml` runs mypy + pytest.
@@ -210,6 +218,11 @@ Mosquitto 2.1 MQTT broker with dynamic security plugin, multi‑arch build.
 Tang server for LUKS/Clevis network‑bound disk encryption (NBDE), enabling automatic disk unlock on trusted networks.
 - [Docker Hub](https://hub.docker.com/r/xomoxcc/tang/tags)
 - See `tangstuff/README.md` for details.
+
+### nfs-subdir-external-provisioner
+Kubernetes NFS external provisioner (git submodule from upstream). Local modifications are stored in `overlays/nfs-subdir-external-provisioner/` and applied at build time.
+- Build: `make build-nfs` (applies overlay, then builds)
+- See upstream repo for documentation.
 
 ## Versioning
 This is a living collection; no strict semantic versioning. Expect occasional breaking changes. A rough, humorous version might be “-0.42”.
