@@ -14,14 +14,20 @@ Quick links:
 - CI: mypy + pytest, and a multi‑arch Docker build/push workflow (see badges above)
 
 Contents overview (Python packages/modules):
-- `dinogame`: pathfinding/visualization playground inspired by “The Farmer Was Replaced”
+- `dinogame`: pathfinding/visualization playground inspired by "The Farmer Was Replaced"
 - `dnsstuff`: SPF resolution helper and ipset updater for allow‑listing email senders (e.g. pcbway.com)
 - `ecowittstuff`: simple client/types for Ecowitt weather station API
-- `hydromailstuff`: assemble and send “hydro”/weather summary emails, pulling data from MQTT/Netatmo
+- `hydromailstuff`: assemble and send "hydro"/weather summary emails, pulling data from MQTT/Netatmo
 - `llmstuff`: helpers for working with LLM APIs and local OCR
-- `mqttstuff`: tiny MQTT wrapper utility
 - `netatmostuff`: Netatmo data fetch helper and deployment example
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
+- External packages: `mqttstuff` and `reputils` (via PyPI)
+
+Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh`):
+- `tangstuff`: Tang server for LUKS/Clevis network‑bound disk encryption
+- `mosquitto-2.1`: Mosquitto 2.1 MQTT broker with dynamic security
+- `python314jit`: Python 3.14 base image with JIT support
+- `python314pandasmultiarch`: Python 3.14 base image with pandas (multi‑arch)
 
 
 ## Getting started
@@ -53,7 +59,7 @@ mypy .
 Pathfinding toy project and visualization to prototype search/planning strategies on a grid world, loosely inspired by “The Farmer Was Replaced”. Useful to experiment with A* heuristics and safe‑move constraints while visualizing planning vs execution.
 
 - Entrypoint example: `dinogame/dinogame.py` contains a `main()` that renders a GIF of a planning/execution sequence.
-- Requirements: `matplotlib`, `numpy` (already in `requirements.txt`).
+- Requirements: `matplotlib`, `numpy` (`matplotlib` is commented out in `requirements.txt` by default; enable it to use this module).
 - Run locally:
 ```
 python -m dinogame.dinogame
@@ -105,13 +111,11 @@ Helper utilities to interact with LLM providers or local OCR pipelines.
 - Usefulness: quick building blocks when experimenting with LLMs and OCR.
 
 
-### mqttstuff
-Minimal MQTT wrapper(s) and helpers.
+### mqttstuff (external package)
+Minimal MQTT wrapper(s) and helpers. **This is now an external package** — see [GitHub](https://github.com/vroomfondel/mqttstuff) and [PyPI](https://pypi.org/project/mqttstuff/).
 
-- File: `mqttstuff/mosquittomqttwrapper.py`.
 - Config: `mqtt.*` and `mqtt_topics.*` in `config.yaml` (topics include metadata such as subscribe flag and default metadata).
 - Usefulness: standardize how topics are named and read/published across scripts.
-- **⚠️ Warning:** this is now an external module (https://github.com/vroomfondel/mqttstuff) and included as library via pypi (https://pypi.org/project/mqttstuff/)
 
 
 ### netatmostuff
@@ -183,10 +187,29 @@ The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory s
 - `.github/workflows/update-clone-badge.yml` updates the clones badge.
 
 
-## Python 3.14 JIT experiment (sub‑project)
-There is a dedicated subfolder `python314jit/` with its own `Dockerfile`, `build.sh`, and `README.md` for experimenting with Python 3.14’s new features and performance. See `python314jit/README.md` for details.
+## Standalone Docker Image Sub‑projects
 
-[https://hub.docker.com/r/xomoxcc/python314-jit/tags](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
+Each sub‑project has its own `Dockerfile`, `build.sh`, and `README.md`:
+
+### python314jit
+Python 3.14 base image with JIT support for experimenting with Python 3.14's new features and performance.
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/python314-jit/tags)
+- See `python314jit/README.md` for details.
+
+### python314pandasmultiarch
+Python 3.14 base image with pandas pre‑installed, built for multi‑arch (amd64 + arm64).
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/pythonpandasmultiarch/tags)
+- See `python314pandasmultiarch/README.md` for details.
+
+### mosquitto-2.1
+Mosquitto 2.1 MQTT broker with dynamic security plugin, multi‑arch build.
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/mosquitto/tags)
+- See `mosquitto-2.1/README.md` for details.
+
+### tangstuff
+Tang server for LUKS/Clevis network‑bound disk encryption (NBDE), enabling automatic disk unlock on trusted networks.
+- [Docker Hub](https://hub.docker.com/r/xomoxcc/tang/tags)
+- See `tangstuff/README.md` for details.
 
 ## Versioning
 This is a living collection; no strict semantic versioning. Expect occasional breaking changes. A rough, humorous version might be “-0.42”.

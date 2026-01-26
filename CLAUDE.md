@@ -22,6 +22,7 @@ make prepare            # Run tests + commit-checks
 # Docker build
 ./build.sh              # Multi-arch build and push to Docker Hub
 ./build.sh onlylocal    # Local build only (no push)
+make build              # Update git submodules and run build.sh
 make dstart             # Run container interactively with config.local.yaml mounted
 ```
 
@@ -38,19 +39,33 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 
 ### Key Modules
 
-| Module | Purpose |
-|--------|---------|
-| `dnsstuff/pcbwaydnsstuff.py` | SPF record crawler → ipset updater for SMTP allowlisting |
-| `ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic) |
-| `hydromailstuff/hydromail.py` | Assembles status emails from MQTT/Netatmo data |
-| `netatmostuff/lnetatmo.py` | Netatmo weather data client |
-| `llmstuff/` | LLM API helpers (Google Gemini, Anthropic, Ollama OCR) |
-| `dinogame/` | Grid pathfinding visualization (A* experiments) |
+| Module                       | Purpose                                                     |
+|------------------------------|-------------------------------------------------------------|
+| `dnsstuff/pcbwaydnsstuff.py` | SPF record crawler → ipset updater for SMTP allowlisting    |
+| `ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
+| `hydromailstuff/hydromail.py`| Assembles status emails from MQTT/Netatmo data              |
+| `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
+| `llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
+| `dinogame/`                  | Grid pathfinding visualization (A* experiments)             |
+| `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
+
+### Standalone Docker Images
+
+These subdirectories contain independent Docker image builds with their own `build.sh`:
+
+| Directory                  | Purpose                                              |
+|----------------------------|------------------------------------------------------|
+| `tangstuff/`               | Tang server for LUKS/Clevis network-bound encryption |
+| `mosquitto-2.1/`           | Mosquitto 2.1 MQTT broker with dynamic security      |
+| `python314jit/`            | Python 3.14 base image with JIT support              |
+| `python314pandasmultiarch/`| Python 3.14 base image with pandas (multi-arch)      |
 
 ### Shared Utilities
 
 - **Helper.py**: JSON serialization (`ComplexEncoder`), deep dict merging
 - **mqttstuff**: External package (PyPI: `mqttstuff`) for MQTT topic management
+- **reputils**: External package (PyPI: `reputils`) for repository utilities
+- **docker-config/**: Private directory containing Docker registry credentials for `build.sh`
 
 ### Docker Image
 
