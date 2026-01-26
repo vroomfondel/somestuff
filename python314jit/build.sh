@@ -31,6 +31,7 @@ readonly BUILD_BASE_ARGS=(
 PODMAN_VM_STARTED=0
 DOCKER_IS_PODMAN=0
 
+
 #=============================================================================
 # HELPER FUNCTIONS
 #=============================================================================
@@ -54,12 +55,19 @@ is_podman() {
 setup_environment() {
   cd "${SCRIPT_DIR}" || die "Could not change to script directory"
 
-  source "${INCLUDE_SH}"
-
-  export DOCKER_CONFIG="$(realpath ../docker-config)"
-  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
-    export DOCKER_CONFIG="${HOME}/.docker"
+  if [ -e "${INCLUDE_SH}" ] ; then
+    source "${INCLUDE_SH}"
   fi
+
+  DOCKER_CONFIG="$(realpath docker-config)"
+  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
+    DOCKER_CONFIG="$(realpath ../docker-config)"
+  fi
+  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
+    DOCKER_CONFIG="${HOME}/.docker"
+  fi
+
+  export DOCKER_CONFIG
   export REGISTRY_AUTH_FILE="${DOCKER_CONFIG}/config.json"
 
   if is_podman; then

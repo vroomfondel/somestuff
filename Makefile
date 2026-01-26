@@ -1,4 +1,4 @@
-.PHONY: tests help install venv lint dstart isort tcheck build commit-checks prepare
+.PHONY: tests help install venv lint dstart isort tcheck build build-nfs commit-checks prepare
 SHELL := /usr/bin/bash
 .ONESHELL:
 
@@ -13,6 +13,7 @@ help:
 	@printf "\ncommit-checks\n\trun pre-commit checks on all files\n"
 	# @printf "\nstart \n\tstart app in gunicorn - listening on port 8055\n"
 	@printf "\nbuild \n\tbuild docker image\n"
+	@printf "\nbuild-nfs \n\tbuild nfs-subdir-external-provisioner (applies overlay)\n"
 	@printf "\ndstart \n\tlaunch \"app\" in docker\n"
 
 
@@ -60,6 +61,12 @@ build: venv
 	git submodule update --remote
 	# git submodule update --init --recursive
 	./build.sh
+
+build-nfs:
+	git submodule update --init --remote nfs-subdir-external-provisioner
+	cp overlays/nfs-subdir-external-provisioner/* nfs-subdir-external-provisioner/
+	cd nfs-subdir-external-provisioner && make && ./build.sh
+	# cd nfs-subdir-external-provisioner && make clean && make && ./build.sh
 
 .git/hooks/pre-commit: venv
 	@$(venv_activated)

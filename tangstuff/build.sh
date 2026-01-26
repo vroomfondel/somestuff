@@ -32,6 +32,34 @@ PODMAN_VM_STARTED=0
 DOCKER_IS_PODMAN=0
 
 #=============================================================================
+# CONFIGURATION
+#=============================================================================
+readonly SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+readonly INCLUDE_SH="../scripts/include.sh"
+readonly PODMAN_VM_INIT_DISK_SIZE=100
+readonly DOCKER_IMAGE="docker.io/xomoxcc/mosquitto:2.1"
+readonly DOCKER_IMAGE_LATEST="${DOCKER_IMAGE%:*}:latest"
+readonly PLATFORMS=("linux/amd64" "linux/arm64")
+readonly DOCKERFILE=Dockerfile
+readonly BUILDER_NAME=mbuilder
+readonly ENABLE_PARALLEL_BUILDS=0
+readonly BUILDTIME="$(date +'%Y-%m-%d %H:%M:%S %Z')"
+
+readonly BUILD_BASE_ARGS=(
+  "-f" "${DOCKERFILE}"
+  "--build-arg" "buildtime=\"${BUILDTIME}\""
+  )
+
+# podman machine ssh df -h
+# podman --connection podman-machine-default system prune -a
+# podman --connection podman-machine-default system df
+# podman machine inspect podman-machine-default | grep -i disk
+
+# Runtime state
+PODMAN_VM_STARTED=0
+DOCKER_IS_PODMAN=0
+
+#=============================================================================
 # HELPER FUNCTIONS
 #=============================================================================
 die() {
@@ -54,12 +82,19 @@ is_podman() {
 setup_environment() {
   cd "${SCRIPT_DIR}" || die "Could not change to script directory"
 
-  source "${INCLUDE_SH}"
-
-  export DOCKER_CONFIG="$(realpath ../docker-config)"
-  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
-    export DOCKER_CONFIG="${HOME}/.docker"
+  if [ -e "${INCLUDE_SH}" ] ; then
+    source "${INCLUDE_SH}"
   fi
+
+  DOCKER_CONFIG="$(realpath docker-config)"
+  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
+    DOCKER_CONFIG="$(realpath ../docker-config)"
+  fi
+  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
+    DOCKER_CONFIG="${HOME}/.docker"
+  fi
+
+  export DOCKER_CONFIG
   export REGISTRY_AUTH_FILE="${DOCKER_CONFIG}/config.json"
 
   if is_podman; then

@@ -7,9 +7,7 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 readonly INCLUDE_SH="scripts/include.sh"
 readonly PODMAN_VM_INIT_DISK_SIZE=100
-readonly PYTHON_VERSION=3.14
-readonly DEBIAN_VERSION=slim-trixie
-readonly DOCKER_IMAGE="docker.io/xomoxcc/somestuff:python-${PYTHON_VERSION}-${DEBIAN_VERSION}"
+readonly DOCKER_IMAGE=docker.io/xomoxcc/nfs-subdir-external-provisioner:latest
 readonly DOCKER_IMAGE_LATEST="${DOCKER_IMAGE%:*}:latest"
 readonly PLATFORMS=("linux/amd64" "linux/arm64")
 readonly DOCKERFILE=Dockerfile
@@ -20,8 +18,6 @@ readonly BUILDTIME="$(date +'%Y-%m-%d %H:%M:%S %Z')"
 readonly BUILD_BASE_ARGS=(
   "-f" "${DOCKERFILE}"
   "--build-arg" "buildtime=\"${BUILDTIME}\""
-  "--build-arg" "python_version=\"${PYTHON_VERSION}\""
-  "--build-arg" "debian_version=\"${DEBIAN_VERSION}\""
   )
 
 # podman machine ssh df -h
