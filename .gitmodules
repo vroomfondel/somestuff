@@ -1,4 +1,4 @@
 [submodule "nfs-subdir-external-provisioner"]
 	path = nfs-subdir-external-provisioner
 	url = git@github.com:kubernetes-sigs/nfs-subdir-external-provisioner.git
-	branch = nfs-subdir-external-provisioner-4.0.18
+	# branch = nfs-subdir-external-provisioner-4.0.18
