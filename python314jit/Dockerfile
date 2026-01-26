@@ -1,4 +1,8 @@
-FROM buildpack-deps:trixie
+ARG debian_version=trixie
+
+FROM buildpack-deps:${debian_version}
+
+ARG debian_version
 
 # https://github.com/docker-library/python/blob/master/3.14/trixie/Dockerfile
 

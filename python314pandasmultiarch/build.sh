@@ -5,6 +5,7 @@ set -euo pipefail
 # CONFIGURATION
 #=============================================================================
 readonly SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+readonly PODMAN_VM_INIT_DISK_SIZE=100
 readonly PYTHON_VERSION=3.14
 readonly PANDAS_VERSION=2.2.3
 readonly DEBIAN_VERSION=slim-trixie
@@ -13,6 +14,16 @@ readonly DOCKER_IMAGE_LATEST="${DOCKER_IMAGE%:*}:latest"
 readonly PLATFORMS=("linux/arm64" "linux/amd64")
 readonly DOCKERFILE=Dockerfile
 readonly BUILDER_NAME=mbuilder
+readonly ENABLE_PARALLEL_BUILDS=0
+readonly BUILDTIME="$(date +'%Y-%m-%d %H:%M:%S %Z')"
+
+readonly BUILD_BASE_ARGS=(
+  "-f" "${DOCKERFILE}"
+  "--build-arg" "debian_version=${DEBIAN_VERSION}"
+  "--build-arg" "pandas_version=${PANDAS_VERSION}"
+  "--build-arg" "python_version=${PYTHON_VERSION}"
+  "--build-arg" "buildtime=\"${BUILDTIME}\""
+  )
 
 # Runtime state
 PODMAN_VM_STARTED=0
@@ -44,6 +55,9 @@ setup_environment() {
   source ../scripts/include.sh
 
   export DOCKER_CONFIG="$(realpath ../docker-config)"
+  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
+    export DOCKER_CONFIG="${HOME}/.docker"
+  fi
   export REGISTRY_AUTH_FILE="${DOCKER_CONFIG}/config.json"
 
   if is_podman; then
@@ -74,7 +88,7 @@ setup_docker_buildx() {
 ensure_podman_vm_running() {
   if ! podman machine list | grep -q "podman-machine-default"; then
     log "Initializing podman machine..."
-    podman machine init --disk-size 100
+    podman machine init --disk-size ${PODMAN_VM_INIT_DISK_SIZE}
   fi
 
   if ! podman machine list --format "{{.Running}}" | grep -q "true"; then
@@ -110,17 +124,19 @@ build_with_docker() {
 
   setup_docker_buildx
 
-  local buildtime
-  buildtime="$(date +'%Y-%m-%d %H:%M:%S %Z')"
-
   printf -v platforms_csv '%s,' "${PLATFORMS[@]}"
   platforms_csv="${platforms_csv%,}"
 
+  # Add latest tag if not already latest
+  local -a build_args=("${BUILD_BASE_ARGS[@]}")
+  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+    build_args+=("-t" "${DOCKER_IMAGE_LATEST}")
+  fi
+
+  build_args+=("-t" "${DOCKER_IMAGE}")
+
   docker buildx build \
-    -f "${DOCKERFILE}" \
-    --build-arg "buildtime=${buildtime}" \
-    -t "${DOCKER_IMAGE}" \
-    -t "${DOCKER_IMAGE_LATEST}" \
+    "${build_args[@]}" \
     --platform "${platforms_csv}" \
     --push \
     .
@@ -129,9 +145,6 @@ build_with_docker() {
 build_with_podman() {
   log "Building with Podman manifest workflow..."
 
-  local buildtime
-  buildtime="$(date +'%Y-%m-%d %H:%M:%S %Z')"
-
   # Remove existing manifest if it exists
   echo podman manifest rm "${DOCKER_IMAGE}"
   podman manifest rm "${DOCKER_IMAGE}" 2>/dev/null || true
@@ -139,8 +152,12 @@ build_with_podman() {
   # Track platform-specific data
   local -a platform_tags=()
   local -A platform_connect_args=()
+  local -a build_pids=()
 
-  # Build for each platform
+  # Add latest tag if not already latest
+  local -a build_args=("${BUILD_BASE_ARGS[@]}")
+
+  # Build for each platform (in parallel)
   for platform in "${PLATFORMS[@]}"; do
     local arch="${platform#*/}"
     local platform_tag="${DOCKER_IMAGE}-${arch}"
@@ -156,15 +173,37 @@ build_with_podman() {
     platform_tags+=("${platform_tag}")
     platform_connect_args["${platform}"]="${connect_arg}"
 
-    log "Building for ${platform} -> ${platform_tag}..."
+    log "Building for ${platform} -> ${platform_tag} (background)..."
     # shellcheck disable=SC2086
-    podman ${connect_arg} build \
-      -f "${DOCKERFILE}" \
-      --build-arg "buildtime=${buildtime}" \
-      --platform "${platform}" \
-      -t "${platform_tag}" \
-      . || die "Build failed for ${platform}"
+    if (( ${ENABLE_PARALLEL_BUILDS:-0} == 1 )) ; then
+      echo "(podman ${connect_arg} build \"${build_args[@]}\" --platform \"${platform}\" -t \"${platform_tag}\" .) &"
+      (
+        podman ${connect_arg} build \
+          "${build_args[@]}" \
+          --platform "${platform}" \
+          -t "${platform_tag}" \
+          . || exit 1
+      ) &
+      build_pids+=($!)
+    else
+      echo podman ${connect_arg} build "${build_args[@]}" --platform "${platform}" -t "${platform_tag}" .
+      podman ${connect_arg} build "${build_args[@]}" --platform "${platform}" -t "${platform_tag}" . || exit 1
+    fi
   done
+
+
+  # Wait for all builds to complete
+  if (( ${#build_pids[@]} > 0 )); then
+    log "Waiting for ${#build_pids[@]} parallel builds..."
+    local failed=0
+    for pid in "${build_pids[@]}"; do
+      if ! wait "$pid"; then
+        log "Build failed (PID $pid)"
+        failed=1
+      fi
+    done
+    (( failed == 1 )) && die "One or more builds failed"
+  fi
 
   # Copy images built in VM to host
   for platform in "${!platform_connect_args[@]}"; do
@@ -195,15 +234,18 @@ build_with_podman() {
 build_local_only() {
   log "Building local image only..."
 
-  local buildtime
-  buildtime="$(date +'%Y-%m-%d %H:%M:%S %Z')"
-
   export BUILDKIT_PROGRESS=plain
+
+  # Add latest tag if not already latest
+  local -a build_args=("${BUILD_BASE_ARGS[@]}")
+  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+    build_args+=("-t" "${DOCKER_IMAGE_LATEST}")
+  fi
+
+  build_args+=("-t" "${DOCKER_IMAGE}")
+
   docker build \
-    -f "${DOCKERFILE}" \
-    --build-arg "buildtime=${buildtime}" \
-    -t "${DOCKER_IMAGE}" \
-    -t "${DOCKER_IMAGE_LATEST}" \
+    "${build_args[@]}" \
     .
 }
 

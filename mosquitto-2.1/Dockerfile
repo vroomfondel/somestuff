@@ -35,7 +35,7 @@ FROM ubuntu:24.04
 
 # ORIG FILE from https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/2.1.0-test1.tar.gz :: docker :: 2.1-ubuntu
 
-ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/v2.1.0rc2.tar.gz"
+ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/v2.1.0rc3.tar.gz"
 
 RUN set -x && \
     apt-get update && \
@@ -57,8 +57,11 @@ RUN set -x && wget ${SRC} -O /tmp/mosq.tar.gz
 
 RUN set -x && mkdir -p /build/mosq && \
     tar --strip=1 -xf /tmp/mosq.tar.gz -C /build/mosq && \
-    rm /tmp/mosq.tar.gz && \
-    make -C /build/mosq -j "$(nproc)" \
+    rm /tmp/mosq.tar.gz
+
+# somehow having all cpu cores when building in podman-vm-qemu, this fails since rc3
+
+RUN set -x && make -C /build/mosq -j "$(( $(nproc) / 2))" \
         CFLAGS="-Wall -O2 -I/build -DHTTP_API_DIR=\\\"/usr/share/mosquitto/dashboard\\\"" \
         WITH_ADNS=no \
         WITH_DOCS=no \
@@ -67,8 +70,9 @@ RUN set -x && mkdir -p /build/mosq && \
         WITH_STRIP=yes \
         WITH_WEBSOCKETS=yes \
         prefix=/usr \
-        binary && \
-    addgroup --system --quiet --gid 1883 mosquitto 2>/dev/null && \
+        binary
+
+RUN set -x && addgroup --system --quiet --gid 1883 mosquitto 2>/dev/null && \
     adduser --system --quiet --no-create-home --ingroup mosquitto --uid 1883 --home /var/empty --shell /usr/sbin/nologin mosquitto 2>/dev/null && \
     mkdir -p /mosquitto/config /mosquitto/data /mosquitto/log
 
@@ -126,6 +130,9 @@ fi
 
 exec "$@"
 EOF
+
+ARG buildtime
+ENV BUILDTIME=$buildtime
 
 EXPOSE 1883
 EXPOSE 8883

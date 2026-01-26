@@ -4,7 +4,7 @@
 
 # Mosquitto 2.1 MQTT Broker
 
-This directory contains a custom, production-ready build of **Mosquitto 2.1.0-test1**. It is specifically tailored for deployment on Ubuntu-based environments (Ubuntu 24.04) and includes support for modern MQTT features, enhanced security, and containerized orchestration via Kubernetes.
+This directory contains a custom, production-ready build of **Mosquitto 2.1.0-rc3**. It is specifically tailored for deployment on Ubuntu-based environments (Ubuntu 24.04) and includes support for modern MQTT features, enhanced security, and containerized orchestration via Kubernetes.
 
 ---
 
