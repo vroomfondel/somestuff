@@ -17,6 +17,7 @@ This directory contains a custom, production-ready build of **Mosquitto 2.1.0-rc
 - **HTTP API & Dashboard**: Includes a built-in HTTP management API and a web dashboard on port `9883`.
 - **Multi-Arch Docker Image**: Optimized for both `amd64` and `arm64` architectures, making it suitable for both cloud servers and edge devices (like Raspberry Pi).
 - **Proxy Protocol v2 Support**: Configured to work behind Load Balancers (like Traefik or HAProxy) while preserving client IP addresses.
+- **Enhanced IP Logging**: Includes a custom patch (`log-with-ip.patch`) that adds client IP addresses to all disconnect log messages. Now it is finally possible to properly use fail2ban based on IP addresses for MQTT authentication failures.
 
 ---
 
@@ -25,6 +26,7 @@ This directory contains a custom, production-ready build of **Mosquitto 2.1.0-rc
 | File | Description |
 | :--- | :--- |
 | `Dockerfile` | Multi-stage build file compiling Mosquitto from source on Ubuntu 24.04. It handles complex dependency linking for plugins and `mosquitto_ctrl`. |
+| `log-with-ip.patch` | Patch for `src/loop.c` that adds client IP addresses to disconnect log messages, enabling fail2ban integration. |
 | `build.sh` | A utility script for building multi-architecture Docker images and pushing them to a registry. |
 | `mosquitto_test.conf` | The primary configuration file. Includes listeners for MQTT (1883), WebSockets (9001), and the HTTP API (9883). |
 | `mosquitto_test.acl` | Initial Access Control List template. |

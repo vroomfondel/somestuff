@@ -1,0 +1,125 @@
+--- a/src/loop.c
++++ b/src/loop.c
+@@ -313,94 +313,95 @@
+ 			}else{
+ 				id = context->address;
+ 			}
++			const char *addr = context->address ? context->address : "unknown";
+ 			if(context->state != mosq_cs_disconnecting && context->state != mosq_cs_disconnect_with_will){
+ 				switch(reason){
+ 					case MOSQ_ERR_SUCCESS:
+ 						break;
+ 					case MOSQ_ERR_MALFORMED_PACKET:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to malformed packet.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected due to malformed packet.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_PROTOCOL:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to protocol error.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected due to protocol error.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_CONN_LOST:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s closed its connection.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) closed its connection.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_AUTH:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, not authorised.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, not authorised.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_KEEPALIVE:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s has exceeded timeout, disconnecting.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) has exceeded timeout, disconnecting.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_OVERSIZE_PACKET:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to oversize packet.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected due to oversize packet.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_PAYLOAD_SIZE:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to oversize payload.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected due to oversize payload.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_NOMEM:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to out of memory.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected due to out of memory.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_NOT_SUPPORTED:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to using not allowed feature (QoS too high, retain not supported, or bad AUTH method).", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected due to using not allowed feature (QoS too high, retain not supported, or bad AUTH method).", id, addr);
+ 						break;
+ 					case MOSQ_ERR_ADMINISTRATIVE_ACTION:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s been disconnected by administrative action.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) been disconnected by administrative action.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_ERRNO:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected: %s.", id, strerror(errno));
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected: %s.", id, addr, strerror(errno));
+ 						break;
+ 					case MOSQ_ERR_RECEIVE_MAXIMUM_EXCEEDED:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to exceeding the receive maximum.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected due to exceeding the receive maximum.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_IMPLEMENTATION_SPECIFIC:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, implementation specific error.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, implementation specific error.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_CLIENT_IDENTIFIER_NOT_VALID:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, client identifier not valid.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, client identifier not valid.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_BAD_USERNAME_OR_PASSWORD:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, bad username or password.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, bad username or password.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_SERVER_UNAVAILABLE:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, server unavailable.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, server unavailable.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_SERVER_BUSY:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, server busy.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, server busy.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_BANNED:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, client banned.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, client banned.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_BAD_AUTHENTICATION_METHOD:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, bad authentication method.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, bad authentication method.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_QUOTA_EXCEEDED:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, quota exceeded.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, quota exceeded.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_CONNECTION_RATE_EXCEEDED:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, connection rate exceeded.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, connection rate exceeded.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_SESSION_TAKEN_OVER:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, session taken over.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, session taken over.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_TOPIC_ALIAS_INVALID:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, topic alias invalid.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, topic alias invalid.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_HTTP_BAD_ORIGIN:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, non-matching http origin.", id);
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected, non-matching http origin.", id, addr);
+ 						break;
+ 					case MOSQ_ERR_PROXY:
+ 						/* This was a proxy v2 health check connection, so don't report */
+ 						break;
+ 					default:
+-						log__printf(NULL, MOSQ_LOG_NOTICE, "Bad socket read/write on client %s: %s", id, mosquitto_strerror(reason));
++						log__printf(NULL, MOSQ_LOG_NOTICE, "Bad socket read/write on client %s (%s): %s", id, addr, mosquitto_strerror(reason));
+ 						break;
+ 				}
+ 			}else{
+ 				if(reason == MOSQ_ERR_ADMINISTRATIVE_ACTION){
+-					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s been disconnected by administrative action.", id);
++					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) been disconnected by administrative action.", id, addr);
+ 				}else{
+-					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected.", id);
++					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s (%s) disconnected.", id, addr);
+ 				}
+ 			}
+ 		}

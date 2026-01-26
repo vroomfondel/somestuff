@@ -59,6 +59,10 @@ RUN set -x && mkdir -p /build/mosq && \
     tar --strip=1 -xf /tmp/mosq.tar.gz -C /build/mosq && \
     rm /tmp/mosq.tar.gz
 
+# Getting mosquitto to log IPs
+COPY log-with-ip.patch /log-with-ip.patch
+RUN cd /build/mosq && patch -p1 < /log-with-ip.patch
+
 # somehow having all cpu cores when building in podman-vm-qemu, this fails since rc3
 
 RUN set -x && make -C /build/mosq -j "$(( $(nproc) / 2))" \

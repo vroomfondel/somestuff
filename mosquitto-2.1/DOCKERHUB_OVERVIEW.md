@@ -15,6 +15,7 @@ This directory contains a custom, production-ready build of **Mosquitto 2.1.0-te
 - **HTTP API & Dashboard**: Includes a built-in HTTP management API and a web dashboard on port `9883`.
 - **Multi-Arch Docker Image**: Optimized for both `amd64` and `arm64` architectures, making it suitable for both cloud servers and edge devices (like Raspberry Pi).
 - **Proxy Protocol v2 Support**: Configured to work behind Load Balancers (like Traefik or HAProxy) while preserving client IP addresses.
+- **Enhanced IP Logging**: Includes a custom patch that adds client IP addresses to all disconnect log messages. Now it is finally possible to properly use fail2ban based on IP addresses for MQTT authentication failures.
 
 ---
 
