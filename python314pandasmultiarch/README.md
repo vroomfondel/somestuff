@@ -30,7 +30,7 @@ What’s inside
 - `python_venv.sh`: container `CMD` wrapper that activates the venv and then execs `python3` with any arguments you provide.
 
 Key defaults and environment
-- Base: `python:3.14-trixie` (configurable via build args)
+- Base: `python:3.14-slim-trixie` (configurable via build args)
 - Venv path: `/python_venv`
 - Entry point: `tini --`
 - Default command: `/app/python_venv.sh`

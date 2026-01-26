@@ -5,7 +5,7 @@
 
 Python 3.14 with Experimental JIT (Docker)
 
-This directory builds a Docker image that contains CPython 3.14 compiled from source with the experimental JIT enabled. It also includes a small Python script to inspect build/runtime JIT status.
+This directory builds a Docker image that contains CPython 3.14.2 compiled from source with the experimental JIT enabled. It also includes a small Python script to inspect build/runtime JIT status.
 
 Why this is useful
 - Try out CPython's experimental JIT on Linux without modifying your host system.
@@ -36,18 +36,18 @@ Quick start
 ```
 ./build.sh onlylocal
 ```
-This creates a local image tagged by default as `xomoxcc/python314-jit:trixie` and also adds `:latest`.
+This creates a local image tagged by default as `xomoxcc/python314-jit:latest` and also adds `:latest`.
 
 2) Run an interactive shell with JIT enabled:
 ```
-docker run -it --rm -e PYTHON_JIT=1 xomoxcc/python314-jit:trixie
+docker run -it --rm -e PYTHON_JIT=1 xomoxcc/python314-jit:latest
 ```
 The Dockerfile sets `PYTHON_JIT=1` by default. You can override with `-e PYTHON_JIT=0` to disable JIT at runtime.
 
 3) Verify build and JIT behavior using the diagnostic script:
 ```
 # from this directory
-docker run -i --rm -e PYTHON_JIT=1 xomoxcc/python314-jit:trixie < checkpython.py
+docker run -i --rm -e PYTHON_JIT=1 xomoxcc/python314-jit:latest < checkpython.py
 ```
 The script prints:
 - Python version and build tag.
