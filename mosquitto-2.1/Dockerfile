@@ -175,7 +175,7 @@ if ! [ -e ${confdir}/mosquitto.passwd ] ; then
   /usr/bin/mosquitto_passwd -c -b ${confdir}/mosquitto.passwd admin public
 fi
 chown mosquitto:mosquitto ${confdir}/mosquitto.passwd
-chmod 0700 ${confdir}/mosquitto.passwd
+chmod 0600 ${confdir}/mosquitto.passwd
 
 echo
 if ! [ -e ${datadir}/dynamic-security.json ] ; then
@@ -185,7 +185,7 @@ if ! [ -e ${datadir}/dynamic-security.json ] ; then
   cp -v /mosquitto_dynamic-security_test.json ${datadir}/dynamic-security.json
 fi
 chown mosquitto:mosquitto ${datadir}/dynamic-security.json
-chmod 0700 ${datadir}/dynamic-security.json
+chmod 0600 ${datadir}/dynamic-security.json
 
 echo
 if ! [ -e ${confdir}/mosquitto.acl ] ; then
@@ -193,7 +193,7 @@ if ! [ -e ${confdir}/mosquitto.acl ] ; then
   cp -v /mosquitto_test.acl ${confdir}/mosquitto.acl
 fi
 chown mosquitto:mosquitto ${confdir}/mosquitto.acl
-chmod 0700 ${confdir}/mosquitto.acl
+chmod 0600 ${confdir}/mosquitto.acl
 
 echo
 if ! [ -e ${confdir}/mosquitto.conf ] ; then
@@ -201,7 +201,7 @@ if ! [ -e ${confdir}/mosquitto.conf ] ; then
   cp -v /mosquitto_test.conf ${confdir}/mosquitto.conf
 fi
 chown mosquitto:mosquitto ${confdir}/mosquitto.conf
-chmod 0700 ${confdir}/mosquitto.conf
+chmod 0600 ${confdir}/mosquitto.conf
 
 echo
 /docker-entrypoint.sh /usr/sbin/mosquitto -c ${confdir}/mosquitto.conf

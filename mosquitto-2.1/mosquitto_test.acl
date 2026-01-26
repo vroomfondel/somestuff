@@ -11,6 +11,7 @@ topic read $SYS/#
 
 # PER USER SECTION
 user admin
+topic readwrite $SYS/#
 topic readwrite #
 
 # PATTERN SECTION
@@ -22,5 +23,5 @@ pattern readwrite cmnd/%u/#
 pattern readwrite cmnd/%c_fb/#
 pattern readwrite stat/%u/#
 
-# needed ?!
-topic deny #
+# problematic with 2.1rc3 -> even matched user will be denied from here ?!
+# topic deny #
