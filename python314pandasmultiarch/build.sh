@@ -5,6 +5,7 @@ set -euo pipefail
 # CONFIGURATION
 #=============================================================================
 readonly SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+readonly INCLUDE_SH="../scripts/include.sh"
 readonly PODMAN_VM_INIT_DISK_SIZE=100
 readonly PYTHON_VERSION=3.14
 readonly PANDAS_VERSION=2.2.3
@@ -52,7 +53,7 @@ is_podman() {
 setup_environment() {
   cd "${SCRIPT_DIR}" || die "Could not change to script directory"
 
-  source ../scripts/include.sh
+  source "${INCLUDE_SH}"
 
   export DOCKER_CONFIG="$(realpath ../docker-config)"
   if ! [ -e  "${DOCKER_CONFIG}" ] ; then
