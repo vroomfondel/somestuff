@@ -240,6 +240,12 @@ build_with_podman() {
   # echo "  podman manifest push ${DOCKER_IMAGE} docker://${DOCKER_IMAGE}"
   echo podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE}"
   podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE}"
+
+  # Push latest tag
+  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+    log "Pushing as latest: ${DOCKER_IMAGE_LATEST}"
+    podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE_LATEST}"
+  fi
 }
 
 build_local_only() {
