@@ -18,8 +18,8 @@ readonly BUILDTIME="$(date +'%Y-%m-%d %H:%M:%S %Z')"
 
 readonly BUILD_BASE_ARGS=(
   "-f" "${DOCKERFILE}"
-  "--build-arg" "buildtime=\"${BUILDTIME}\""
-  "--build-arg" "debian_version=\"${DEBIAN_VERSION}\""
+  "--build-arg" "buildtime=${BUILDTIME}"
+  "--build-arg" "debian_version=${DEBIAN_VERSION}"
   )
 
 # podman machine ssh df -h

@@ -17,7 +17,7 @@ readonly BUILDTIME="$(date +'%Y-%m-%d %H:%M:%S %Z')"
 
 readonly BUILD_BASE_ARGS=(
   "-f" "${DOCKERFILE}"
-  "--build-arg" "buildtime=\"${BUILDTIME}\""
+  "--build-arg" "buildtime=${BUILDTIME}"
   )
 
 # podman machine ssh df -h
