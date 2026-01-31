@@ -65,7 +65,7 @@ def get_cluster_ca(kubeconfig: dict, cluster_name: str) -> str | None:
     return None
 
 
-def compare_credentials(remote: dict, local: dict, remote_ca: str, local_ca: str) -> dict:
+def compare_credentials(remote: dict, local: dict, remote_ca: str | None, local_ca: str | None) -> dict:
     """Compare remote and local credentials, return differences."""
     differences = {}
 
@@ -106,9 +106,7 @@ def update_local_kubeconfig(
     # Update user credentials
     for user in kubeconfig.get("users", []):
         if user.get("name") == user_name:
-            user["user"]["client-certificate-data"] = remote_creds.get(
-                "client-certificate-data"
-            )
+            user["user"]["client-certificate-data"] = remote_creds.get("client-certificate-data")
             user["user"]["client-key-data"] = remote_creds.get("client-key-data")
             break
 
@@ -157,21 +155,22 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     default_host, default_context = get_defaults_from_kubeconfig()
 
-    parser = argparse.ArgumentParser(
-        description="Compare K3s kubeconfig with local ~/.kube/config"
-    )
+    parser = argparse.ArgumentParser(description="Compare K3s kubeconfig with local ~/.kube/config")
     parser.add_argument(
-        "-u", "--user",
+        "-u",
+        "--user",
         default="root",
         help="SSH user for remote connection (default: root)",
     )
     parser.add_argument(
-        "-H", "--host",
+        "-H",
+        "--host",
         default=default_host,
         help=f"Remote host (default: {default_host or 'from kubeconfig'})",
     )
     parser.add_argument(
-        "-c", "--context",
+        "-c",
+        "--context",
         default=default_context,
         help=f"Local kubeconfig context (default: {default_context or 'current-context from kubeconfig'})",
     )
@@ -188,7 +187,7 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     remote_host = f"{args.user}@{args.host}"
@@ -209,6 +208,9 @@ def main():
     if not local_user:
         print(f"Context '{target_context}' not found in local kubeconfig.")
         sys.exit(1)
+    if not local_cluster:
+        print(f"No cluster found for context '{target_context}' in local kubeconfig.")
+        sys.exit(1)
 
     print(f"Context: {target_context}")
     print(f"  User: {local_user}")
@@ -224,11 +226,7 @@ def main():
 
     # Remote CA from first cluster
     remote_clusters = remote_kubeconfig.get("clusters", [])
-    remote_ca = (
-        remote_clusters[0].get("cluster", {}).get("certificate-authority-data")
-        if remote_clusters
-        else None
-    )
+    remote_ca = remote_clusters[0].get("cluster", {}).get("certificate-authority-data") if remote_clusters else None
 
     local_creds = get_user_credentials(local_kubeconfig, local_user)
     local_ca = get_cluster_ca(local_kubeconfig, local_cluster)
@@ -249,18 +247,18 @@ def main():
 
     # Ask user
     print()
-    response = input(
-        f"Update local credentials for context '{target_context}'? [y/N]: "
-    )
+    response = input(f"Update local credentials for context '{target_context}'? [y/N]: ")
 
     if response.lower() in ("y", "yes"):
+        if not remote_ca:
+            print("Warning: remote CA data is missing, skipping CA update.")
         update_local_kubeconfig(
             local_kubeconfig_path,
             local_kubeconfig,
             local_user,
             local_cluster,
             remote_creds,
-            remote_ca,
+            remote_ca or "",
         )
     else:
         print("No changes made.")
