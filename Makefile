@@ -46,8 +46,13 @@ lint: venv
 	black -l 120 .
 
 dstart:
-	# map config.local.yaml from current workdirectory into container
-	docker run --network=host -it --rm --name somestuffephemeral -v $(pwd)/config.local.yaml:/app/config.local.yaml xomoxcc/somestuff:latest /bin/bash
+	# map config.local.yaml, gcal credentials, kubeconfig, and ssh keys into container
+	docker run --network=host -it --rm --name somestuffephemeral \
+		-v $(pwd)/config.local.yaml:/app/config.local.yaml \
+		-v ~/.config/gcal:/home/pythonuser/.config/gcal \
+		-v ~/.kube:/home/pythonuser/.kube \
+		-v ~/.ssh:/home/pythonuser/.ssh:ro \
+		xomoxcc/somestuff:latest /bin/bash
 
 isort: venv
 	@$(venv_activated)
@@ -113,4 +118,7 @@ prepare: tests commit-checks
 #	pip install -r requirements-build.txt
 #	pip install --upgrade twine build
 #	python3 -m build
+
+# AUTH=$(jq -r '.auths["https://index.docker.io/v1/"].auth' ~/.docker/config.json | base64 -d) && USERNAME=$(echo "$AUTH" | cut -d: -f1) && PASSWORD=$(echo "$AUTH" | cut -d: -f2-)
+# TOKEN=$(curl -s -X POST https://hub.docker.com/v2/users/login/ -H "Content-Type: application/json" -d '{"username":"'"$USERNAME"'","password":"'"$PASSWORD"'"}' | jq -r .token)
 

@@ -21,12 +21,17 @@ pyroute2
 
 ollama
 google-genai
+google-auth
+google-auth-oauthlib
+google-api-python-client
 
 pydantic
 pydantic-settings
 pytz
 pydantic-extra-types
 email-validator
+
+requests
 
 paho-mqtt
 schedule
