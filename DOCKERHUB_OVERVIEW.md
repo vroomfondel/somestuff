@@ -16,7 +16,9 @@ Contents overview (Python packages/modules):
 - `dinogame`: pathfinding/visualization playground inspired by “The Farmer Was Replaced”
 - `dnsstuff`: SPF resolution helper and ipset updater for allow‑listing email senders (e.g. pcbway.com)
 - `ecowittstuff`: simple client/types for Ecowitt weather station API
-- `hydromailstuff`: assemble and send “hydro”/weather summary emails, pulling data from MQTT/Netatmo
+- `gcalstuff`: CLI tool for creating Google Calendar events with day‑view confirmation
+- `hydromailstuff`: assemble and send "hydro"/weather summary emails, pulling data from MQTT/Netatmo
+- `k3shelperstuff`: K3s kubeconfig credential synchronization utility
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `mqttstuff`: tiny MQTT wrapper utility
 - `netatmostuff`: Netatmo data fetch helper and deployment example
@@ -60,7 +62,7 @@ mypy .
 Pathfinding toy project and visualization to prototype search/planning strategies on a grid world, loosely inspired by “The Farmer Was Replaced”. Useful to experiment with A* heuristics and safe‑move constraints while visualizing planning vs execution.
 
 - Entrypoint example: `dinogame/dinogame.py` contains a `main()` that renders a GIF of a planning/execution sequence.
-- Requirements: `matplotlib`, `numpy` (already in `requirements.txt`).
+- Requirements: `matplotlib`, `numpy` (`matplotlib` is commented out in `requirements.txt` by default; enable it to use this module).
 - Run locally:
 ```bash
 python -m dinogame.dinogame
@@ -95,6 +97,21 @@ python -c "from ecowittstuff.ecowittapi import get_realtime_data; print(get_real
 - Usefulness: convenient, typed access to your Ecowitt station’s real‑time metrics for dashboards, alerts, and reports.
 
 
+### gcalstuff
+CLI tool for creating Google Calendar events via OAuth2 Desktop flow. Shows all existing events for the target day across all user calendars and requires explicit confirmation before creating the new event.
+
+- Entrypoint: `gcalstuff/gcal_event.py`
+- Setup: download OAuth2 Desktop credentials from Google Cloud Console to `~/.config/gcal/credentials.json`. On first run the browser‑based OAuth flow creates `~/.config/gcal/token.json`.
+- CLI usage:
+```bash
+python -m gcalstuff.gcal_event "Meeting" 2025-07-15 14:00
+python -m gcalstuff.gcal_event "Lunch" 2025-07-15 12:00 -d 90 --description "Team lunch"
+```
+- Dependencies: `google-auth`, `google-auth-oauthlib`, `google-api-python-client`.
+- Docker: the initial OAuth flow opens a browser, so run it on the host first. After that, mount `~/.config/gcal` into the container (read‑write, since the token gets refreshed).
+- Usefulness: quick calendar event creation from the terminal with conflict visibility.
+
+
 ### hydromailstuff
 Compose and send a status email summarizing recent measurements (e.g., water level, rain totals, ambient data). Pulls latest values from MQTT topics and Netatmo.
 
@@ -127,6 +144,20 @@ Read Netatmo measurements and provide a deployment example.
 - Files: `netatmostuff/lnetatmo.py`, deployment example `somestuff_netatmo_deployment.yml`.
 - Config: `netatmo.username/password/client_id/client_secret` (and optional module IDs) in `config.yaml`.
 - Usefulness: sourcing outdoor temperature, rainfall, pressure, etc., for dashboards or mail digests.
+
+
+### k3shelperstuff
+K3s kubeconfig credential synchronization utility. Fetches the kubeconfig from a remote K3s server via SSH, compares user credentials and cluster CA data against the local `~/.kube/config`, and interactively updates any differences.
+
+- Entrypoint: `k3shelperstuff/update_local_k3s_keys.py`
+- CLI usage:
+```bash
+python -m k3shelperstuff.update_local_k3s_keys
+python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
+```
+- Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
+- Docker: mount `~/.kube` into the container (read‑write, since the script updates the local kubeconfig). The script SSHs to the remote host, so `~/.ssh` must also be accessible.
+- Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
 
 
 ### Root helpers and configuration

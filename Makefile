@@ -43,7 +43,7 @@ tests: venv
 
 lint: venv
 	@$(venv_activated)
-	black -l 120 .
+	black -l 120 --extend-exclude nfs-subdir-external-provisioner .
 
 dstart:
 	# map config.local.yaml, gcal credentials, kubeconfig, and ssh keys into container
@@ -60,8 +60,7 @@ isort: venv
 
 tcheck: venv
 	@$(venv_activated)
-	mypy *.py ecowittstuff/*py llmstuff/*.py dnsstuff/*.py netatmostuff/*.py hydromailstuff/*.py
-	# mypy -p ecowittstuff -p llmstuff -p dnsstuff -p netatmostuff -p hydromailstuff -p mqttstuff -m config -m Helper
+	mypy *.py ecowittstuff/*.py llmstuff/*.py dnsstuff/*.py netatmostuff/*.py hydromailstuff/*.py k3shelperstuff/*.py gcalstuff/*.py
 
 build: venv
 	git submodule update --remote
