@@ -14,21 +14,20 @@ from pathlib import Path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from googleapiclient.discovery import Resource, build
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
 def parse_args() -> argparse.Namespace:
     """Parse and validate command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Create a Google Calendar event with day-view confirmation"
-    )
+    parser = argparse.ArgumentParser(description="Create a Google Calendar event with day-view confirmation")
     parser.add_argument("title", help="Event title")
     parser.add_argument("date", help="Event date (YYYY-MM-DD)")
     parser.add_argument("start_time", help="Start time (HH:MM)")
     parser.add_argument(
-        "-d", "--duration",
+        "-d",
+        "--duration",
         type=int,
         default=60,
         help="Duration in minutes (default: 60)",
@@ -108,29 +107,33 @@ def authenticate(credentials_path: str, token_path: str) -> Credentials:
     return creds
 
 
-def build_service(creds: Credentials):
+def build_service(creds: Credentials) -> Resource:
     """Build the Google Calendar API service."""
     return build("calendar", "v3", credentials=creds)
 
 
-def fetch_day_events(service, calendar_id: str, date_str: str, timezone: str) -> list[dict]:
+def fetch_day_events(service: Resource, calendar_id: str, date_str: str, timezone: str) -> list[dict]:
     """Fetch all events for a given day from a single calendar."""
     day_start = f"{date_str}T00:00:00"
     day_end = f"{date_str}T23:59:59"
 
-    result = service.events().list(
-        calendarId=calendar_id,
-        timeMin=f"{day_start}+00:00",
-        timeMax=f"{day_end}+00:00",
-        timeZone=timezone,
-        singleEvents=True,
-        orderBy="startTime",
-    ).execute()
+    result = (
+        service.events()
+        .list(
+            calendarId=calendar_id,
+            timeMin=f"{day_start}+00:00",
+            timeMax=f"{day_end}+00:00",
+            timeZone=timezone,
+            singleEvents=True,
+            orderBy="startTime",
+        )
+        .execute()
+    )
 
     return result.get("items", [])
 
 
-def fetch_all_day_events(service, date_str: str, timezone: str) -> list[dict]:
+def fetch_all_day_events(service: Resource, date_str: str, timezone: str) -> list[dict]:
     """Fetch events for a given day across all user calendars."""
     calendars = service.calendarList().list().execute().get("items", [])
     # Skip holiday/week-number calendars
@@ -147,7 +150,7 @@ def fetch_all_day_events(service, date_str: str, timezone: str) -> list[dict]:
             all_events.append(event)
 
     # Sort: all-day events first, then by start time
-    def sort_key(e):
+    def sort_key(e: dict) -> tuple[int, str]:
         start = e.get("start", {})
         if "date" in start:
             return (0, "")
@@ -224,7 +227,7 @@ def confirm_creation() -> bool:
 
 
 def create_event(
-    service,
+    service: Resource,
     calendar_id: str,
     title: str,
     date_str: str,
@@ -265,8 +268,12 @@ def main() -> int:
     events = fetch_all_day_events(service, args.date, args.timezone)
     display_day_events(events, args.date)
     display_new_event_summary(
-        args.title, args.date, args.start_time, args.duration,
-        args.timezone, args.description,
+        args.title,
+        args.date,
+        args.start_time,
+        args.duration,
+        args.timezone,
+        args.description,
     )
 
     if not confirm_creation():
@@ -275,8 +282,14 @@ def main() -> int:
 
     print("Creating event...")
     event = create_event(
-        service, args.calendar_id, args.title, args.date,
-        args.start_time, args.duration, args.timezone, args.description,
+        service,
+        args.calendar_id,
+        args.title,
+        args.date,
+        args.start_time,
+        args.duration,
+        args.timezone,
+        args.description,
     )
 
     print(f"Event created: {event.get('summary')}")
