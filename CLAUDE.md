@@ -23,7 +23,7 @@ make prepare            # Run tests + commit-checks
 ./build.sh              # Multi-arch build and push to Docker Hub
 ./build.sh onlylocal    # Local build only (no push)
 make build              # Update git submodules and run build.sh
-make dstart             # Run container interactively with config.local.yaml mounted
+make dstart             # Run container interactively (mounts config.local.yaml, ~/.config/gcal, ~/.kube, ~/.ssh)
 ```
 
 ## Architecture Overview
@@ -43,9 +43,11 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 |------------------------------|-------------------------------------------------------------|
 | `dnsstuff/pcbwaydnsstuff.py` | SPF record crawler → ipset updater for SMTP allowlisting    |
 | `ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
+| `gcalstuff/gcal_event.py`   | Google Calendar event creation CLI (OAuth2)                 |
 | `hydromailstuff/hydromail.py`| Assembles status emails from MQTT/Netatmo data              |
-| `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
+| `k3shelperstuff/`           | K3s kubeconfig credential sync via SSH                      |
 | `llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
+| `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
 | `dinogame/`                  | Grid pathfinding visualization (A* experiments)             |
 | `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
 

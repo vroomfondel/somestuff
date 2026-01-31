@@ -47,8 +47,15 @@ lint: venv
 
 dstart:
 	# map config.local.yaml, gcal credentials, kubeconfig, and ssh keys into container
+	# detect podman: add userns mapping so bind-mounted host files are owned by pythonuser (UID 1200)
+	if docker --version 2>&1 | grep -qi podman; then \
+		USERNS_FLAG="--userns=keep-id:uid=1200,gid=1201"; \
+	else \
+		USERNS_FLAG=""; \
+	fi
 	docker run --network=host -it --rm --name somestuffephemeral \
-		-v $(pwd)/config.local.yaml:/app/config.local.yaml \
+		$$USERNS_FLAG \
+		-v $$(pwd)/config.local.yaml:/app/config.local.yaml \
 		-v ~/.config/gcal:/home/pythonuser/.config/gcal \
 		-v ~/.kube:/home/pythonuser/.kube \
 		-v ~/.ssh:/home/pythonuser/.ssh:ro \
