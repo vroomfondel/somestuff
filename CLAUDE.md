@@ -23,7 +23,7 @@ make prepare            # Run tests + commit-checks
 ./build.sh              # Multi-arch build and push to Docker Hub
 ./build.sh onlylocal    # Local build only (no push)
 make build              # Update git submodules and run build.sh
-make dstart             # Run container interactively (mounts config.local.yaml, ~/.config/gcal, ~/.kube, ~/.ssh)
+make dstart             # Run container interactively (mounts config.local.yaml, ~/.config/gcal, ~/.kube, ~/.ssh, flickr config/data)
 ```
 
 ## Architecture Overview
@@ -49,6 +49,7 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 | `llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
 | `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
 | `dinogame/`                  | Grid pathfinding visualization (A* experiments)             |
+| `flickrdownloaderstuff/`     | Docker/Podman wrapper for Flickr photo backups via `flickr_download` |
 | `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
 
 ### Standalone Docker Images

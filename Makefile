@@ -46,12 +46,23 @@ lint: venv
 	black -l 120 --extend-exclude nfs-subdir-external-provisioner .
 
 dstart:
-	# map config.local.yaml, gcal credentials, kubeconfig, and ssh keys into container
+	# map config.local.yaml, gcal credentials, kubeconfig, ssh keys, and flickr config/data into container
 	# detect podman: add userns mapping so bind-mounted host files are owned by pythonuser (UID 1200)
 	if docker --version 2>&1 | grep -qi podman; then \
 		USERNS_FLAG="--userns=keep-id:uid=1200,gid=1201"; \
 	else \
 		USERNS_FLAG=""; \
+	fi
+	# only mount flickr directories when they exist on the host
+	FLICKR_FLAGS=""
+	if [ -d flickrdownloaderstuff/flickr-config ]; then \
+		FLICKR_FLAGS="$$FLICKR_FLAGS -v $$(pwd)/flickrdownloaderstuff/flickr-config:/home/pythonuser/.flickr-config:ro -e FLICKR_HOME=/home/pythonuser/.flickr-config"; \
+	fi
+	if [ -d flickrdownloaderstuff/flickr-backup ]; then \
+		FLICKR_FLAGS="$$FLICKR_FLAGS -v $$(pwd)/flickrdownloaderstuff/flickr-backup:/home/pythonuser/flickr-backup"; \
+	fi
+	if [ -d flickrdownloaderstuff/flickr-cache ]; then \
+		FLICKR_FLAGS="$$FLICKR_FLAGS -v $$(pwd)/flickrdownloaderstuff/flickr-cache:/home/pythonuser/flickr-cache"; \
 	fi
 	docker run --network=host -it --rm --name somestuffephemeral \
 		$$USERNS_FLAG \
@@ -59,6 +70,7 @@ dstart:
 		-v ~/.config/gcal:/home/pythonuser/.config/gcal \
 		-v ~/.kube:/home/pythonuser/.kube \
 		-v ~/.ssh:/home/pythonuser/.ssh:ro \
+		$$FLICKR_FLAGS \
 		xomoxcc/somestuff:latest /bin/bash
 
 isort: venv

@@ -22,6 +22,7 @@ Contents overview (Python packages/modules):
 - `k3shelperstuff`: K3s kubeconfig credential synchronization utility
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `netatmostuff`: Netatmo data fetch helper and deployment example
+- `flickrdownloaderstuff`: Docker/Podman wrapper for Flickr photo library backups via `flickr_download`
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -156,6 +157,23 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 - Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
 - Docker: mount `~/.kube` into the container (read‑write, since the script updates the local kubeconfig). The `dstart` Makefile target already includes this mount. The script SSHs to the remote host, so `~/.ssh` must also be accessible.
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
+
+
+### flickrdownloaderstuff
+Docker/Podman wrapper script for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download). Builds an inline container image with Chromium, Firefox ESR, ExifTool, and X11 forwarding so the OAuth browser login works on the host display.
+
+- Entrypoint: `flickrdownloaderstuff/flickr-docker.sh`
+- Usage:
+```
+./flickr-docker.sh build              # build the container image
+./flickr-docker.sh auth               # authenticate via OAuth (opens browser)
+./flickr-docker.sh download <user>    # download all albums for a Flickr user
+./flickr-docker.sh list <user>        # list albums
+```
+- Auto-detects Docker or Podman and adjusts runtime flags (Podman uses `--userns=keep-id` for X11 access).
+- Cross-platform: full X11 browser forwarding on Linux; URL-based OAuth flow on Mac/Windows.
+- `flickr_download` is installed from GitHub (not PyPI) to include an unreleased fix ([#166](https://github.com/beaufour/flickr-download/issues/166)) that skips photos with unavailable sizes instead of crashing.
+- See `flickrdownloaderstuff/README.md` for details.
 
 
 ### Root helpers and configuration

@@ -18,7 +18,7 @@ ARG debian_version
 
 RUN apt update && \
     apt -y full-upgrade && \
-    apt -y install htop procps iputils-ping locales vim tini bind9-dnsutils ipset && \
+    apt -y install htop procps iputils-ping locales vim tini bind9-dnsutils ipset git libimage-exiftool-perl && \
     pip install --upgrade pip && \
     rm -rf /var/lib/apt/lists/*
 
@@ -48,6 +48,9 @@ ENV PATH="/home/pythonuser/.local/bin:$PATH"
 
 COPY --chown=${UID}:${GID} requirements.txt /
 RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
+
+# flickr_download from GitHub — includes unreleased fix for issue #166
+RUN pip3 install --no-cache-dir git+https://github.com/beaufour/flickr-download.git
 
 # ADD --chown=${UID}:${GID} "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 
