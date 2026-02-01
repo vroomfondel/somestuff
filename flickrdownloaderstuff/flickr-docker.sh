@@ -2,21 +2,21 @@
 #
 # Flickr Download Docker Script
 # =============================
-# Erstellt ein Docker-Image mit flickr_download und X11-Support,
-# damit der Browser für die OAuth-Authentifizierung auf dem Host öffnet.
+# Builds a Docker image with flickr_download and X11 support,
+# so the browser opens on the host for OAuth authentication.
 #
-# Nutzung:
-#   ./flickr-docker.sh build                    # Image bauen
-#   ./flickr-docker.sh auth                     # Nur authentifizieren
-#   ./flickr-docker.sh download <username>      # Fotos herunterladen
-#   ./flickr-docker.sh shell                    # Shell im Container
-#   ./flickr-docker.sh clean                    # Image und temp. Dateien löschen
+# Usage:
+#   ./flickr-docker.sh build                    # Build image
+#   ./flickr-docker.sh auth                     # Authenticate only
+#   ./flickr-docker.sh download <username>      # Download photos
+#   ./flickr-docker.sh shell                    # Shell in container
+#   ./flickr-docker.sh clean                    # Remove image and temp files
 #
 
 set -e
 
 # ============================================================================
-# KONFIGURATION
+# CONFIGURATION
 # ============================================================================
 
 IMAGE_NAME="flickr-download"
@@ -26,14 +26,17 @@ CONFIG_DIR="$(pwd)/flickr-config"
 CACHE_DIR="$(pwd)/flickr-cache"
 XAUTH_FILE="/tmp/.flickr-docker.xauth"
 
-# Container-Runtime (wird später erkannt)
+# Container runtime (detected later)
 CONTAINER_RUNTIME=""
 
-# OS-Erkennung
+# In-container mode (detected later)
+IN_CONTAINER=false
+
+# OS detection
 detect_os() {
     case "$(uname -s)" in
         Linux*)
-            # Prüfe ob WSL
+            # Check for WSL
             if grep -qi microsoft /proc/version 2>/dev/null; then
                 echo "wsl"
             else
@@ -54,23 +57,43 @@ detect_os() {
 
 HOST_OS="$(detect_os)"
 
-# Browser-Konfiguration je nach OS
-# Linux: Expliziter Browser für X11-Forwarding
-# Mac/Windows: Leer lassen -> Python webbrowser nutzt System-Default
+# Container detection
+detect_container() {
+    # FLICKR_HOME is set exclusively by `make dstart` when flickr-config dir exists
+    if [ -n "$FLICKR_HOME" ]; then
+        IN_CONTAINER=true; return
+    fi
+    # Fallback: standard container marker files
+    if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ]; then
+        IN_CONTAINER=true; return
+    fi
+}
+detect_container
+
+# Override paths when running inside the container
+if [ "$IN_CONTAINER" = true ]; then
+    CONFIG_DIR="${FLICKR_HOME:-$HOME/.flickr-config}"
+    WORK_DIR="$HOME/flickr-backup"
+    CACHE_DIR="$HOME/flickr-cache"
+fi
+
+# Browser configuration per OS
+# Linux: explicit browser for X11 forwarding
+# Mac/Windows: leave empty -> Python webbrowser uses system default
 if [ "$HOST_OS" = "linux" ]; then
     BROWSER="${BROWSER:-chrome}"
 else
-    # Auf Mac/Windows: BROWSER leer = Python öffnet System-Browser
+    # On Mac/Windows: empty BROWSER = Python opens system browser
     BROWSER="${BROWSER:-}"
 fi
 
-# X11 nur unter Linux
+# X11 only on Linux
 X11_AVAILABLE=false
 if [ "$HOST_OS" = "linux" ] && [ -n "$DISPLAY" ]; then
     X11_AVAILABLE=true
 fi
 
-# Farben für Output
+# Output colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -78,7 +101,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # ============================================================================
-# HILFSFUNKTIONEN
+# HELPER FUNCTIONS
 # ============================================================================
 
 log_info() {
@@ -98,134 +121,139 @@ log_error() {
 }
 
 check_dependencies() {
-    log_info "Erkanntes OS: $HOST_OS"
-    
-    # Container-Runtime erkennen (Docker oder Podman)
+    # No Docker/Podman detection needed inside a container
+    if [ "$IN_CONTAINER" = true ]; then
+        return 0
+    fi
+
+    log_info "Detected OS: $HOST_OS"
+
+    # Detect container runtime (Docker or Podman)
     if command -v podman &> /dev/null && podman info &> /dev/null 2>&1; then
         CONTAINER_RUNTIME="podman"
-        log_info "Container-Runtime: Podman erkannt"
+        log_info "Container runtime: Podman detected"
     elif command -v docker &> /dev/null; then
         CONTAINER_RUNTIME="docker"
-        log_info "Container-Runtime: Docker erkannt"
+        log_info "Container runtime: Docker detected"
     else
-        log_error "Weder Docker noch Podman gefunden!"
+        log_error "Neither Docker nor Podman found!"
         exit 1
     fi
-    
-    # X11-Checks nur unter Linux
+
+    # X11 checks only on Linux
     if [ "$HOST_OS" = "linux" ]; then
         if [ -z "$DISPLAY" ]; then
-            log_error "DISPLAY ist nicht gesetzt. X11 erforderlich!"
-            log_info "Tipp: export DISPLAY=:0"
+            log_error "DISPLAY is not set. X11 required!"
+            log_info "Hint: export DISPLAY=:0"
             exit 1
         fi
-        
+
         if ! command -v xauth &> /dev/null; then
-            log_error "xauth ist nicht installiert! (apt install xauth)"
+            log_error "xauth is not installed! (apt install xauth)"
             exit 1
         fi
     else
-        log_info "Kein X11-Forwarding (Mac/Windows) - Browser öffnet auf Host"
+        log_info "No X11 forwarding (Mac/Windows) - browser opens on host"
     fi
 }
 
 setup_directories() {
-    log_info "Erstelle Verzeichnisse..."
+    log_info "Creating directories..."
     mkdir -p "$WORK_DIR"
     mkdir -p "$CONFIG_DIR"
     mkdir -p "$CACHE_DIR"
-    log_success "Verzeichnisse erstellt"
+    log_success "Directories created"
 }
 
 setup_xauth() {
-    # Nur unter Linux mit X11
+    # Only on Linux with X11
     if [ "$HOST_OS" != "linux" ]; then
-        log_info "X11-Setup übersprungen (nicht Linux)"
+        log_info "X11 setup skipped (not Linux)"
         return 0
     fi
-    
-    log_info "Konfiguriere X11-Authentifizierung..."
-    
-    # Prüfe auf Wayland
+
+    log_info "Configuring X11 authentication..."
+
+    # Check for Wayland
     if [ -n "$WAYLAND_DISPLAY" ]; then
-        log_info "Wayland erkannt (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)"
-        log_info "X11-Apps laufen über XWayland"
+        log_info "Wayland detected (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)"
+        log_info "X11 apps run via XWayland"
     fi
-    
-    # Alte xauth-Datei entfernen
+
+    # Remove old xauth file
     rm -f "$XAUTH_FILE"
     touch "$XAUTH_FILE"
-    chmod 666 "$XAUTH_FILE"  # Muss für alle User im Container lesbar sein
-    
-    # X11 Cookie extrahieren
-    # Für Podman mit keep-id brauchen wir das Cookie für den aktuellen User
+    chmod 666 "$XAUTH_FILE"  # Must be readable by all users in the container
+
+    # Extract X11 cookie
+    # For Podman with keep-id we need the cookie for the current user
     local xauth_source=""
-    
+
     if [ -n "$XAUTHORITY" ] && [ -f "$XAUTHORITY" ]; then
-        # Benutze existierende XAUTHORITY
+        # Use existing XAUTHORITY
         xauth_source="$XAUTHORITY"
-        log_info "Verwende XAUTHORITY: $XAUTHORITY"
+        log_info "Using XAUTHORITY: $XAUTHORITY"
     elif [ -f "$HOME/.Xauthority" ]; then
         xauth_source="$HOME/.Xauthority"
-        log_info "Verwende ~/.Xauthority"
+        log_info "Using ~/.Xauthority"
     fi
-    
+
     if [ -n "$xauth_source" ]; then
-        # Methode 1: Direktes Kopieren (funktioniert meist am besten)
+        # Method 1: direct copy (usually works best)
         cp "$xauth_source" "$XAUTH_FILE"
         chmod 666 "$XAUTH_FILE"
-        log_info "xauth-Datei kopiert von: $xauth_source"
+        log_info "xauth file copied from: $xauth_source"
     else
-        # Methode 2: Cookie aus xauth extrahieren
-        # Das 'ffff' ersetzt die Display-Nummer für Wildcard-Matching
-        log_info "Extrahiere Cookie mit xauth nlist..."
+        # Method 2: extract cookie from xauth
+        # The 'ffff' replaces the display number for wildcard matching
+        log_info "Extracting cookie with xauth nlist..."
         xauth nlist "$DISPLAY" 2>/dev/null | sed -e 's/^..../ffff/' | xauth -f "$XAUTH_FILE" nmerge - 2>/dev/null || true
     fi
-    
+
     if [ -s "$XAUTH_FILE" ]; then
         local cookie_count
         cookie_count=$(xauth -f "$XAUTH_FILE" list 2>/dev/null | wc -l)
-        log_success "X11-Authentifizierung konfiguriert ($cookie_count Cookie(s))"
+        log_success "X11 authentication configured ($cookie_count cookie(s))"
     else
-        log_warn "Konnte X11-Cookie nicht extrahieren!"
-        log_warn "Browser könnte nicht funktionieren."
-        log_info "Debug: DISPLAY=$DISPLAY, XAUTHORITY=${XAUTHORITY:-nicht gesetzt}"
+        log_warn "Could not extract X11 cookie!"
+        log_warn "Browser may not work."
+        log_info "Debug: DISPLAY=$DISPLAY, XAUTHORITY=${XAUTHORITY:-not set}"
     fi
 }
 
 cleanup_xauth() {
-    # Nur unter Linux
+    # Only on Linux
     if [ "$HOST_OS" != "linux" ]; then
         return 0
     fi
-    
+
     if [ -f "$XAUTH_FILE" ]; then
         rm -f "$XAUTH_FILE"
-        log_info "X11-Auth-Datei aufgeräumt"
+        log_info "X11 auth file cleaned up"
     fi
 }
 
 check_config() {
     if [ ! -f "$CONFIG_DIR/.flickr_download" ]; then
-        log_warn "Keine API-Konfiguration gefunden!"
+        log_warn "No API configuration found!"
         echo ""
-        echo "Bitte erstelle $CONFIG_DIR/.flickr_download mit folgendem Inhalt:"
+        echo "Please create $CONFIG_DIR/.flickr_download with the following content:"
         echo ""
-        echo "  api_key: DEIN_FLICKR_API_KEY"
-        echo "  api_secret: DEIN_FLICKR_API_SECRET"
+        echo "  api_key: YOUR_FLICKR_API_KEY"
+        echo "  api_secret: YOUR_FLICKR_API_SECRET"
         echo ""
-        echo "API-Key bekommst du hier: https://www.flickr.com/services/apps/create/"
+        echo "Get your API key here: https://www.flickr.com/services/apps/create/"
         echo ""
-        
-        read -p "Soll ich die Datei jetzt erstellen? (j/n) " -n 1 -r
+
+        read -p "Create the file now? (y/n) " -n 1 -r
         echo
-        if [[ $REPLY =~ ^[Jj]$ ]]; then
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
             read -p "API Key: " api_key
             read -p "API Secret: " api_secret
             echo "api_key: $api_key" > "$CONFIG_DIR/.flickr_download"
             echo "api_secret: $api_secret" >> "$CONFIG_DIR/.flickr_download"
             chmod 600 "$CONFIG_DIR/.flickr_download"
-            log_success "Konfiguration erstellt"
+            log_success "Configuration created"
         else
             exit 1
         fi
@@ -237,35 +265,35 @@ check_config() {
 # ============================================================================
 
 build_image() {
-    log_info "Baue Docker-Image '$IMAGE_NAME:$IMAGE_TAG'..."
-    
-    # Temporäres Build-Verzeichnis
+    log_info "Building Docker image '$IMAGE_NAME:$IMAGE_TAG'..."
+
+    # Temporary build directory
     BUILD_DIR=$(mktemp -d)
     trap "rm -rf $BUILD_DIR" EXIT
-    
-    # Dockerfile schreiben
+
+    # Write Dockerfile
     cat > "$BUILD_DIR/Dockerfile" << 'DOCKERFILE_END'
 # ============================================================================
 # Flickr Download Docker Image
-# Mit Firefox und X11-Support für OAuth-Authentifizierung
-# Kompatibel mit Docker und Podman
+# With Firefox and X11 support for OAuth authentication
+# Compatible with Docker and Podman
 # ============================================================================
 
 FROM python:3.14-slim
 
 LABEL maintainer="Flickr Backup Script"
-LABEL description="Flickr Download mit Browser-Support für OAuth"
+LABEL description="Flickr Download with browser support for OAuth"
 
-# System-Pakete installieren
+# Install system packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # ExifTool für Metadaten
+    # ExifTool for metadata
     libimage-exiftool-perl \
-    # Browser (beide für Flexibilität)
+    # Browsers (both for flexibility)
     chromium \
     firefox-esr \
-    # xdg-utils für xdg-open
+    # xdg-utils for xdg-open
     xdg-utils \
-    # X11-Libraries
+    # X11 libraries
     libx11-6 \
     libx11-xcb1 \
     libxcb1 \
@@ -295,46 +323,46 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     ca-certificates \
     git \
-    # Aufräumen
+    # Clean up
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Symlinks für Browser-Namen ($BROWSER Kompatibilität)
+# Browser name symlinks ($BROWSER compatibility)
 # chrome/google-chrome -> chromium
-# firefox bleibt firefox-esr
+# firefox stays firefox-esr
 RUN ln -sf /usr/bin/chromium /usr/bin/chrome && \
     ln -sf /usr/bin/chromium /usr/bin/google-chrome && \
     ln -sf /usr/bin/firefox-esr /usr/bin/firefox
 
-# Python-Pakete
+# Python packages
 RUN pip install --no-cache-dir \
     git+https://github.com/beaufour/flickr-download.git \
     PyYAML
 
-# Arbeitsverzeichnis
+# Working directory
 WORKDIR /data
 
-# Cache-Verzeichnis
+# Cache directory
 RUN mkdir -p /cache && chmod 777 /cache
 
-# Home-Verzeichnis für Podman (keep-id) - muss für alle User beschreibbar sein
+# Home directory for Podman (keep-id) - must be writable by all users
 RUN mkdir -p /home/poduser && chmod 777 /home/poduser
 
-# Mozilla-Verzeichnis für Firefox-Profil (beide Homes)
+# Mozilla directory for Firefox profile (both homes)
 RUN mkdir -p /root/.mozilla /home/poduser/.mozilla && \
     chmod -R 777 /root/.mozilla /home/poduser/.mozilla
 
-# Umgebungsvariablen
+# Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/root
 
-# Entrypoint-Script mit besserer Shell-Unterstützung
+# Entrypoint script with improved shell support
 RUN echo '#!/bin/bash\n\
-# Stelle sicher dass HOME-Verzeichnis existiert und beschreibbar ist\n\
+# Ensure HOME directory exists and is writable\n\
 if [ ! -d "$HOME" ]; then\n\
     mkdir -p "$HOME" 2>/dev/null || true\n\
 fi\n\
-# Mozilla-Verzeichnis für Firefox\n\
+# Mozilla directory for Firefox\n\
 mkdir -p "$HOME/.mozilla" 2>/dev/null || true\n\
 \n\
 if [ "$1" = "shell" ]; then\n\
@@ -352,90 +380,90 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--help"]
 DOCKERFILE_END
 
-    # Image bauen
-    # Container-Runtime erkennen
+    # Build image
+    # Detect container runtime
     local runtime="docker"
     if command -v podman &> /dev/null && podman info &> /dev/null 2>&1; then
         runtime="podman"
-        log_info "Verwende Podman zum Bauen"
+        log_info "Using Podman for build"
     else
-        log_info "Verwende Docker zum Bauen"
+        log_info "Using Docker for build"
     fi
-    
+
     $runtime build -t "$IMAGE_NAME:$IMAGE_TAG" "$BUILD_DIR"
-    
-    log_success "Image erfolgreich gebaut ($runtime)"
+
+    log_success "Image built successfully ($runtime)"
 }
 
 # ============================================================================
-# CONTAINER STARTEN
+# RUN CONTAINER
 # ============================================================================
 
 is_token_valid() {
     local token_file="$1"
-    
-    # Datei muss existieren
+
+    # File must exist
     [ -f "$token_file" ] || return 1
-    
-    # Datei muss Inhalt haben
+
+    # File must have content
     [ -s "$token_file" ] || return 1
-    
-    # Datei muss mindestens 2 Zeilen mit Inhalt haben (key + secret)
+
+    # File must have at least 2 non-empty lines (key + secret)
     local line_count
     line_count=$(grep -c '[^[:space:]]' "$token_file" 2>/dev/null || echo "0")
     [ "$line_count" -ge 2 ] || return 1
-    
+
     return 0
 }
 
-# Konvertiert Username zu Flickr-URL falls nötig
-# flickr_download funktioniert zuverlässiger mit URLs
+# Convert username to Flickr URL if needed
+# flickr_download works more reliably with URLs
 flickr_user_to_url() {
     local user="$1"
-    
-    # Wenn bereits eine URL, unverändert zurückgeben
+
+    # If already a URL, return unchanged
     if [[ "$user" == http* ]]; then
         echo "$user"
     else
-        # Username zu URL konvertieren
+        # Convert username to URL
         echo "https://www.flickr.com/photos/${user}/"
     fi
 }
 
 run_container() {
     local CMD=("$@")
-    
+
     check_dependencies
     setup_directories
     check_config
     setup_xauth
-    
-    log_info "Starte Container..."
+
+    log_info "Starting container..."
     echo ""
-    
-    # Alten Container entfernen falls vorhanden
+
+    # Remove old container if present
     $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
-    
-    # Basis-Argumente
+
+    # Base arguments
     local CONTAINER_ARGS=(
         run -it --rm
         --name flickr-download-run
         -v "$WORK_DIR:/data"
         -v "$CACHE_DIR:/cache"
     )
-    
-    # Netzwerk-Konfiguration je nach OS
+
+    # Network configuration per OS
     if [ "$HOST_OS" = "linux" ]; then
-        # Linux: --network=host für OAuth-Callback
+        # Linux: --network=host for OAuth callback
         CONTAINER_ARGS+=(--network=host)
     else
-        # Mac/Windows: --network=host funktioniert nicht in Docker Desktop
-        # Ports für OAuth-Callback publishen (flickr_download nutzt meist 8080-8100)
-        log_info "Mac/Windows: Publishe Ports 8080-8100 für OAuth-Callback"
+        # Mac/Windows: --network=host does not work in Docker Desktop
+        # Publish ports for OAuth callback (flickr_download typically uses 8080-8100)
+        log_info "Mac/Windows: publishing ports 8080-8100 for OAuth callback"
         CONTAINER_ARGS+=(-p 8080-8100:8080-8100)
     fi
-    
-    # X11-Konfiguration nur unter Linux
+
+    # X11 configuration only on Linux
     if [ "$HOST_OS" = "linux" ]; then
         CONTAINER_ARGS+=(
             -e "DISPLAY=$DISPLAY"
@@ -444,202 +472,265 @@ run_container() {
             -v "$XAUTH_FILE:/tmp/.xauth:ro"
         )
     fi
-    
-    # Podman-spezifische Optionen (nur Linux, da Podman auf Mac/Windows anders läuft)
+
+    # Podman-specific options (Linux only, Podman on Mac/Windows works differently)
     if [ "$CONTAINER_RUNTIME" = "podman" ] && [ "$HOST_OS" = "linux" ]; then
-        log_info "Verwende Podman-spezifische Optionen (userns=keep-id)"
+        log_info "Using Podman-specific options (userns=keep-id)"
         CONTAINER_ARGS+=(
-            # User-Namespace beibehalten für X11-Zugriff
+            # Preserve user namespace for X11 access
             --userns=keep-id
-            # Security-Label für X11-Zugriff deaktivieren (SELinux)
+            # Disable security label for X11 access (SELinux)
             --security-opt label=disable
         )
-        # Bei Podman mit keep-id: User ist NICHT root!
-        # Wir mounten config nach /home/poduser und setzen HOME darauf
-        # flickr_download sucht .flickr_download in $HOME
+        # With Podman keep-id: user is NOT root!
+        # Mount config to /home/poduser and set HOME accordingly
+        # flickr_download looks for .flickr_download in $HOME
         CONTAINER_ARGS+=(
             -v "$CONFIG_DIR:/home/poduser"
             -e "HOME=/home/poduser"
         )
     else
-        # Docker (alle OS) oder Podman auf Mac: User ist root, HOME=/root
+        # Docker (all OS) or Podman on Mac: user is root, HOME=/root
         CONTAINER_ARGS+=(
             -v "$CONFIG_DIR:/root"
             -e "HOME=/root"
         )
     fi
-    
-    # BROWSER Variable
-    # Linux: Expliziter Browser für X11-Forwarding
-    # Mac/Windows: Leer -> Python webbrowser gibt URL auf stdout aus
+
+    # BROWSER variable
+    # Linux: explicit browser for X11 forwarding
+    # Mac/Windows: empty -> Python webbrowser prints URL to stdout
     if [ -n "$BROWSER" ]; then
         CONTAINER_ARGS+=(-e "BROWSER=$BROWSER")
     fi
-    
+
     $CONTAINER_RUNTIME "${CONTAINER_ARGS[@]}" "$IMAGE_NAME:$IMAGE_TAG" "${CMD[@]}"
-    
+
     local exit_code=$?
-    
+
     cleanup_xauth
-    
+
     return $exit_code
 }
 
+run_direct() {
+    check_config
+    log_info "Running flickr_download directly (in-container mode)..."
+    echo ""
+    HOME="$CONFIG_DIR" flickr_download "$@"
+}
+
 # ============================================================================
-# KOMMANDOS
+# COMMANDS
 # ============================================================================
 
 cmd_build() {
+    if [ "$IN_CONTAINER" = true ]; then
+        log_info "flickr_download is already installed (in-container mode)"
+        flickr_download --version 2>/dev/null || true
+        return 0
+    fi
     check_dependencies
     build_image
 }
 
 cmd_auth() {
-    log_info "Starte Authentifizierung..."
-    log_info "OS: $HOST_OS"
-    
-    # Ungültiges Token vorher löschen
+    log_info "Starting authentication..."
+
+    # Remove invalid token first
     if [ -f "$CONFIG_DIR/.flickr_token" ] && ! is_token_valid "$CONFIG_DIR/.flickr_token"; then
-        log_warn "Ungültiges Token gefunden - wird gelöscht"
+        log_warn "Invalid token found - removing"
         rm -f "$CONFIG_DIR/.flickr_token"
     fi
-    
+
     echo ""
-    if [ "$HOST_OS" = "linux" ]; then
-        log_info "Browser: ${BROWSER:-<system-default>}"
-        echo "Ein Browser-Fenster wird sich öffnen."
-    else
-        echo "HINWEIS für Mac/Windows:"
-        echo "  - Eine URL wird im Terminal angezeigt"
-        echo "  - Öffne diese URL manuell in deinem Browser"
-        echo "  - Nach dem Login wird der Callback automatisch verarbeitet"
+    if [ "$IN_CONTAINER" = true ]; then
+        echo "NOTE (in-container mode):"
+        echo "  - A URL will be displayed in the terminal"
+        echo "  - Open this URL in a browser on the host"
+        echo "  - After login the callback will be processed automatically"
         echo ""
-    fi
-    echo "Bitte bei Flickr einloggen und die App autorisieren."
-    echo ""
-    
-    run_container -t
-    
-    if is_token_valid "$CONFIG_DIR/.flickr_token"; then
-        log_success "Authentifizierung erfolgreich!"
-        log_info "Token gespeichert in: $CONFIG_DIR/.flickr_token"
+        echo "Please log in to Flickr and authorize the app."
+        echo ""
+        run_direct -t
     else
-        log_error "Authentifizierung fehlgeschlagen oder abgebrochen!"
+        log_info "OS: $HOST_OS"
+        if [ "$HOST_OS" = "linux" ]; then
+            log_info "Browser: ${BROWSER:-<system-default>}"
+            echo "A browser window will open."
+        else
+            echo "NOTE for Mac/Windows:"
+            echo "  - A URL will be displayed in the terminal"
+            echo "  - Open this URL manually in your browser"
+            echo "  - After login the callback will be processed automatically"
+            echo ""
+        fi
+        echo "Please log in to Flickr and authorize the app."
+        echo ""
+        run_container -t
+    fi
+
+    if is_token_valid "$CONFIG_DIR/.flickr_token"; then
+        log_success "Authentication successful!"
+        log_info "Token saved in: $CONFIG_DIR/.flickr_token"
+    else
+        log_error "Authentication failed or was cancelled!"
         rm -f "$CONFIG_DIR/.flickr_token"
     fi
 }
 
 cmd_download() {
     local USERNAME="$1"
-    
+
     if [ -z "$USERNAME" ]; then
-        log_error "Benutzername fehlt!"
-        echo "Nutzung: $0 download <flickr-username>"
+        log_error "Username missing!"
+        echo "Usage: $0 download <flickr-username>"
         exit 1
     fi
-    
+
     if ! is_token_valid "$CONFIG_DIR/.flickr_token"; then
-        log_warn "Noch nicht authentifiziert (kein gültiges Token)!"
-        echo "Führe zuerst '$0 auth' aus."
+        log_warn "Not yet authenticated (no valid token)!"
+        if [ "$IN_CONTAINER" = true ]; then
+            echo "Run on the host: cd flickrdownloaderstuff && ./flickr-docker.sh auth"
+        else
+            echo "Run '$0 auth' first."
+        fi
         exit 1
     fi
-    
-    # Username zu URL konvertieren
+
+    # Convert username to URL
     local FLICKR_USER
     FLICKR_USER=$(flickr_user_to_url "$USERNAME")
-    
-    log_info "Starte Download für: $FLICKR_USER"
-    log_info "Zielverzeichnis: $WORK_DIR"
+
+    log_info "Starting download for: $FLICKR_USER"
+    log_info "Target directory: $WORK_DIR"
     echo ""
-    
-    run_container \
-        -t \
-        --download_user "$FLICKR_USER" \
-        --save_json \
-        --cache /cache/api_cache \
-        --metadata_store
-    
-    log_success "Download abgeschlossen!"
-    log_info "Fotos gespeichert in: $WORK_DIR"
+
+    if [ "$IN_CONTAINER" = true ]; then
+        cd "$WORK_DIR"
+        run_direct \
+            -t \
+            --download_user "$FLICKR_USER" \
+            --save_json \
+            --cache "$CACHE_DIR/api_cache" \
+            --metadata_store
+    else
+        run_container \
+            -t \
+            --download_user "$FLICKR_USER" \
+            --save_json \
+            --cache /cache/api_cache \
+            --metadata_store
+    fi
+
+    log_success "Download complete!"
+    log_info "Photos saved in: $WORK_DIR"
 }
 
 cmd_download_album() {
     local ALBUM_ID="$1"
-    
+
     if [ -z "$ALBUM_ID" ]; then
-        log_error "Album-ID fehlt!"
-        echo "Nutzung: $0 album <album-id>"
+        log_error "Album ID missing!"
+        echo "Usage: $0 album <album-id>"
         echo ""
-        echo "Album-IDs findest du mit: $0 list <username>"
+        echo "Find album IDs with: $0 list <username>"
         exit 1
     fi
-    
-    log_info "Starte Download für Album: $ALBUM_ID"
-    
-    run_container \
-        -t \
-        --download "$ALBUM_ID" \
-        --save_json \
-        --cache /cache/api_cache \
-        --metadata_store
+
+    log_info "Starting download for album: $ALBUM_ID"
+
+    if [ "$IN_CONTAINER" = true ]; then
+        cd "$WORK_DIR"
+        run_direct \
+            -t \
+            --download "$ALBUM_ID" \
+            --save_json \
+            --cache "$CACHE_DIR/api_cache" \
+            --metadata_store
+    else
+        run_container \
+            -t \
+            --download "$ALBUM_ID" \
+            --save_json \
+            --cache /cache/api_cache \
+            --metadata_store
+    fi
 }
 
 cmd_list() {
     local USERNAME="$1"
-    
+
     if [ -z "$USERNAME" ]; then
-        log_error "Benutzername fehlt!"
-        echo "Nutzung: $0 list <flickr-username>"
+        log_error "Username missing!"
+        echo "Usage: $0 list <flickr-username>"
         exit 1
     fi
-    
-    # Username zu URL konvertieren
+
+    # Convert username to URL
     local FLICKR_USER
     FLICKR_USER=$(flickr_user_to_url "$USERNAME")
-    
-    log_info "Liste Alben für: $FLICKR_USER"
+
+    log_info "Listing albums for: $FLICKR_USER"
     echo ""
-    
-    run_container -t --list "$FLICKR_USER"
+
+    if [ "$IN_CONTAINER" = true ]; then
+        run_direct -t --list "$FLICKR_USER"
+    else
+        run_container -t --list "$FLICKR_USER"
+    fi
 }
 
 cmd_shell() {
-    log_info "Starte Shell im Container..."
+    if [ "$IN_CONTAINER" = true ]; then
+        log_info "You are already inside the container."
+        echo "Use the shell directly or run flickr_download manually:"
+        echo "  HOME=$CONFIG_DIR flickr_download --help"
+        return 0
+    fi
+    log_info "Starting shell in container..."
     run_container shell
 }
 
 cmd_test_browser() {
+    if [ "$IN_CONTAINER" = true ]; then
+        log_info "No browser available in container."
+        echo "Please run browser tests on the host:"
+        echo "  cd flickrdownloaderstuff && ./flickr-docker.sh test-browser"
+        return 0
+    fi
+
     local URL="${1:-https://www.flickr.com/}"
-    
-    # Nur unter Linux mit X11 sinnvoll
+
+    # Only useful on Linux with X11
     if [ "$HOST_OS" != "linux" ]; then
-        log_warn "test-browser ist nur unter Linux mit X11 verfügbar"
-        log_info "Auf $HOST_OS öffnet Python's webbrowser Modul den System-Browser automatisch"
-        log_info "Teste stattdessen ob Container funktioniert..."
+        log_warn "test-browser is only available on Linux with X11"
+        log_info "On $HOST_OS Python's webbrowser module opens the system browser automatically"
+        log_info "Testing whether container works instead..."
         echo ""
-        
+
         check_dependencies
         $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
-        
+
         $CONTAINER_RUNTIME run -it --rm \
             --name flickr-download-run \
             "$IMAGE_NAME:$IMAGE_TAG" \
-            shell -c "echo 'Container läuft!' && echo 'Python:' && python --version && echo 'flickr_download:' && flickr_download --version 2>/dev/null || echo 'installiert'"
-        
+            shell -c "echo 'Container is running!' && echo 'Python:' && python --version && echo 'flickr_download:' && flickr_download --version 2>/dev/null || echo 'installed'"
+
         return 0
     fi
-    
-    log_info "Teste X11-Verbindung..."
-    log_info "Öffne Browser mit: $URL"
+
+    log_info "Testing X11 connection..."
+    log_info "Opening browser with: $URL"
     echo ""
-    
+
     check_dependencies
     setup_xauth
-    
-    # Alten Container entfernen falls vorhanden
+
+    # Remove old container if present
     $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
-    
-    # Basis-Argumente
+
+    # Base arguments
     local CONTAINER_ARGS=(
         run -it --rm
         --name flickr-download-run
@@ -649,10 +740,10 @@ cmd_test_browser() {
         -v "/tmp/.X11-unix:/tmp/.X11-unix:rw"
         -v "$XAUTH_FILE:/tmp/.xauth:ro"
     )
-    
-    # Podman-spezifische Optionen
+
+    # Podman-specific options
     if [ "$CONTAINER_RUNTIME" = "podman" ]; then
-        log_info "Podman: verwende --userns=keep-id"
+        log_info "Podman: using --userns=keep-id"
         CONTAINER_ARGS+=(
             --userns=keep-id
             --security-opt label=disable
@@ -661,253 +752,326 @@ cmd_test_browser() {
     else
         CONTAINER_ARGS+=(-e "HOME=/root")
     fi
-    
-    # BROWSER Variable
+
+    # BROWSER variable
     if [ -n "$BROWSER" ]; then
         CONTAINER_ARGS+=(-e "BROWSER=$BROWSER")
     fi
-    
-    log_info "Teste Browser im Container..."
-    log_info "Container-Runtime: $CONTAINER_RUNTIME"
-    log_info "BROWSER: ${BROWSER:-<nicht gesetzt>}"
+
+    log_info "Testing browser in container..."
+    log_info "Container runtime: $CONTAINER_RUNTIME"
+    log_info "BROWSER: ${BROWSER:-<not set>}"
     log_info "DISPLAY: $DISPLAY"
     log_info "XAUTH_FILE: $XAUTH_FILE"
-    
-    # Browser direkt aufrufen
+
+    # Launch browser directly
     $CONTAINER_RUNTIME "${CONTAINER_ARGS[@]}" "$IMAGE_NAME:$IMAGE_TAG" \
-        shell -c "echo 'User: '\$(whoami) && echo 'UID: '\$(id -u) && echo 'HOME: '\$HOME && echo 'DISPLAY: '\$DISPLAY && echo 'BROWSER: '\${BROWSER:-nicht gesetzt} && echo '---' && echo 'Starte Browser...' && \${BROWSER:-firefox} '$URL' 2>&1 || echo 'Browser fehlgeschlagen'"
-    
+        shell -c "echo 'User: '\$(whoami) && echo 'UID: '\$(id -u) && echo 'HOME: '\$HOME && echo 'DISPLAY: '\$DISPLAY && echo 'BROWSER: '\${BROWSER:-not set} && echo '---' && echo 'Starting browser...' && \${BROWSER:-firefox} '$URL' 2>&1 || echo 'Browser failed'"
+
     cleanup_xauth
 }
 
 cmd_info() {
     echo ""
     echo "╔═══════════════════════════════════════════════════════════════════════════╗"
-    echo "║                         SYSTEM-INFORMATIONEN                              ║"
+    echo "║                          SYSTEM INFORMATION                               ║"
     echo "╚═══════════════════════════════════════════════════════════════════════════╝"
     echo ""
-    
+
+    if [ "$IN_CONTAINER" = true ]; then
+        echo -e "${BLUE}Mode:${NC}"
+        echo "  In-container mode (flickr_download runs directly)"
+        echo ""
+
+        echo -e "${BLUE}Directories:${NC}"
+        echo "  Config:    $CONFIG_DIR $([ -d "$CONFIG_DIR" ] && echo '(exists)' || echo '(MISSING)')"
+        echo "  Downloads: $WORK_DIR $([ -d "$WORK_DIR" ] && echo '(exists)' || echo '(MISSING)')"
+        echo "  Cache:     $CACHE_DIR $([ -d "$CACHE_DIR" ] && echo '(exists)' || echo '(MISSING)')"
+        echo ""
+
+        echo -e "${BLUE}Flickr status:${NC}"
+        if [ -f "$CONFIG_DIR/.flickr_download" ]; then
+            echo "  API config: present"
+        else
+            echo "  API config: NOT CONFIGURED"
+        fi
+        if is_token_valid "$CONFIG_DIR/.flickr_token"; then
+            echo "  Token: valid"
+        else
+            echo "  Token: missing or invalid"
+        fi
+        echo ""
+
+        echo -e "${BLUE}Tools:${NC}"
+        echo "  flickr_download: $(flickr_download --version 2>/dev/null || echo 'not found')"
+        echo "  Python: $(python3 --version 2>/dev/null || echo 'not found')"
+        echo "  ExifTool: $(exiftool -ver 2>/dev/null || echo 'not found')"
+        echo ""
+        return 0
+    fi
+
     # OS
-    echo -e "${BLUE}Betriebssystem:${NC}"
-    echo "  Erkannt: $HOST_OS"
+    echo -e "${BLUE}Operating system:${NC}"
+    echo "  Detected: $HOST_OS"
     echo "  uname: $(uname -s)"
     echo ""
-    
-    # Container-Runtime
-    echo -e "${BLUE}Container-Runtime:${NC}"
+
+    # Container runtime
+    echo -e "${BLUE}Container runtime:${NC}"
     if command -v podman &> /dev/null && podman info &> /dev/null 2>&1; then
         echo "  Podman: $(podman --version)"
     fi
     if command -v docker &> /dev/null; then
-        echo "  Docker: $(docker --version 2>/dev/null || echo 'nicht verfügbar')"
+        echo "  Docker: $(docker --version 2>/dev/null || echo 'not available')"
     fi
     echo ""
-    
-    # X11 (nur unter Linux relevant)
-    echo -e "${BLUE}X11-Konfiguration:${NC}"
+
+    # X11 (only relevant on Linux)
+    echo -e "${BLUE}X11 configuration:${NC}"
     if [ "$HOST_OS" = "linux" ]; then
-        echo "  DISPLAY: ${DISPLAY:-NICHT GESETZT!}"
+        echo "  DISPLAY: ${DISPLAY:-NOT SET!}"
         echo "  XAUTHORITY: ${XAUTHORITY:-~/.Xauthority}"
         if [ -f "${XAUTHORITY:-$HOME/.Xauthority}" ]; then
-            echo "  Xauthority-Datei: vorhanden"
+            echo "  Xauthority file: present"
         else
-            echo "  Xauthority-Datei: nicht gefunden"
+            echo "  Xauthority file: not found"
         fi
     else
-        echo "  X11: nicht verwendet (Mac/Windows)"
-        echo "  Browser öffnet auf Host automatisch"
+        echo "  X11: not used (Mac/Windows)"
+        echo "  Browser opens on host automatically"
     fi
     echo ""
-    
+
     # Browser
     echo -e "${BLUE}Browser:${NC}"
     if [ -n "$BROWSER" ]; then
         echo "  BROWSER: $BROWSER"
     else
-        echo "  BROWSER: <nicht gesetzt> (System-Default)"
+        echo "  BROWSER: <not set> (system default)"
     fi
     if [ "$HOST_OS" = "linux" ]; then
-        echo "  (Ändern mit: BROWSER=firefox ./flickr-docker.sh ...)"
+        echo "  (Change with: BROWSER=firefox ./flickr-docker.sh ...)"
     fi
     echo ""
-    
-    # xauth (nur unter Linux)
+
+    # xauth (only on Linux)
     if [ "$HOST_OS" = "linux" ]; then
         echo -e "${BLUE}xauth:${NC}"
         if command -v xauth &> /dev/null; then
-            echo "  xauth: installiert"
-            echo "  Cookies für \$DISPLAY:"
-            xauth list "$DISPLAY" 2>/dev/null | head -3 || echo "    Keine Cookies gefunden"
+            echo "  xauth: installed"
+            echo "  Cookies for \$DISPLAY:"
+            xauth list "$DISPLAY" 2>/dev/null | head -3 || echo "    No cookies found"
         else
-            echo "  xauth: NICHT INSTALLIERT!"
+            echo "  xauth: NOT INSTALLED!"
         fi
         echo ""
     fi
-    
-    # Verzeichnisse
-    echo -e "${BLUE}Verzeichnisse:${NC}"
+
+    # Directories
+    echo -e "${BLUE}Directories:${NC}"
     echo "  Config: $CONFIG_DIR"
     echo "  Downloads: $WORK_DIR"
     echo "  Cache: $CACHE_DIR"
     echo ""
-    
-    # Token-Status
-    echo -e "${BLUE}Flickr-Status:${NC}"
+
+    # Token status
+    echo -e "${BLUE}Flickr status:${NC}"
     if [ -f "$CONFIG_DIR/.flickr_download" ]; then
-        echo "  API-Config: vorhanden"
+        echo "  API config: present"
     else
-        echo "  API-Config: NICHT KONFIGURIERT"
+        echo "  API config: NOT CONFIGURED"
     fi
     if is_token_valid "$CONFIG_DIR/.flickr_token"; then
-        echo "  Token: gültig"
+        echo "  Token: valid"
     else
-        echo "  Token: nicht vorhanden oder ungültig"
+        echo "  Token: missing or invalid"
     fi
     echo ""
-    
-    # Image-Status
-    echo -e "${BLUE}Docker-Image:${NC}"
+
+    # Image status
+    echo -e "${BLUE}Docker image:${NC}"
     local runtime="docker"
     if command -v podman &> /dev/null && podman info &> /dev/null 2>&1; then
         runtime="podman"
     fi
     if $runtime image inspect "$IMAGE_NAME:$IMAGE_TAG" &> /dev/null 2>&1; then
-        echo "  $IMAGE_NAME:$IMAGE_TAG: vorhanden"
+        echo "  $IMAGE_NAME:$IMAGE_TAG: present"
     else
-        echo "  $IMAGE_NAME:$IMAGE_TAG: NICHT GEBAUT (führe 'build' aus)"
+        echo "  $IMAGE_NAME:$IMAGE_TAG: NOT BUILT (run 'build' first)"
     fi
     echo ""
 }
 
 cmd_clean() {
-    log_info "Räume auf..."
-    
-    # Container-Runtime erkennen
+    if [ "$IN_CONTAINER" = true ]; then
+        log_info "No Docker image to remove (in-container mode)."
+        return 0
+    fi
+
+    log_info "Cleaning up..."
+
+    # Detect container runtime
     local runtime="docker"
     if command -v podman &> /dev/null && podman info &> /dev/null 2>&1; then
         runtime="podman"
     fi
-    
-    # Image löschen
+
+    # Remove image
     if $runtime image inspect "$IMAGE_NAME:$IMAGE_TAG" &> /dev/null; then
         $runtime rmi "$IMAGE_NAME:$IMAGE_TAG"
-        log_success "Image gelöscht ($runtime)"
+        log_success "Image removed ($runtime)"
     else
-        log_info "Image nicht vorhanden"
+        log_info "Image not present"
     fi
-    
-    # xauth aufräumen
+
+    # Clean up xauth
     cleanup_xauth
-    
-    log_success "Aufräumen abgeschlossen"
-    
+
+    log_success "Cleanup complete"
+
     echo ""
-    echo "Folgende Verzeichnisse wurden NICHT gelöscht:"
-    echo "  - $WORK_DIR (deine Downloads)"
-    echo "  - $CONFIG_DIR (deine Konfiguration)"
-    echo "  - $CACHE_DIR (API-Cache)"
+    echo "The following directories were NOT removed:"
+    echo "  - $WORK_DIR (your downloads)"
+    echo "  - $CONFIG_DIR (your configuration)"
+    echo "  - $CACHE_DIR (API cache)"
     echo ""
-    echo "Lösche diese manuell, wenn nicht mehr benötigt."
+    echo "Remove them manually if no longer needed."
 }
 
 cmd_help() {
+    if [ "$IN_CONTAINER" = true ]; then
+        cat << HELP_CONTAINER_END
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║               FLICKR DOWNLOAD — IN-CONTAINER MODE                         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+Usage: $0 <command> [options]
+
+AVAILABLE COMMANDS:
+
+  auth                      Authenticate with Flickr
+                            URL is displayed, open in a browser on the host
+  download <username>       Download all albums for a user
+  album <album-id>          Download a single album
+  list <username>           List albums for a user
+  info                      Show paths and tool versions
+  help                      Show this help
+
+NOT AVAILABLE IN CONTAINER (run on the host):
+
+  build                     (flickr_download is already installed)
+  test-browser              (no browser available)
+  shell                     (already in the container)
+  clean                     (no image present)
+
+EXAMPLES:
+
+  $0 list my_flickr_name
+  $0 download my_flickr_name
+  $0 album 72157622764287329
+
+HELP_CONTAINER_END
+        return 0
+    fi
+
     cat << 'HELP_END'
 
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                     FLICKR DOWNLOAD DOCKER SCRIPT                         ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
-Nutzung: ./flickr-docker.sh <befehl> [optionen]
+Usage: ./flickr-docker.sh <command> [options]
 
-BEFEHLE:
+COMMANDS:
 
-  build                     Docker-Image bauen
-  
-  auth                      Bei Flickr authentifizieren
-                            Linux: öffnet Browser automatisch
-                            Mac/Win: URL wird angezeigt, manuell öffnen
-  
-  download <username>       Alle Alben eines Benutzers herunterladen
-  
-  album <album-id>          Einzelnes Album herunterladen
-  
-  list <username>           Alben eines Benutzers auflisten
-  
-  shell                     Interaktive Shell im Container starten
-  
-  test-browser [url]        X11-Verbindung testen (nur Linux)
-                            Auf Mac/Windows: testet nur Container
-                            Standard-URL: https://www.flickr.com/
-  
-  info                      System-Informationen anzeigen (Debugging)
-  
-  clean                     Docker-Image und temp. Dateien löschen
+  build                     Build Docker image
 
-BEISPIELE:
+  auth                      Authenticate with Flickr
+                            Linux: opens browser automatically
+                            Mac/Win: URL is displayed, open manually
 
-  # X11-Verbindung testen
+  download <username>       Download all albums for a user
+
+  album <album-id>          Download a single album
+
+  list <username>           List albums for a user
+
+  shell                     Open interactive shell in container
+
+  test-browser [url]        Test X11 connection (Linux only)
+                            On Mac/Windows: tests container only
+                            Default URL: https://www.flickr.com/
+
+  info                      Show system information (debugging)
+
+  clean                     Remove Docker image and temp files
+
+EXAMPLES:
+
+  # Test X11 connection
   ./flickr-docker.sh test-browser
   ./flickr-docker.sh test-browser https://example.com
-  
-  # Erstmaliges Setup
+
+  # First-time setup
   ./flickr-docker.sh build
   ./flickr-docker.sh auth
-  
-  # Alle Fotos herunterladen
-  ./flickr-docker.sh download mein_flickr_name
-  
-  # Nur bestimmtes Album
-  ./flickr-docker.sh list mein_flickr_name
+
+  # Download all photos
+  ./flickr-docker.sh download my_flickr_name
+
+  # Specific album only
+  ./flickr-docker.sh list my_flickr_name
   ./flickr-docker.sh album 72157622764287329
 
-VERZEICHNISSE:
+DIRECTORIES:
 
-  ./flickr-backup/          Heruntergeladene Fotos
-  ./flickr-config/          API-Keys und Token
-  ./flickr-cache/           Cache für Resume-Funktion
+  ./flickr-backup/          Downloaded photos
+  ./flickr-config/          API keys and token
+  ./flickr-cache/           Cache for resume functionality
 
-VORAUSSETZUNGEN:
+PREREQUISITES:
 
-  - Docker oder Podman (wird automatisch erkannt)
-  - Linux: X11 (DISPLAY muss gesetzt sein), xauth
-  - Mac/Windows: Nur Docker/Podman erforderlich
+  - Docker or Podman (auto-detected)
+  - Linux: X11 (DISPLAY must be set), xauth
+  - Mac/Windows: Docker/Podman only
 
-PLATTFORM-UNTERSTÜTZUNG:
+PLATFORM SUPPORT:
 
-  Linux:      Volle Unterstützung mit X11-Browser-Forwarding
-              Browser öffnet automatisch im Container
-              
-  Mac:        Browser-URL wird im Terminal angezeigt
-              Manuell öffnen, OAuth-Callback funktioniert
-              
-  Windows:    Wie Mac (via WSL2 oder Git Bash)
-              Alternativ: WSL2 verhält sich wie Linux
+  Linux:      Full support with X11 browser forwarding
+              Browser opens automatically in container
 
-UMGEBUNGSVARIABLEN:
+  Mac:        Browser URL is displayed in terminal
+              Open manually, OAuth callback works
 
-  BROWSER                   Browser für OAuth
-                            Linux-Default: chrome
-                            Mac/Windows: nicht gesetzt (System-Default)
-                            Optionen: chrome, chromium, firefox
-                            Beispiel: BROWSER=firefox ./flickr-docker.sh auth
+  Windows:    Same as Mac (via WSL2 or Git Bash)
+              Alternatively: WSL2 behaves like Linux
 
-PODMAN-HINWEISE (nur Linux):
+ENVIRONMENT VARIABLES:
 
-  Das Script erkennt Podman automatisch und verwendet:
-  - --userns=keep-id (für X11-Zugriff)
-  - --security-opt label=disable (für SELinux)
+  BROWSER                   Browser for OAuth
+                            Linux default: chrome
+                            Mac/Windows: not set (system default)
+                            Options: chrome, chromium, firefox
+                            Example: BROWSER=firefox ./flickr-docker.sh auth
+
+PODMAN NOTES (Linux only):
+
+  The script detects Podman automatically and uses:
+  - --userns=keep-id (for X11 access)
+  - --security-opt label=disable (for SELinux)
 
 HELP_END
 }
 
 # ============================================================================
-# HAUPTPROGRAMM
+# MAIN
 # ============================================================================
 
 main() {
     local COMMAND="${1:-help}"
     shift || true
-    
+
     case "$COMMAND" in
         build)
             cmd_build
@@ -940,8 +1104,8 @@ main() {
             cmd_help
             ;;
         *)
-            log_error "Unbekannter Befehl: $COMMAND"
-            echo "Nutze '$0 help' für Hilfe."
+            log_error "Unknown command: $COMMAND"
+            echo "Use '$0 help' for help."
             exit 1
             ;;
     esac

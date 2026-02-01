@@ -67,9 +67,9 @@ These directories are created next to the script and are **not** removed by `cle
 
 ## Integrated mode (somestuff container)
 
-`flickr_download` and ExifTool are also installed in the main `xomoxcc/somestuff` Docker image. This lets you run downloads directly inside the somestuff container without a nested container build.
+`flickr_download` and ExifTool are also installed in the main `xomoxcc/somestuff` Docker image. `flickr-docker.sh` auto-detects when it runs inside the container (via `FLICKR_HOME` or container marker files) and calls `flickr_download` directly — no nested container build/run needed.
 
-**Auth** still requires a browser, so run it on the host first:
+**Auth** works inside the container — the OAuth URL is printed to stdout so you can open it in a browser on the host. Alternatively, authenticate on the host before starting the container:
 
 ```bash
 cd flickrdownloaderstuff && ./flickr-docker.sh auth
@@ -77,15 +77,15 @@ cd flickrdownloaderstuff && ./flickr-docker.sh auth
 
 **Download** inside the container:
 
-`flickr_download` looks for credentials in `$HOME`. The container sets `FLICKR_HOME` pointing to the mounted config directory, so prefix the command with `HOME=$FLICKR_HOME`:
-
 ```bash
 make dstart
 # inside the container:
-cd ~/flickr-backup
-HOME=$FLICKR_HOME flickr_download -t --download_user https://www.flickr.com/photos/USERNAME/ \
-  --save_json --cache ~/flickr-cache/api_cache --metadata_store
+/app/flickrdownloaderstuff/flickr-docker.sh download USERNAME
+/app/flickrdownloaderstuff/flickr-docker.sh list USERNAME
+/app/flickrdownloaderstuff/flickr-docker.sh album 72157622764287329
 ```
+
+Commands that manage the nested image (`build`, `clean`, `shell`) are no-ops with an informational message.
 
 Directory mapping (`make dstart`, only mounted when the host directory exists):
 

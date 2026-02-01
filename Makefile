@@ -1,4 +1,4 @@
-.PHONY: tests help install venv lint dstart isort tcheck build build-nfs update-all-dockerhub-readmes commit-checks prepare
+.PHONY: tests help install venv lint dstart isort tcheck build build-nfs update-all-dockerhub-readmes commit-checks prepare flickrstuffpipe %
 SHELL := /usr/bin/bash
 .ONESHELL:
 
@@ -16,6 +16,7 @@ help:
 	@printf "\nbuild-nfs \n\tbuild nfs-subdir-external-provisioner (applies overlay)\n"
 	@printf "\nupdate-all-dockerhub-readmes \n\tupdate ALL Docker Hub repo descriptions from DOCKERHUB_OVERVIEW.md resp */DOCKERHUB_OVERVIEW.md\n"
 	@printf "\ndstart \n\tlaunch \"app\" in docker\n"
+	@printf "\nflickrstuffpipe \n\textract and run flickr-docker.sh from container (no git clone needed)\n"
 
 
 
@@ -72,6 +73,9 @@ dstart:
 		-v ~/.ssh:/home/pythonuser/.ssh:ro \
 		$$FLICKR_FLAGS \
 		xomoxcc/somestuff:latest /bin/bash
+
+flickrstuffpipe:
+	docker run --rm xomoxcc/somestuff:latest cat flickrdownloaderstuff/flickr-docker.sh | /bin/bash -s -- $(filter-out $@,$(MAKECMDGOALS))
 
 isort: venv
 	@$(venv_activated)
@@ -130,6 +134,10 @@ commit-checks: .git/hooks/pre-commit
 	pre-commit run --all-files
 
 prepare: tests commit-checks
+
+# Catch-all target to allow arguments after flickrstuffpipe
+%:
+	@:
 
 #pypibuild: .venv
 #	@$(venv_activated)

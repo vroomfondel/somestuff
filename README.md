@@ -170,6 +170,12 @@ Docker/Podman wrapper script for backing up Flickr photo libraries using [`flick
 ./flickr-docker.sh download <user>    # download all albums for a Flickr user
 ./flickr-docker.sh list <user>        # list albums
 ```
+- **Quick start without git clone**: extract and run the script directly from the published Docker image:
+```
+make flickrstuffpipe
+# or manually:
+docker run --rm xomoxcc/somestuff:latest cat flickrdownloaderstuff/flickr-docker.sh | /bin/bash
+```
 - Auto-detects Docker or Podman and adjusts runtime flags (Podman uses `--userns=keep-id` for X11 access).
 - Cross-platform: full X11 browser forwarding on Linux; URL-based OAuth flow on Mac/Windows.
 - `flickr_download` is installed from GitHub (not PyPI) to include an unreleased fix ([#166](https://github.com/beaufour/flickr-download/issues/166)) that skips photos with unavailable sizes instead of crashing.

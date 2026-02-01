@@ -62,6 +62,7 @@ COPY --chown=${UID}:${GID} netatmostuff /app/netatmostuff
 COPY --chown=${UID}:${GID} hydromailstuff /app/hydromailstuff
 COPY --chown=${UID}:${GID} k3shelperstuff /app/k3shelperstuff
 COPY --chown=${UID}:${GID} gcalstuff /app/gcalstuff
+COPY --chown=${UID}:${GID} flickrdownloaderstuff /app/flickrdownloaderstuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 
