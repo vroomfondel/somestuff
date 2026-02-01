@@ -545,7 +545,13 @@ run_with_backoff() {
     local consecutive_429=0
 
     while IFS= read -r line; do
-        echo "$line"
+        # Re-colorize Python logging lines (lost TTY due to FIFO)
+        case "$line" in
+            ERROR:*)   echo -e "${RED}${line}${NC}" ;;
+            WARNING:*) echo -e "${YELLOW}${line}${NC}" ;;
+            INFO:*)    echo -e "${BLUE}${line}${NC}" ;;
+            *)         echo "$line" ;;
+        esac
         if [[ "$line" == *"HTTP Error 429"* ]]; then
             consecutive_429=$((consecutive_429 + 1))
             local wait=$((BACKOFF_BASE * consecutive_429))
