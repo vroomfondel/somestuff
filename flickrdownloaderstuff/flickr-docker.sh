@@ -26,6 +26,25 @@ CONFIG_DIR="$(pwd)/flickr-config"
 CACHE_DIR="$(pwd)/flickr-cache"
 XAUTH_FILE="/tmp/.flickr-docker.xauth"
 
+# Domain socket mode: replace X11 forwarding with a Unix socket that
+# forwards browser-open requests to the host via xdg-open.
+USE_DSOCKET="${USE_DSOCKET:-false}"
+DSOCKET_PATH="${DSOCKET_PATH:-/tmp/.flickr-open-url.sock}"
+DSOCKET_CONTAINER_PATH="/tmp/open-url.sock"
+DSOCKET_LISTENER_PID=""
+
+# D-Bus mode: mount the host's D-Bus session socket into the container and use
+# gdbus to call the XDG Desktop Portal OpenURI method.  No host-side listener
+# needed (unlike USE_DSOCKET).
+USE_DBUS="${USE_DBUS:-false}"
+DBUS_SOCKET_MOUNT=""  # resolved from DBUS_SESSION_BUS_ADDRESS during check_dependencies
+
+# Mutual exclusivity: USE_DSOCKET and USE_DBUS cannot both be enabled
+if [ "$USE_DSOCKET" = "true" ] && [ "$USE_DBUS" = "true" ]; then
+    echo -e "\033[0;31m[ERROR]\033[0m USE_DSOCKET and USE_DBUS are mutually exclusive." >&2
+    exit 1
+fi
+
 # Rate-limit backoff (seconds); doubles on consecutive 429s, caps at max
 BACKOFF_BASE=60
 BACKOFF_MAX=600
@@ -85,7 +104,13 @@ fi
 # Linux: explicit browser for X11 forwarding
 # Mac/Windows: leave empty -> Python webbrowser uses system default
 if [ "$HOST_OS" = "linux" ]; then
-    BROWSER="${BROWSER:-chrome}"
+    if [ "$USE_DSOCKET" = "true" ]; then
+        BROWSER="${BROWSER:-url-opener}"
+    elif [ "$USE_DBUS" = "true" ]; then
+        BROWSER="${BROWSER:-url-dbus-opener}"
+    else
+        BROWSER="${BROWSER:-chrome}"
+    fi
 else
     # On Mac/Windows: empty BROWSER = Python opens system browser
     BROWSER="${BROWSER:-}"
@@ -93,7 +118,7 @@ fi
 
 # X11 only on Linux
 X11_AVAILABLE=false
-if [ "$HOST_OS" = "linux" ] && [ -n "$DISPLAY" ]; then
+if [ "$HOST_OS" = "linux" ] && [ -n "$DISPLAY" ] && [ "$USE_DSOCKET" != "true" ] && [ "$USE_DBUS" != "true" ]; then
     X11_AVAILABLE=true
 fi
 
@@ -144,17 +169,65 @@ check_dependencies() {
         exit 1
     fi
 
-    # X11 checks only on Linux
+    # X11 / dsocket / D-Bus checks only on Linux
     if [ "$HOST_OS" = "linux" ]; then
-        if [ -z "$DISPLAY" ]; then
-            log_error "DISPLAY is not set. X11 required!"
-            log_info "Hint: export DISPLAY=:0"
-            exit 1
-        fi
+        if [ "$USE_DSOCKET" = "true" ]; then
+            log_info "Domain socket mode enabled (USE_DSOCKET=true)"
+            if ! command -v python3 &> /dev/null; then
+                log_error "python3 is not installed (required for domain socket listener)"
+                exit 1
+            fi
+        elif [ "$USE_DBUS" = "true" ]; then
+            log_info "D-Bus mode enabled (USE_DBUS=true)"
+            if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+                log_error "DBUS_SESSION_BUS_ADDRESS is not set!"
+                log_info "Hint: this variable is set automatically in graphical sessions"
+                log_info "Hint: for SSH sessions, see 'systemctl --user show-environment | grep DBUS'"
+                exit 1
+            fi
+            # Parse the D-Bus address to determine mount strategy
+            case "$DBUS_SESSION_BUS_ADDRESS" in
+                unix:path=*)
+                    # Extract the socket path (strip unix:path= prefix and any trailing options)
+                    DBUS_SOCKET_MOUNT="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"
+                    DBUS_SOCKET_MOUNT="${DBUS_SOCKET_MOUNT%%,*}"
+                    if [ ! -S "$DBUS_SOCKET_MOUNT" ]; then
+                        log_error "D-Bus socket not found: $DBUS_SOCKET_MOUNT"
+                        exit 1
+                    fi
+                    log_info "D-Bus socket (path-based): $DBUS_SOCKET_MOUNT"
+                    ;;
+                unix:abstract=*)
+                    # Abstract sockets live in the kernel namespace — shared via --network=host
+                    DBUS_SOCKET_MOUNT=""
+                    log_info "D-Bus socket (abstract): no mount needed (--network=host shares it)"
+                    ;;
+                *)
+                    DBUS_SOCKET_MOUNT=""
+                    log_warn "Unknown DBUS_SESSION_BUS_ADDRESS format: $DBUS_SESSION_BUS_ADDRESS"
+                    log_warn "Proceeding anyway — the container will see the variable as-is"
+                    ;;
+            esac
+            # Docker runs container processes as root (UID 0) which will fail
+            # D-Bus SO_PEERCRED authentication.  Podman with --userns=keep-id
+            # preserves the host UID so auth succeeds.
+            if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+                log_warn "Docker detected: D-Bus auth may fail (UID mismatch)."
+                log_warn "Podman with --userns=keep-id is recommended for USE_DBUS."
+            fi
+        else
+            if [ -z "$DISPLAY" ]; then
+                log_error "DISPLAY is not set. X11 required!"
+                log_info "Hint: export DISPLAY=:0"
+                log_info "Hint: or use USE_DSOCKET=true for headless operation"
+                log_info "Hint: or use USE_DBUS=true for D-Bus portal mode"
+                exit 1
+            fi
 
-        if ! command -v xauth &> /dev/null; then
-            log_error "xauth is not installed! (apt install xauth)"
-            exit 1
+            if ! command -v xauth &> /dev/null; then
+                log_error "xauth is not installed! (apt install xauth)"
+                exit 1
+            fi
         fi
     else
         log_info "No X11 forwarding (Mac/Windows) - browser opens on host"
@@ -235,6 +308,65 @@ cleanup_xauth() {
         rm -f "$XAUTH_FILE"
         log_info "X11 auth file cleaned up"
     fi
+}
+
+start_dsocket_listener() {
+    # Start a background Python process that listens on a Unix domain socket.
+    # When a connection arrives it reads a URL, opens it with xdg-open on the
+    # host, and replies "OK\n".
+    rm -f "$DSOCKET_PATH"
+
+    python3 - "$DSOCKET_PATH" << 'PYLISTENER' &
+import os, socket, subprocess, sys
+
+path = sys.argv[1]
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.bind(path)
+os.chmod(path, 0o666)
+sock.listen(1)
+
+while True:
+    conn, _ = sock.accept()
+    try:
+        url = conn.recv(4096).decode().strip()
+        if url:
+            subprocess.Popen(["xdg-open", url],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        conn.sendall(b"OK\n")
+    except Exception:
+        pass
+    finally:
+        conn.close()
+PYLISTENER
+    DSOCKET_LISTENER_PID=$!
+
+    # Wait up to 2 seconds for the socket to appear
+    local waited=0
+    while [ ! -S "$DSOCKET_PATH" ] && [ "$waited" -lt 20 ]; do
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+
+    if [ ! -S "$DSOCKET_PATH" ]; then
+        log_error "Domain socket listener failed to start"
+        kill "$DSOCKET_LISTENER_PID" 2>/dev/null || true
+        DSOCKET_LISTENER_PID=""
+        exit 1
+    fi
+
+    log_success "Domain socket listener started (PID $DSOCKET_LISTENER_PID)"
+    log_info "Socket: $DSOCKET_PATH"
+}
+
+stop_dsocket_listener() {
+    if [ -n "$DSOCKET_LISTENER_PID" ]; then
+        kill "$DSOCKET_LISTENER_PID" 2>/dev/null || true
+        wait "$DSOCKET_LISTENER_PID" 2>/dev/null || true
+        DSOCKET_LISTENER_PID=""
+        log_info "Domain socket listener stopped"
+    fi
+    rm -f "$DSOCKET_PATH"
 }
 
 check_config() {
@@ -322,6 +454,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Fonts
     fonts-liberation \
     fonts-dejavu-core \
+    # D-Bus (gdbus for XDG Desktop Portal browser opening)
+    libglib2.0-bin \
     # Tools
     bash \
     procps \
@@ -338,10 +472,60 @@ RUN ln -sf /usr/bin/chromium /usr/bin/chrome && \
     ln -sf /usr/bin/chromium /usr/bin/google-chrome && \
     ln -sf /usr/bin/firefox-esr /usr/bin/firefox
 
+# url-opener: forwards browser-open requests to the host via a Unix socket.
+# Used by USE_DSOCKET mode; installed unconditionally (mode is selected at runtime).
+RUN printf '#!/usr/bin/env python3\n\
+import socket, sys\n\
+\n\
+SOCK_PATH = "/tmp/open-url.sock"\n\
+\n\
+if len(sys.argv) < 2:\n\
+    print("Usage: url-opener <url>", file=sys.stderr)\n\
+    sys.exit(1)\n\
+\n\
+url = sys.argv[1]\n\
+\n\
+try:\n\
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n\
+    s.connect(SOCK_PATH)\n\
+    s.sendall(url.encode() + b"\\n")\n\
+    reply = s.recv(64).decode().strip()\n\
+    if reply == "OK":\n\
+        sys.exit(0)\n\
+    else:\n\
+        print(f"url-opener: unexpected reply: {reply}", file=sys.stderr)\n\
+        sys.exit(1)\n\
+except FileNotFoundError:\n\
+    print(f"url-opener: socket not found: {SOCK_PATH}", file=sys.stderr)\n\
+    print("Is the host-side dsocket listener running?", file=sys.stderr)\n\
+    sys.exit(1)\n\
+except ConnectionRefusedError:\n\
+    print(f"url-opener: connection refused: {SOCK_PATH}", file=sys.stderr)\n\
+    sys.exit(1)\n\
+' > /usr/local/bin/url-opener && chmod +x /usr/local/bin/url-opener
+
+# url-dbus-opener: opens a URL on the host via the XDG Desktop Portal over D-Bus.
+# Used by USE_DBUS mode; installed unconditionally (mode is selected at runtime).
+RUN printf '#!/bin/bash\n\
+set -e\n\
+[ -z "$1" ] && { echo "Usage: url-dbus-opener <url>" >&2; exit 1; }\n\
+command -v gdbus > /dev/null 2>&1 || { echo "url-dbus-opener: gdbus not found" >&2; exit 1; }\n\
+gdbus call --session \\\n\
+    --dest org.freedesktop.portal.Desktop \\\n\
+    --object-path /org/freedesktop/portal/desktop \\\n\
+    --method org.freedesktop.portal.OpenURI.OpenURI \\\n\
+    "" "$1" "{}" > /dev/null 2>&1\n\
+' > /usr/local/bin/url-dbus-opener && chmod +x /usr/local/bin/url-dbus-opener
+
 # Python packages
 RUN pip install --no-cache-dir \
     git+https://github.com/beaufour/flickr-download.git \
     PyYAML
+
+# Patch: flickr_download crashes on photos with unknown "taken" date
+# (Flickr returns "0000-00-00 00:00:00" which dateutil cannot parse)
+RUN UTILS_PATH=$(python3 -c "from importlib.util import find_spec; print(find_spec('flickr_download.utils').origin)") && \
+    sed -i '/taken = parser.parse(taken_str)/i\    if not taken_str or taken_str.startswith("0000"):\n        return' "$UTILS_PATH"
 
 # Working directory
 WORKDIR /data
@@ -457,14 +641,32 @@ build_container_args() {
         CONTAINER_ARGS+=(-p 8080-8100:8080-8100)
     fi
 
-    # X11 configuration only on Linux
+    # Display / socket configuration on Linux
     if [ "$HOST_OS" = "linux" ]; then
-        CONTAINER_ARGS+=(
-            -e "DISPLAY=$DISPLAY"
-            -e "XAUTHORITY=/tmp/.xauth"
-            -v "/tmp/.X11-unix:/tmp/.X11-unix:rw"
-            -v "$XAUTH_FILE:/tmp/.xauth:ro"
-        )
+        if [ "$USE_DSOCKET" = "true" ]; then
+            # Domain socket mode: mount the host socket into the container
+            CONTAINER_ARGS+=(
+                -v "$DSOCKET_PATH:$DSOCKET_CONTAINER_PATH"
+            )
+        elif [ "$USE_DBUS" = "true" ]; then
+            # D-Bus mode: mount the session bus socket (if path-based) and pass the address
+            if [ -n "$DBUS_SOCKET_MOUNT" ]; then
+                CONTAINER_ARGS+=(
+                    -v "$DBUS_SOCKET_MOUNT:$DBUS_SOCKET_MOUNT"
+                )
+            fi
+            CONTAINER_ARGS+=(
+                -e "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
+            )
+        else
+            # X11 mode: forward display and auth
+            CONTAINER_ARGS+=(
+                -e "DISPLAY=$DISPLAY"
+                -e "XAUTHORITY=/tmp/.xauth"
+                -v "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+                -v "$XAUTH_FILE:/tmp/.xauth:ro"
+            )
+        fi
     fi
 
     # Podman-specific options (Linux only, Podman on Mac/Windows works differently)
@@ -492,9 +694,15 @@ build_container_args() {
     fi
 
     # BROWSER variable
-    # Linux: explicit browser for X11 forwarding
-    # Mac/Windows: empty -> Python webbrowser prints URL to stdout
-    if [ -n "$BROWSER" ]; then
+    if [ "$USE_DSOCKET" = "true" ]; then
+        # Domain socket mode: always use url-opener
+        CONTAINER_ARGS+=(-e "BROWSER=url-opener")
+    elif [ "$USE_DBUS" = "true" ]; then
+        # D-Bus mode: always use url-dbus-opener
+        CONTAINER_ARGS+=(-e "BROWSER=url-dbus-opener")
+    elif [ -n "$BROWSER" ]; then
+        # Linux/X11: explicit browser for X11 forwarding
+        # Mac/Windows: empty -> Python webbrowser prints URL to stdout
         CONTAINER_ARGS+=(-e "BROWSER=$BROWSER")
     fi
 }
@@ -505,7 +713,14 @@ run_container() {
     check_dependencies
     setup_directories
     check_config
-    setup_xauth
+
+    if [ "$USE_DSOCKET" = "true" ]; then
+        start_dsocket_listener
+    elif [ "$USE_DBUS" = "true" ]; then
+        log_info "D-Bus mode: no host-side listener needed"
+    else
+        setup_xauth
+    fi
 
     log_info "Starting container..."
     echo ""
@@ -520,7 +735,13 @@ run_container() {
 
     local exit_code=$?
 
-    cleanup_xauth
+    if [ "$USE_DSOCKET" = "true" ]; then
+        stop_dsocket_listener
+    elif [ "$USE_DBUS" = "true" ]; then
+        :  # no cleanup needed for D-Bus mode
+    else
+        cleanup_xauth
+    fi
 
     return $exit_code
 }
@@ -529,7 +750,16 @@ run_direct() {
     check_config
     log_info "Running flickr_download directly (in-container mode)..."
     echo ""
-    run_with_backoff env HOME="$CONFIG_DIR" flickr_download "$@"
+    run_with_backoff env HOME="$CONFIG_DIR" python3 -c "
+import flickr_download.utils as _u
+_orig = _u.set_file_time
+def _safe(f, t):
+    if not t or t.startswith('0000'):
+        return
+    _orig(f, t)
+_u.set_file_time = _safe
+from flickr_download.flick_download import main; main()
+" "$@"
 }
 
 run_with_backoff() {
@@ -575,7 +805,14 @@ run_container_with_backoff() {
     check_dependencies
     setup_directories
     check_config
-    setup_xauth
+
+    if [ "$USE_DSOCKET" = "true" ]; then
+        start_dsocket_listener
+    elif [ "$USE_DBUS" = "true" ]; then
+        log_info "D-Bus mode: no host-side listener needed"
+    else
+        setup_xauth
+    fi
 
     log_info "Starting container..."
     echo ""
@@ -590,7 +827,15 @@ run_container_with_backoff() {
         $CONTAINER_RUNTIME "${CONTAINER_ARGS[@]}" "$IMAGE_NAME:$IMAGE_TAG" "${CMD[@]}"
 
     local exit_code=$?
-    cleanup_xauth
+
+    if [ "$USE_DSOCKET" = "true" ]; then
+        stop_dsocket_listener
+    elif [ "$USE_DBUS" = "true" ]; then
+        :  # no cleanup needed for D-Bus mode
+    else
+        cleanup_xauth
+    fi
+
     return $exit_code
 }
 
@@ -629,7 +874,11 @@ cmd_auth() {
         run_direct -t
     else
         log_info "OS: $HOST_OS"
-        if [ "$HOST_OS" = "linux" ]; then
+        if [ "$HOST_OS" = "linux" ] && [ "$USE_DSOCKET" = "true" ]; then
+            log_info "Mode: domain socket (browser opens on host via xdg-open)"
+        elif [ "$HOST_OS" = "linux" ] && [ "$USE_DBUS" = "true" ]; then
+            log_info "Mode: D-Bus (browser opens on host via XDG Desktop Portal)"
+        elif [ "$HOST_OS" = "linux" ]; then
             log_info "Browser: ${BROWSER:-<system-default>}"
             echo "A browser window will open."
         else
@@ -825,6 +1074,92 @@ cmd_test_browser() {
         return 0
     fi
 
+    if [ "$USE_DSOCKET" = "true" ]; then
+        log_info "Testing domain socket browser forwarding..."
+        log_info "Opening URL: $URL"
+        echo ""
+
+        check_dependencies
+        start_dsocket_listener
+
+        $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
+
+        local CONTAINER_ARGS=(
+            run -it --rm
+            --name flickr-download-run
+            --network=host
+            -v "$DSOCKET_PATH:$DSOCKET_CONTAINER_PATH"
+            -e "BROWSER=url-opener"
+        )
+
+        # Podman-specific options
+        if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+            CONTAINER_ARGS+=(
+                --userns=keep-id
+                --security-opt label=disable
+                -e "HOME=/home/poduser"
+            )
+        else
+            CONTAINER_ARGS+=(-e "HOME=/root")
+        fi
+
+        log_info "Container runtime: $CONTAINER_RUNTIME"
+        log_info "Socket: $DSOCKET_PATH -> $DSOCKET_CONTAINER_PATH"
+
+        $CONTAINER_RUNTIME "${CONTAINER_ARGS[@]}" "$IMAGE_NAME:$IMAGE_TAG" \
+            shell -c "echo 'User: '\$(whoami) && echo 'UID: '\$(id -u) && echo 'HOME: '\$HOME && echo 'BROWSER: '\$BROWSER && echo '---' && echo 'Sending URL via domain socket...' && url-opener '$URL' && echo 'url-opener: success' || echo 'url-opener: FAILED'"
+
+        stop_dsocket_listener
+        return 0
+    fi
+
+    if [ "$USE_DBUS" = "true" ]; then
+        log_info "Testing D-Bus browser forwarding..."
+        log_info "Opening URL: $URL"
+        echo ""
+
+        check_dependencies
+
+        $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
+
+        local CONTAINER_ARGS=(
+            run -it --rm
+            --name flickr-download-run
+            --network=host
+            -e "BROWSER=url-dbus-opener"
+            -e "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
+        )
+
+        # Mount D-Bus socket (if path-based)
+        if [ -n "$DBUS_SOCKET_MOUNT" ]; then
+            CONTAINER_ARGS+=(-v "$DBUS_SOCKET_MOUNT:$DBUS_SOCKET_MOUNT")
+        fi
+
+        # Podman-specific options
+        if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+            CONTAINER_ARGS+=(
+                --userns=keep-id
+                --security-opt label=disable
+                -e "HOME=/home/poduser"
+            )
+        else
+            CONTAINER_ARGS+=(-e "HOME=/root")
+        fi
+
+        log_info "Container runtime: $CONTAINER_RUNTIME"
+        log_info "DBUS_SESSION_BUS_ADDRESS: $DBUS_SESSION_BUS_ADDRESS"
+        if [ -n "$DBUS_SOCKET_MOUNT" ]; then
+            log_info "Socket mount: $DBUS_SOCKET_MOUNT"
+        else
+            log_info "Socket: abstract (no mount needed)"
+        fi
+
+        $CONTAINER_RUNTIME "${CONTAINER_ARGS[@]}" "$IMAGE_NAME:$IMAGE_TAG" \
+            shell -c "echo 'User: '\$(whoami) && echo 'UID: '\$(id -u) && echo 'HOME: '\$HOME && echo 'BROWSER: '\$BROWSER && echo 'DBUS_SESSION_BUS_ADDRESS: '\$DBUS_SESSION_BUS_ADDRESS && echo '---' && echo 'Opening URL via D-Bus portal...' && url-dbus-opener '$URL' && echo 'url-dbus-opener: success' || echo 'url-dbus-opener: FAILED'"
+
+        return 0
+    fi
+
     log_info "Testing X11 connection..."
     log_info "Opening browser with: $URL"
     echo ""
@@ -972,6 +1307,68 @@ cmd_info() {
         echo ""
     fi
 
+    # Domain socket mode
+    echo -e "${BLUE}Domain socket mode:${NC}"
+    if [ "$USE_DSOCKET" = "true" ]; then
+        echo "  Status: ENABLED"
+        echo "  Host socket: $DSOCKET_PATH"
+        echo "  Container socket: $DSOCKET_CONTAINER_PATH"
+        if [ -S "$DSOCKET_PATH" ]; then
+            echo "  Socket file: present (listener running)"
+        else
+            echo "  Socket file: not present (listener not running)"
+        fi
+    else
+        echo "  Status: disabled"
+        echo "  Enable with: USE_DSOCKET=true ./flickr-docker.sh ..."
+    fi
+    echo ""
+
+    # D-Bus mode
+    echo -e "${BLUE}D-Bus mode:${NC}"
+    if [ "$USE_DBUS" = "true" ]; then
+        echo "  Status: ENABLED"
+        echo "  DBUS_SESSION_BUS_ADDRESS: ${DBUS_SESSION_BUS_ADDRESS:-NOT SET}"
+        # Parse socket info inline (check_dependencies may not have been called)
+        case "$DBUS_SESSION_BUS_ADDRESS" in
+            unix:path=*)
+                local dbus_path="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"
+                dbus_path="${dbus_path%%,*}"
+                echo "  Socket type: path-based"
+                echo "  Socket path: $dbus_path"
+                if [ -S "$dbus_path" ]; then
+                    echo "  Socket file: present"
+                else
+                    echo "  Socket file: NOT FOUND"
+                fi
+                ;;
+            unix:abstract=*)
+                echo "  Socket type: abstract (shared via --network=host)"
+                ;;
+            "")
+                echo "  Socket type: N/A (address not set)"
+                ;;
+            *)
+                echo "  Socket type: unknown"
+                ;;
+        esac
+        # Detect runtime for UID warning
+        local dbus_runtime="docker"
+        if command -v podman &> /dev/null && podman info &> /dev/null 2>&1; then
+            dbus_runtime="podman"
+        fi
+        if [ "$dbus_runtime" = "docker" ]; then
+            echo -e "  ${YELLOW}Warning: Docker may fail D-Bus auth (UID mismatch)${NC}"
+            echo "  Recommendation: use Podman with --userns=keep-id"
+        else
+            echo "  Podman: --userns=keep-id preserves host UID (good)"
+        fi
+    else
+        echo "  Status: disabled"
+        echo "  Enable with: USE_DBUS=true ./flickr-docker.sh ..."
+    fi
+    echo ""
+
     # Directories
     echo -e "${BLUE}Directories:${NC}"
     echo "  Config: $CONFIG_DIR"
@@ -1029,8 +1426,9 @@ cmd_clean() {
         log_info "Image not present"
     fi
 
-    # Clean up xauth
+    # Clean up xauth and dsocket
     cleanup_xauth
+    stop_dsocket_listener
 
     log_success "Cleanup complete"
 
@@ -1139,12 +1537,16 @@ PREREQUISITES:
 
   - Docker or Podman (auto-detected)
   - Linux: X11 (DISPLAY must be set), xauth
+           OR USE_DSOCKET=true (no X11 needed, requires python3)
+           OR USE_DBUS=true (no X11 needed, requires D-Bus session bus)
   - Mac/Windows: Docker/Podman only
 
 PLATFORM SUPPORT:
 
   Linux:      Full support with X11 browser forwarding
               Browser opens automatically in container
+              OR: USE_DSOCKET=true opens browser on host via xdg-open
+              OR: USE_DBUS=true opens browser on host via XDG Desktop Portal
 
   Mac:        Browser URL is displayed in terminal
               Open manually, OAuth callback works
@@ -1155,15 +1557,33 @@ PLATFORM SUPPORT:
 ENVIRONMENT VARIABLES:
 
   BROWSER                   Browser for OAuth
-                            Linux default: chrome
+                            Linux default: chrome (X11) / url-opener (dsocket)
+                                           / url-dbus-opener (dbus)
                             Mac/Windows: not set (system default)
                             Options: chrome, chromium, firefox
                             Example: BROWSER=firefox ./flickr-docker.sh auth
 
+  USE_DSOCKET               Set to "true" to use Unix domain socket mode
+                            instead of X11 forwarding. Browser opens on host
+                            via xdg-open. No DISPLAY or xauth required.
+                            Example: USE_DSOCKET=true ./flickr-docker.sh auth
+
+  DSOCKET_PATH              Host-side socket path
+                            Default: /tmp/.flickr-open-url.sock
+
+  USE_DBUS                  Set to "true" to use D-Bus mode. Mounts the host
+                            D-Bus session socket and opens browser via the XDG
+                            Desktop Portal (org.freedesktop.portal.OpenURI).
+                            No X11, xauth, or host-side listener required.
+                            Mutually exclusive with USE_DSOCKET.
+                            Note: Podman recommended (Docker may fail D-Bus
+                            auth due to UID mismatch with SO_PEERCRED).
+                            Example: USE_DBUS=true ./flickr-docker.sh auth
+
 PODMAN NOTES (Linux only):
 
   The script detects Podman automatically and uses:
-  - --userns=keep-id (for X11 access)
+  - --userns=keep-id (for X11 access / D-Bus UID matching)
   - --security-opt label=disable (for SELinux)
 
 HELP_END
