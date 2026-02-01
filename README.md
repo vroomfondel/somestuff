@@ -178,6 +178,7 @@ docker run --rm xomoxcc/somestuff:latest cat flickrdownloaderstuff/flickr-docker
 ```
 - Auto-detects Docker or Podman and adjusts runtime flags (Podman uses `--userns=keep-id` for X11 access).
 - Cross-platform: full X11 browser forwarding on Linux; URL-based OAuth flow on Mac/Windows.
+- Automatic rate-limit backoff: when Flickr returns `429 Too Many Requests`, the download process is suspended (`SIGSTOP`), the script sleeps with increasing backoff (60 s base, 600 s cap), then resumes (`SIGCONT`).
 - `flickr_download` is installed from GitHub (not PyPI) to include an unreleased fix ([#166](https://github.com/beaufour/flickr-download/issues/166)) that skips photos with unavailable sizes instead of crashing.
 - See `flickrdownloaderstuff/README.md` for details.
 

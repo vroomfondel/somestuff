@@ -26,6 +26,10 @@ CONFIG_DIR="$(pwd)/flickr-config"
 CACHE_DIR="$(pwd)/flickr-cache"
 XAUTH_FILE="/tmp/.flickr-docker.xauth"
 
+# Rate-limit backoff (seconds); doubles on consecutive 429s, caps at max
+BACKOFF_BASE=60
+BACKOFF_MAX=600
+
 # Container runtime (detected later)
 CONTAINER_RUNTIME=""
 
@@ -430,23 +434,13 @@ flickr_user_to_url() {
     fi
 }
 
-run_container() {
-    local CMD=("$@")
+build_container_args() {
+    # Populates the CONTAINER_ARGS array (must be declared by the caller).
+    # Does NOT include the "run" verb or interactive flags (-it / -i);
+    # the caller prepends those.
 
-    check_dependencies
-    setup_directories
-    check_config
-    setup_xauth
-
-    log_info "Starting container..."
-    echo ""
-
-    # Remove old container if present
-    $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
-
-    # Base arguments
-    local CONTAINER_ARGS=(
-        run -it --rm
+    CONTAINER_ARGS+=(
+        --rm
         --name flickr-download-run
         -v "$WORK_DIR:/data"
         -v "$CACHE_DIR:/cache"
@@ -503,6 +497,24 @@ run_container() {
     if [ -n "$BROWSER" ]; then
         CONTAINER_ARGS+=(-e "BROWSER=$BROWSER")
     fi
+}
+
+run_container() {
+    local CMD=("$@")
+
+    check_dependencies
+    setup_directories
+    check_config
+    setup_xauth
+
+    log_info "Starting container..."
+    echo ""
+
+    # Remove old container if present
+    $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
+
+    local CONTAINER_ARGS=(run -it)
+    build_container_args
 
     $CONTAINER_RUNTIME "${CONTAINER_ARGS[@]}" "$IMAGE_NAME:$IMAGE_TAG" "${CMD[@]}"
 
@@ -517,7 +529,63 @@ run_direct() {
     check_config
     log_info "Running flickr_download directly (in-container mode)..."
     echo ""
-    HOME="$CONFIG_DIR" flickr_download "$@"
+    run_with_backoff env HOME="$CONFIG_DIR" flickr_download "$@"
+}
+
+run_with_backoff() {
+    local fifo
+    fifo=$(mktemp -u)
+    mkfifo "$fifo"
+    trap "rm -f '$fifo'" RETURN
+
+    # Run the actual command in the background, merge stderr into stdout via FIFO
+    "$@" > "$fifo" 2>&1 &
+    local pid=$!
+
+    local consecutive_429=0
+
+    while IFS= read -r line; do
+        echo "$line"
+        if [[ "$line" == *"HTTP Error 429"* ]]; then
+            consecutive_429=$((consecutive_429 + 1))
+            local wait=$((BACKOFF_BASE * consecutive_429))
+            [ "$wait" -gt "$BACKOFF_MAX" ] && wait=$BACKOFF_MAX
+            log_warn "Rate limit hit (#$consecutive_429), suspending for ${wait}s..."
+            kill -STOP "$pid" 2>/dev/null
+            sleep "$wait"
+            kill -CONT "$pid" 2>/dev/null
+            log_info "Resuming download..."
+        else
+            consecutive_429=0
+        fi
+    done < "$fifo"
+
+    wait "$pid"
+}
+
+run_container_with_backoff() {
+    local CMD=("$@")
+
+    check_dependencies
+    setup_directories
+    check_config
+    setup_xauth
+
+    log_info "Starting container..."
+    echo ""
+
+    $CONTAINER_RUNTIME rm -f flickr-download-run 2>/dev/null || true
+
+    # Use -i (no TTY) so stdout can be piped through run_with_backoff
+    local CONTAINER_ARGS=(run -i)
+    build_container_args
+
+    run_with_backoff \
+        $CONTAINER_RUNTIME "${CONTAINER_ARGS[@]}" "$IMAGE_NAME:$IMAGE_TAG" "${CMD[@]}"
+
+    local exit_code=$?
+    cleanup_xauth
+    return $exit_code
 }
 
 # ============================================================================
@@ -615,7 +683,7 @@ cmd_download() {
             --cache "$CACHE_DIR/api_cache" \
             --metadata_store
     else
-        run_container \
+        run_container_with_backoff \
             -t \
             --download_user "$FLICKR_USER" \
             --save_json \
@@ -649,7 +717,7 @@ cmd_download_album() {
             --cache "$CACHE_DIR/api_cache" \
             --metadata_store
     else
-        run_container \
+        run_container_with_backoff \
             -t \
             --download "$ALBUM_ID" \
             --save_json \

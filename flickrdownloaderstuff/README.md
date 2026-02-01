@@ -65,6 +65,28 @@ BROWSER=firefox ./flickr-docker.sh auth
 
 These directories are created next to the script and are **not** removed by `clean`.
 
+## Rate-limit backoff
+
+`flickr_download` has no built-in retry for Flickr API `429 Too Many Requests` responses -- it logs an error, skips the photo, and continues immediately, which keeps hitting the rate limit and skips many photos.
+
+The wrapper detects `HTTP Error 429` in the output and responds by sending `SIGSTOP` to freeze the `flickr_download` process, sleeping with increasing backoff, then sending `SIGCONT` to resume. The backoff resets after any successful (non-429) output line.
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKOFF_BASE` | `60` | Base wait in seconds; multiplied by consecutive 429 count |
+| `BACKOFF_MAX` | `600` | Cap on the wait time |
+
+Example output when a rate limit is hit:
+
+```
+[WARN] Rate limit hit (#1), suspending for 60s...
+[INFO] Resuming download...
+[WARN] Rate limit hit (#2), suspending for 120s...
+[INFO] Resuming download...
+```
+
+This applies to `download` and `album` commands in both in-container and host modes. Interactive commands (`auth`, `shell`, `list`) are not wrapped.
+
 ## Integrated mode (somestuff container)
 
 `flickr_download` and ExifTool are also installed in the main `xomoxcc/somestuff` Docker image. `flickr-docker.sh` auto-detects when it runs inside the container (via `FLICKR_HOME` or container marker files) and calls `flickr_download` directly — no nested container build/run needed.
