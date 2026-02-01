@@ -8,11 +8,12 @@ Docker/Podman wrapper for backing up Flickr photo libraries using [`flickr_downl
 
 `flickr_download` is installed from GitHub (not PyPI) to pick up an unreleased fix ([#166](https://github.com/beaufour/flickr-download/issues/166)) that gracefully skips photos when the requested size is unavailable instead of crashing the entire download.
 
+Photos with an unknown taken date (`"0000-00-00 00:00:00"` from Flickr) crash `dateutil.parser.parse()`. The Dockerfile patches `flickr_download` with `sed` at build time. In integrated mode (where `flickr_download` is pip-installed and the filesystem is read-only) `run_direct()` monkeypatches `set_file_time` at runtime to skip these dates instead.
+
 - Builds an inline Dockerfile based on `python:3.14-slim` with all X11/browser dependencies
 - Handles `xauth` cookie forwarding (supports both X11 and XWayland)
 - Auto-detects Docker or Podman and adjusts runtime flags accordingly
 - Interactive first-run setup prompts for Flickr API key and secret
-
 ## Prerequisites
 
 - Docker or Podman (auto-detected)
