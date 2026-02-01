@@ -545,11 +545,11 @@ run_with_backoff() {
     local consecutive_429=0
 
     while IFS= read -r line; do
-        # Re-colorize Python logging lines (lost TTY due to FIFO)
+        # Re-colorize Python logging level prefix (lost TTY due to FIFO)
         case "$line" in
-            ERROR:*)   echo -e "${RED}${line}${NC}" ;;
-            WARNING:*) echo -e "${YELLOW}${line}${NC}" ;;
-            INFO:*)    echo -e "${BLUE}${line}${NC}" ;;
+            ERROR:*)   echo -e "${RED}[ERROR]${NC}${line#ERROR}" ;;
+            WARNING:*) echo -e "${YELLOW}[WARN]${NC}${line#WARNING}" ;;
+            INFO:*)    echo -e "${BLUE}[INFO]${NC}${line#INFO}" ;;
             *)         echo "$line" ;;
         esac
         if [[ "$line" == *"HTTP Error 429"* ]]; then
