@@ -1,6 +1,9 @@
 # Flickr Download (Docker)
 
+[![Gemini_Generated_Image_d8lx4wd8lx4wd8lx_250x250.png](https://github.com/vroomfondel/somestuff/flickrdownloaderstuff/raw/main/Gemini_Generated_Image_d8lx4wd8lx4wd8lx_250x250.png)](https://github.com/vroomfondel/somestuff/flickrdownloaderstuff)
+
 A Docker image for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download) with browser-based OAuth authentication. Based on `python:3.14-slim`, available for **linux/amd64** and **linux/arm64**. [Source on GitHub](https://github.com/vroomfondel/somestuff/tree/main/flickrdownloaderstuff).
+
 
 ## Why this is useful
 
