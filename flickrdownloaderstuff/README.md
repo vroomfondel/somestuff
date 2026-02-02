@@ -1,5 +1,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/flickr-download?logo=docker)](https://hub.docker.com/r/xomoxcc/flickr-download/tags)
 
+[![Gemini_Generated_Image_d8lx4wd8lx4wd8lx_250x250.png](Gemini_Generated_Image_d8lx4wd8lx4wd8lx_250x250.png)](https://hub.docker.com/r/xomoxcc/flickr-download)
+
 # flickrdownloaderstuff
 
 Docker/Podman wrapper for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download) with browser-based OAuth authentication (X11, domain socket, or D-Bus).
