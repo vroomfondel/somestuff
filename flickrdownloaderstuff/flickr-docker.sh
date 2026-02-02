@@ -407,6 +407,33 @@ build_image() {
     BUILD_DIR=$(mktemp -d)
     trap "rm -rf $BUILD_DIR" EXIT
 
+    # Copy the running script into the build context
+    cp "${BASH_SOURCE[0]}" "$BUILD_DIR/flickr-docker.sh"
+
+    # Write helper scripts into the build context
+    cat > "$BUILD_DIR/flickr-list-albums.py" << 'PYEOF'
+#!/usr/bin/env python3
+import sys, yaml, os
+import flickr_api
+from flickr_api.auth import AuthHandler
+
+config_path = os.path.join(os.environ.get("HOME", os.path.expanduser("~")), ".flickr_download")
+with open(config_path) as f:
+    config = yaml.safe_load(f)
+
+flickr_api.set_keys(api_key=config["api_key"], api_secret=config["api_secret"])
+
+token_path = os.path.join(os.environ.get("HOME", os.path.expanduser("~")), ".flickr_token")
+if os.path.exists(token_path):
+    flickr_api.set_auth_handler(AuthHandler.load(token_path))
+
+user = flickr_api.Person.findByUrl(sys.argv[1])
+for ps in user.getPhotosets():
+    photos = getattr(ps, "photos", "?")
+    videos = getattr(ps, "videos", "?")
+    print(f"{ps.id} - {ps.title} ({photos} photos, {videos} videos)")
+PYEOF
+
     # Write Dockerfile
     cat > "$BUILD_DIR/Dockerfile" << 'DOCKERFILE_END'
 # ============================================================================
@@ -561,8 +588,11 @@ if [ "$1" = "shell" ]; then\n\
         exec /bin/bash "$@"\n\
     fi\n\
 else\n\
-    exec flickr_download "$@"\n\
+    exec /usr/local/bin/flickr-docker.sh "$@"\n\
 fi' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+COPY --chmod=755 flickr-docker.sh /usr/local/bin/flickr-docker.sh
+COPY --chmod=755 flickr-list-albums.py /usr/local/bin/flickr-list-albums.py
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["--help"]
@@ -997,41 +1027,14 @@ cmd_list() {
     log_info "Listing albums for: $FLICKR_USER"
     echo ""
 
-    # Python script that uses flickr_api directly to list albums with photo/video counts.
+    # Uses flickr_api directly to list albums with photo/video counts.
     # flickr_download's --list only prints "id - title"; the Flickr API returns counts
     # in the photosets.getList response but flickr_download ignores them.
     # Using flickr_api directly avoids patching the installed package.
-    local LIST_SCRIPT
-    LIST_SCRIPT=$(cat << 'PYEOF'
-import sys, yaml, os
-import flickr_api
-from flickr_api.auth import AuthHandler
-
-config_path = os.path.join(os.environ.get("HOME", os.path.expanduser("~")), ".flickr_download")
-with open(config_path) as f:
-    config = yaml.safe_load(f)
-
-flickr_api.set_keys(api_key=config["api_key"], api_secret=config["api_secret"])
-
-token_path = os.path.join(os.environ.get("HOME", os.path.expanduser("~")), ".flickr_token")
-if os.path.exists(token_path):
-    flickr_api.set_auth_handler(AuthHandler.load(token_path))
-
-user = flickr_api.Person.findByUrl(sys.argv[1])
-for ps in user.getPhotosets():
-    photos = getattr(ps, "photos", "?")
-    videos = getattr(ps, "videos", "?")
-    print(f"{ps.id} - {ps.title} ({photos} photos, {videos} videos)")
-PYEOF
-    )
-
     if [ "$IN_CONTAINER" = true ]; then
-        env HOME="$CONFIG_DIR" python3 -c "$LIST_SCRIPT" "$FLICKR_USER"
+        env HOME="$CONFIG_DIR" flickr-list-albums.py "$FLICKR_USER"
     else
-        # Base64-encode the script to safely pass it through Docker/shell layers
-        local ENCODED
-        ENCODED=$(echo "$LIST_SCRIPT" | base64 -w0)
-        run_container shell -c "echo $ENCODED | base64 -d | python3 - '$FLICKR_USER'"
+        run_container shell -c "flickr-list-albums.py '$FLICKR_USER'"
     fi
 }
 
