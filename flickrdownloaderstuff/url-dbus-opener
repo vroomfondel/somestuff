@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+[ -z "$1" ] && { echo "Usage: url-dbus-opener <url>" >&2; exit 1; }
+command -v gdbus > /dev/null 2>&1 || { echo "url-dbus-opener: gdbus not found" >&2; exit 1; }
+gdbus call --session \
+    --dest org.freedesktop.portal.Desktop \
+    --object-path /org/freedesktop/portal/desktop \
+    --method org.freedesktop.portal.OpenURI.OpenURI \
+    "" "$1" "{}" > /dev/null 2>&1

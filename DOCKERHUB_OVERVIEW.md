@@ -162,7 +162,7 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 
 
 ### flickrdownloaderstuff
-Docker/Podman wrapper script for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download). Builds an inline container image with Chromium, Firefox ESR, ExifTool, and X11 forwarding so the OAuth browser login works on the host display.
+Docker/Podman wrapper script for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download). Builds a container image with Chromium, Firefox ESR, and ExifTool. Supports three browser modes for OAuth login on Linux: X11 forwarding (default), domain socket (`USE_DSOCKET`), and D-Bus portal (`USE_DBUS`).
 
 - Entrypoint: `flickrdownloaderstuff/flickr-docker.sh`
 - Usage:
@@ -173,8 +173,9 @@ Docker/Podman wrapper script for backing up Flickr photo libraries using [`flick
 ./flickr-docker.sh list <user>        # list albums
 ```
 - Auto-detects Docker or Podman and adjusts runtime flags (Podman uses `--userns=keep-id` for X11 access).
-- Cross-platform: full X11 browser forwarding on Linux; URL-based OAuth flow on Mac/Windows.
+- Cross-platform: X11 forwarding (default), domain socket (`USE_DSOCKET`), or D-Bus portal (`USE_DBUS`) on Linux; URL-based OAuth flow on Mac/Windows.
 - Automatic rate-limit backoff: when Flickr returns `429 Too Many Requests`, the download process is suspended, the script sleeps with increasing backoff (60 s base, 600 s cap), then resumes.
+- Kubernetes deployment: an Ansible playbook (`kubectlstuff_flickr_downloader.yml`) creates per-user Kubernetes Jobs and a `flickr-operator` Deployment that watches for failed Jobs and restarts them after a configurable delay (default 1 hour).
 - Also runs directly inside the main `xomoxcc/somestuff` container (auto-detected via `FLICKR_HOME`), no nested container needed.
 - Usefulness: hands-off Flickr photo library backups with resumable downloads, metadata preservation, and rate-limit handling.
 

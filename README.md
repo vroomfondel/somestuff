@@ -32,6 +32,7 @@ Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh
 - `python314jit`: Python 3.14 base image with JIT support
 - `python314pandasmultiarch`: Python 3.14 base image with pandas (multi‑arch)
 - `nfs-subdir-external-provisioner`: Kubernetes NFS provisioner (external submodule with local overlay)
+- `flickrdownloaderstuff`: Flickr photo backup image with Chromium, Firefox ESR, and ExifTool ([Docker Hub](https://hub.docker.com/r/xomoxcc/flickr-download/tags))
 
 
 ## Getting started
@@ -160,7 +161,7 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 
 
 ### flickrdownloaderstuff
-Docker/Podman wrapper script for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download). Builds an inline container image with Chromium, Firefox ESR, ExifTool, and X11 forwarding so the OAuth browser login works on the host display.
+Docker/Podman wrapper script for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download). Builds a container image (published separately as `xomoxcc/flickr-download`) with Chromium, Firefox ESR, and ExifTool. Supports three browser modes for OAuth login on Linux: X11 forwarding (default), domain socket (`USE_DSOCKET`), and D-Bus portal (`USE_DBUS`).
 
 - Entrypoint: `flickrdownloaderstuff/flickr-docker.sh`
 - Usage:
@@ -177,8 +178,9 @@ make flickrstuffpipe
 docker run --rm xomoxcc/somestuff:latest cat flickrdownloaderstuff/flickr-docker.sh | /bin/bash
 ```
 - Auto-detects Docker or Podman and adjusts runtime flags (Podman uses `--userns=keep-id` for X11 access).
-- Cross-platform: full X11 browser forwarding on Linux; URL-based OAuth flow on Mac/Windows.
+- Cross-platform: X11 forwarding (default), domain socket (`USE_DSOCKET`), or D-Bus portal (`USE_DBUS`) on Linux; URL-based OAuth flow on Mac/Windows.
 - Automatic rate-limit backoff: when Flickr returns `429 Too Many Requests`, the download process is suspended (`SIGSTOP`), the script sleeps with increasing backoff (60 s base, 600 s cap), then resumes (`SIGCONT`).
+- Kubernetes deployment: an Ansible playbook (`kubectlstuff_flickr_downloader.yml`) creates per-user Kubernetes Jobs and a `flickr-operator` Deployment that watches for failed Jobs and restarts them after a configurable delay (default 1 hour).
 - `flickr_download` is installed from GitHub (not PyPI) to include an unreleased fix ([#166](https://github.com/beaufour/flickr-download/issues/166)) that skips photos with unavailable sizes instead of crashing.
 - See `flickrdownloaderstuff/README.md` for details.
 

@@ -48,6 +48,8 @@ fi
 # Rate-limit backoff (seconds); doubles on consecutive 429s, caps at max
 BACKOFF_BASE=60
 BACKOFF_MAX=600
+# When true, exit immediately with code 42 instead of sleeping on rate limits
+BACKOFF_EXIT_ON_429="${BACKOFF_EXIT_ON_429:-false}"
 
 # Container runtime (detected later)
 CONTAINER_RUNTIME=""
@@ -86,8 +88,8 @@ detect_container() {
     if [ -n "$FLICKR_HOME" ]; then
         IN_CONTAINER=true; return
     fi
-    # Fallback: standard container marker files
-    if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ]; then
+    # Fallback: standard container marker files or Kubernetes pod
+    if [ -f "/.dockerenv" ] || [ -f "/run/.containerenv" ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
         IN_CONTAINER=true; return
     fi
 }
@@ -95,7 +97,7 @@ detect_container
 
 # Override paths when running inside the container
 if [ "$IN_CONTAINER" = true ]; then
-    CONFIG_DIR="${FLICKR_HOME:-$HOME/.flickr-config}"
+    CONFIG_DIR="${FLICKR_HOME:-$HOME}"
     WORK_DIR="$HOME/flickr-backup"
     CACHE_DIR="$HOME/flickr-cache"
 fi
@@ -397,208 +399,22 @@ check_config() {
 }
 
 # ============================================================================
-# DOCKERFILE (INLINE)
+# BUILD IMAGE
 # ============================================================================
 
 build_image() {
     log_info "Building Docker image '$IMAGE_NAME:$IMAGE_TAG'..."
 
-    # Temporary build directory
-    BUILD_DIR=$(mktemp -d)
-    trap "rm -rf $BUILD_DIR" EXIT
+    # Resolve the directory containing this script (and the Dockerfile)
+    local SCRIPT_DIR
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    # Copy the running script into the build context
-    cp "${BASH_SOURCE[0]}" "$BUILD_DIR/flickr-docker.sh"
+    if [ ! -f "$SCRIPT_DIR/Dockerfile" ]; then
+        log_error "Dockerfile not found in $SCRIPT_DIR"
+        log_error "The build context (Dockerfile, helper scripts) must be in the same directory as flickr-docker.sh."
+        exit 1
+    fi
 
-    # Write helper scripts into the build context
-    cat > "$BUILD_DIR/flickr-list-albums.py" << 'PYEOF'
-#!/usr/bin/env python3
-import sys, yaml, os
-import flickr_api
-from flickr_api.auth import AuthHandler
-
-config_path = os.path.join(os.environ.get("HOME", os.path.expanduser("~")), ".flickr_download")
-with open(config_path) as f:
-    config = yaml.safe_load(f)
-
-flickr_api.set_keys(api_key=config["api_key"], api_secret=config["api_secret"])
-
-token_path = os.path.join(os.environ.get("HOME", os.path.expanduser("~")), ".flickr_token")
-if os.path.exists(token_path):
-    flickr_api.set_auth_handler(AuthHandler.load(token_path))
-
-user = flickr_api.Person.findByUrl(sys.argv[1])
-for ps in user.getPhotosets():
-    photos = getattr(ps, "photos", "?")
-    videos = getattr(ps, "videos", "?")
-    print(f"{ps.id} - {ps.title} ({photos} photos, {videos} videos)")
-PYEOF
-
-    # Write Dockerfile
-    cat > "$BUILD_DIR/Dockerfile" << 'DOCKERFILE_END'
-# ============================================================================
-# Flickr Download Docker Image
-# With Firefox and X11 support for OAuth authentication
-# Compatible with Docker and Podman
-# ============================================================================
-
-FROM python:3.14-slim
-
-LABEL maintainer="Flickr Backup Script"
-LABEL description="Flickr Download with browser support for OAuth"
-
-# Install system packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # ExifTool for metadata
-    libimage-exiftool-perl \
-    # Browsers (both for flexibility)
-    chromium \
-    firefox-esr \
-    # xdg-utils for xdg-open
-    xdg-utils \
-    # X11 libraries
-    libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
-    libxss1 \
-    libxtst6 \
-    libgtk-3-0 \
-    libdbus-glib-1-2 \
-    libdbus-1-3 \
-    dbus \
-    libxt6 \
-    libnss3 \
-    libnspr4 \
-    libasound2t64 \
-    # Fonts
-    fonts-liberation \
-    fonts-dejavu-core \
-    # D-Bus (gdbus for XDG Desktop Portal browser opening)
-    libglib2.0-bin \
-    # Tools
-    bash \
-    procps \
-    ca-certificates \
-    git \
-    # Clean up
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# Browser name symlinks ($BROWSER compatibility)
-# chrome/google-chrome -> chromium
-# firefox stays firefox-esr
-RUN ln -sf /usr/bin/chromium /usr/bin/chrome && \
-    ln -sf /usr/bin/chromium /usr/bin/google-chrome && \
-    ln -sf /usr/bin/firefox-esr /usr/bin/firefox
-
-# url-opener: forwards browser-open requests to the host via a Unix socket.
-# Used by USE_DSOCKET mode; installed unconditionally (mode is selected at runtime).
-RUN printf '#!/usr/bin/env python3\n\
-import socket, sys\n\
-\n\
-SOCK_PATH = "/tmp/open-url.sock"\n\
-\n\
-if len(sys.argv) < 2:\n\
-    print("Usage: url-opener <url>", file=sys.stderr)\n\
-    sys.exit(1)\n\
-\n\
-url = sys.argv[1]\n\
-\n\
-try:\n\
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n\
-    s.connect(SOCK_PATH)\n\
-    s.sendall(url.encode() + b"\\n")\n\
-    reply = s.recv(64).decode().strip()\n\
-    if reply == "OK":\n\
-        sys.exit(0)\n\
-    else:\n\
-        print(f"url-opener: unexpected reply: {reply}", file=sys.stderr)\n\
-        sys.exit(1)\n\
-except FileNotFoundError:\n\
-    print(f"url-opener: socket not found: {SOCK_PATH}", file=sys.stderr)\n\
-    print("Is the host-side dsocket listener running?", file=sys.stderr)\n\
-    sys.exit(1)\n\
-except ConnectionRefusedError:\n\
-    print(f"url-opener: connection refused: {SOCK_PATH}", file=sys.stderr)\n\
-    sys.exit(1)\n\
-' > /usr/local/bin/url-opener && chmod +x /usr/local/bin/url-opener
-
-# url-dbus-opener: opens a URL on the host via the XDG Desktop Portal over D-Bus.
-# Used by USE_DBUS mode; installed unconditionally (mode is selected at runtime).
-RUN printf '#!/bin/bash\n\
-set -e\n\
-[ -z "$1" ] && { echo "Usage: url-dbus-opener <url>" >&2; exit 1; }\n\
-command -v gdbus > /dev/null 2>&1 || { echo "url-dbus-opener: gdbus not found" >&2; exit 1; }\n\
-gdbus call --session \\\n\
-    --dest org.freedesktop.portal.Desktop \\\n\
-    --object-path /org/freedesktop/portal/desktop \\\n\
-    --method org.freedesktop.portal.OpenURI.OpenURI \\\n\
-    "" "$1" "{}" > /dev/null 2>&1\n\
-' > /usr/local/bin/url-dbus-opener && chmod +x /usr/local/bin/url-dbus-opener
-
-# Python packages
-RUN pip install --no-cache-dir \
-    git+https://github.com/beaufour/flickr-download.git \
-    PyYAML
-
-# Patch: flickr_download crashes on photos with unknown "taken" date
-# (Flickr returns "0000-00-00 00:00:00" which dateutil cannot parse)
-RUN UTILS_PATH=$(python3 -c "from importlib.util import find_spec; print(find_spec('flickr_download.utils').origin)") && \
-    sed -i '/taken = parser.parse(taken_str)/i\    if not taken_str or taken_str.startswith("0000"):\n        return' "$UTILS_PATH"
-
-# Working directory
-WORKDIR /data
-
-# Cache directory
-RUN mkdir -p /cache && chmod 777 /cache
-
-# Home directory for Podman (keep-id) - must be writable by all users
-RUN mkdir -p /home/poduser && chmod 777 /home/poduser
-
-# Mozilla directory for Firefox profile (both homes)
-RUN mkdir -p /root/.mozilla /home/poduser/.mozilla && \
-    chmod -R 777 /root/.mozilla /home/poduser/.mozilla
-
-# Environment variables
-ENV PYTHONUNBUFFERED=1
-ENV HOME=/root
-
-# Entrypoint script with improved shell support
-RUN echo '#!/bin/bash\n\
-# Ensure HOME directory exists and is writable\n\
-if [ ! -d "$HOME" ]; then\n\
-    mkdir -p "$HOME" 2>/dev/null || true\n\
-fi\n\
-# Mozilla directory for Firefox\n\
-mkdir -p "$HOME/.mozilla" 2>/dev/null || true\n\
-\n\
-if [ "$1" = "shell" ]; then\n\
-    shift\n\
-    if [ $# -eq 0 ]; then\n\
-        exec /bin/bash\n\
-    else\n\
-        exec /bin/bash "$@"\n\
-    fi\n\
-else\n\
-    exec /usr/local/bin/flickr-docker.sh "$@"\n\
-fi' > /entrypoint.sh && chmod +x /entrypoint.sh
-
-COPY --chmod=755 flickr-docker.sh /usr/local/bin/flickr-docker.sh
-COPY --chmod=755 flickr-list-albums.py /usr/local/bin/flickr-list-albums.py
-
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--help"]
-DOCKERFILE_END
-
-    # Build image
     # Detect container runtime
     local runtime="docker"
     if command -v podman &> /dev/null && podman info &> /dev/null 2>&1; then
@@ -608,7 +424,7 @@ DOCKERFILE_END
         log_info "Using Docker for build"
     fi
 
-    $runtime build -t "$IMAGE_NAME:$IMAGE_TAG" "$BUILD_DIR"
+    $runtime build -t "$IMAGE_NAME:$IMAGE_TAG" "$SCRIPT_DIR"
 
     log_success "Image built successfully ($runtime)"
 }
@@ -656,8 +472,6 @@ build_container_args() {
     CONTAINER_ARGS+=(
         --rm
         --name flickr-download-run
-        -v "$WORK_DIR:/data"
-        -v "$CACHE_DIR:/cache"
     )
 
     # Network configuration per OS
@@ -713,12 +527,16 @@ build_container_args() {
         # flickr_download looks for .flickr_download in $HOME
         CONTAINER_ARGS+=(
             -v "$CONFIG_DIR:/home/poduser"
+            -v "$WORK_DIR:/home/poduser/flickr-backup"
+            -v "$CACHE_DIR:/home/poduser/flickr-cache"
             -e "HOME=/home/poduser"
         )
     else
         # Docker (all OS) or Podman on Mac: user is root, HOME=/root
         CONTAINER_ARGS+=(
             -v "$CONFIG_DIR:/root"
+            -v "$WORK_DIR:/root/flickr-backup"
+            -v "$CACHE_DIR:/root/flickr-cache"
             -e "HOME=/root"
         )
     fi
@@ -780,16 +598,7 @@ run_direct() {
     check_config
     log_info "Running flickr_download directly (in-container mode)..."
     echo ""
-    run_with_backoff env HOME="$CONFIG_DIR" python3 -c "
-import flickr_download.utils as _u
-_orig = _u.set_file_time
-def _safe(f, t):
-    if not t or t.startswith('0000'):
-        return
-    _orig(f, t)
-_u.set_file_time = _safe
-from flickr_download.flick_download import main; main()
-" "$@"
+    run_with_backoff env HOME="$CONFIG_DIR" flickr-download-wrapper.py "$@"
 }
 
 run_with_backoff() {
@@ -813,6 +622,12 @@ run_with_backoff() {
             *)         echo "$line" ;;
         esac
         if [[ "$line" == *"HTTP Error 429"* ]]; then
+            if [ "$BACKOFF_EXIT_ON_429" = "true" ]; then
+                log_error "Rate limit hit — exiting (BACKOFF_EXIT_ON_429=true)"
+                kill "$pid" 2>/dev/null
+                wait "$pid" 2>/dev/null || true
+                return 42
+            fi
             consecutive_429=$((consecutive_429 + 1))
             local wait=$((BACKOFF_BASE * consecutive_429))
             [ "$wait" -gt "$BACKOFF_MAX" ] && wait=$BACKOFF_MAX
@@ -920,7 +735,7 @@ cmd_auth() {
         fi
         echo "Please log in to Flickr and authorize the app."
         echo ""
-        run_container -t
+        run_container auth
     fi
 
     if is_token_valid "$CONFIG_DIR/.flickr_token"; then
@@ -968,12 +783,7 @@ cmd_download() {
             --cache "$CACHE_DIR/api_cache" \
             --metadata_store
     else
-        run_container_with_backoff \
-            -t \
-            --download_user "$FLICKR_USER" \
-            --save_json \
-            --cache /cache/api_cache \
-            --metadata_store
+        run_container download "$USERNAME"
     fi
 
     log_success "Download complete!"
@@ -1002,12 +812,7 @@ cmd_download_album() {
             --cache "$CACHE_DIR/api_cache" \
             --metadata_store
     else
-        run_container_with_backoff \
-            -t \
-            --download "$ALBUM_ID" \
-            --save_json \
-            --cache /cache/api_cache \
-            --metadata_store
+        run_container album "$ALBUM_ID"
     fi
 }
 
@@ -1582,6 +1387,13 @@ ENVIRONMENT VARIABLES:
                             Note: Podman recommended (Docker may fail D-Bus
                             auth due to UID mismatch with SO_PEERCRED).
                             Example: USE_DBUS=true ./flickr-docker.sh auth
+
+  BACKOFF_EXIT_ON_429       Set to "true" to exit immediately (code 42)
+                            on HTTP 429 instead of sleeping and retrying.
+                            Useful for CI or scripted batch runs where an
+                            external scheduler handles retries.
+                            Default: false (backoff and retry)
+                            Example: BACKOFF_EXIT_ON_429=true ./flickr-docker.sh download user
 
 PODMAN NOTES (Linux only):
 
