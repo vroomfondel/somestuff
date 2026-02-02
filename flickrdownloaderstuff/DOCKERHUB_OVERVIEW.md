@@ -49,6 +49,20 @@ docker run --rm -it \
   xomoxcc/flickr-download:latest download <user>
 ```
 
+## Commands
+
+| Command | Description |
+|---|---|
+| `build` | Build Docker image locally |
+| `auth` | Authenticate with Flickr (opens browser for OAuth) |
+| `download <username>` | Download all albums for a Flickr user |
+| `album <album-id>` | Download a single album by ID |
+| `list <username>` | List albums with photo/video counts |
+| `shell` | Open interactive shell in the container |
+| `test-browser [url]` | Test X11/browser connectivity (Linux only) |
+| `info` | Show paths, tool versions, and diagnostics |
+| `clean` | Remove Docker image and temp files |
+
 ## Browser modes
 
 The OAuth flow needs a browser. Three modes are supported on Linux; Mac/Windows print the URL for manual opening.
