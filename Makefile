@@ -109,7 +109,8 @@ update-all-dockerhub-readmes:
 	  "python314jit:xomoxcc/python314-jit" \
 	  "python314pandasmultiarch:xomoxcc/pythonpandasmultiarch" \
 	  "mosquitto-2.1:xomoxcc/mosquitto" \
-	  "tangstuff:xomoxcc/tang"; do \
+	  "tangstuff:xomoxcc/tang" \
+	  "flickrdownloaderstuff:xomoxcc/flickr-download"; do \
 	  DIR=$$(echo "$$mapping" | cut -d: -f1) && \
 	  REPO=$$(echo "$$mapping" | cut -d: -f2) && \
 	  FILE="$$DIR/DOCKERHUB_OVERVIEW.md" && \

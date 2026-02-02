@@ -1,3 +1,5 @@
+[![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/flickr-download?logo=docker)](https://hub.docker.com/r/xomoxcc/flickr-download/tags)
+
 # Flickr Download (Docker)
 
 A Docker image for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download) with browser-based OAuth authentication. Based on `python:3.14-slim`, available for **linux/amd64** and **linux/arm64**.
