@@ -1,5 +1,3 @@
-[![Docker Pulls](https://img.shields.io/docker/pulls/xomoxcc/flickr-download?logo=docker)](https://hub.docker.com/r/xomoxcc/flickr-download/tags)
-
 # Flickr Download (Docker)
 
 A Docker image for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download) with browser-based OAuth authentication. Based on `python:3.14-slim`, available for **linux/amd64** and **linux/arm64**.
@@ -21,8 +19,8 @@ A Docker image for backing up Flickr photo libraries using [`flickr_download`](h
 | `flickr-docker.sh` | `/usr/local/bin/flickr-docker.sh` | Main wrapper script (download, auth, album management) |
 | `flickr-download-wrapper.py` | `/usr/local/bin/flickr-download-wrapper.py` | Rate-limit backoff wrapper around `flickr_download` |
 | `flickr-list-albums.py` | `/usr/local/bin/flickr-list-albums.py` | Album listing with photo/video counts |
-| `url-opener` | `/usr/local/bin/url-opener` | Forwards browser-open requests to the host via a Unix socket |
-| `url-dbus-opener` | `/usr/local/bin/url-dbus-opener` | Opens a URL on the host via XDG Desktop Portal D-Bus |
+| `url-opener` | `/usr/local/bin/url-opener` | Forwards browser-open requests to the host via a Unix socket (`USE_DSOCKET` mode) |
+| `url-dbus-opener` | `/usr/local/bin/url-dbus-opener` | Opens a URL on the host via XDG Desktop Portal D-Bus (`USE_DBUS` mode) |
 | `entrypoint.sh` | `/entrypoint.sh` | Container entrypoint; routes `shell` to bash, everything else to `flickr-docker.sh` |
 
 ### Installed packages
@@ -55,9 +53,9 @@ docker run --rm -it \
 |---|---|
 | `build` | Build Docker image locally |
 | `auth` | Authenticate with Flickr (opens browser for OAuth) |
-| `download <username>` | Download all albums for a Flickr user |
-| `album <album-id>` | Download a single album by ID |
-| `list <username>` | List albums with photo/video counts |
+| `download <user>` | Download all albums for a Flickr user |
+| `album <id>` | Download a single album by ID |
+| `list <user>` | List albums with photo/video counts |
 | `shell` | Open interactive shell in the container |
 | `test-browser [url]` | Test X11/browser connectivity (Linux only) |
 | `info` | Show paths, tool versions, and diagnostics |
@@ -69,9 +67,9 @@ The OAuth flow needs a browser. Three modes are supported on Linux; Mac/Windows 
 
 | Mode | Env var | How it works |
 |---|---|---|
-| X11 (default) | — | Forwards X11 display into the container; browser renders on the host |
-| Domain socket | `USE_DSOCKET=true` | Host-side Python listener on a Unix socket; container sends the URL, host opens it with `xdg-open` |
-| D-Bus portal | `USE_DBUS=true` | Mounts the host D-Bus session socket; container calls XDG Desktop Portal `OpenURI` via `gdbus` |
+| X11 (default on Linux) | — | Forwards X11 display into the container; browser opens inside the container and renders on the host |
+| Domain socket | `USE_DSOCKET=true` | Host-side Python listener on a Unix socket; container sends the URL, host opens it with `xdg-open`. No X11 needed |
+| D-Bus portal | `USE_DBUS=true` | Mounts the host D-Bus session socket; container calls XDG Desktop Portal `OpenURI` via `gdbus`. Podman recommended (Docker may fail D-Bus auth due to UID mismatch) |
 
 The modes are mutually exclusive.
 
@@ -119,15 +117,15 @@ podman run --rm -it --userns=keep-id \
   -v "$(pwd)/flickr-config:/home/poduser" \
   -v "$(pwd)/flickr-backup:/home/poduser/flickr-backup" \
   -v "$(pwd)/flickr-cache:/home/poduser/flickr-cache" \
-  docker.io/xomoxcc/flickr-download:latest list <username>
+  docker.io/xomoxcc/flickr-download:latest list <user>
 ```
 
 ## Data directories
 
 | Directory | Contents |
 |---|---|
-| `flickr-config/` | API credentials (`.flickr_download`) and OAuth token (`.flickr_token`) |
 | `flickr-backup/` | Downloaded photos and JSON metadata |
+| `flickr-config/` | API credentials (`.flickr_download`) and OAuth token (`.flickr_token`) |
 | `flickr-cache/` | API response cache for resumable downloads |
 
 ## Build from source
