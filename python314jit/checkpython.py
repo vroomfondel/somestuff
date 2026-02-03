@@ -6,7 +6,7 @@ import time
 print(f"Python Version: {sys.version}")
 
 
-def info_test():
+def info_test() -> None:
     # 1. Prüfen ob GIL aktiv ist
     # Ab Python 3.13 gibt es _is_gil_enabled()
     try:
@@ -35,7 +35,7 @@ def info_test():
     # print(f"JIT Support:    {'Möglich' if has_jit else 'Unwahrscheinlich'}")
 
 
-def deep_jit_test():
+def deep_jit_test() -> None:
 
     print(f"--- Python JIT Diagnose für {sys.version.split()[0]} ---")
 
@@ -79,7 +79,7 @@ def deep_jit_test():
         return
 
     # Eine Funktion, die wir oft aufrufen, um den JIT zu triggern
-    def hot_function(n):
+    def hot_function(n: int) -> int:
         res = 0
         for i in range(n):
             res += i

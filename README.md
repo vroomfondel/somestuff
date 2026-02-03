@@ -57,6 +57,16 @@ pytest -q
 mypy .
 ```
 
+Secret scanning with [gitleaks](https://github.com/gitleaks/gitleaks):
+- Gitleaks runs as a pre‑commit hook (see `.pre-commit-config.yaml`) and catches secrets before they are committed.
+- The repo‑level `.gitleaks.toml` extends the default ruleset (`[extend] useDefault = true`) and allowlists paths that are expected to contain local‑only or generated content (`.venv`, `.mypy_cache`, `.idea`, `__pycache__`, `*local*` files, `docker-config`).
+- To scan the entire repo on demand:
+```
+make gitleaks
+# or directly:
+gitleaks dir . -v
+```
+
 
 ## Modules and their usefulness
 

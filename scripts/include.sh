@@ -26,3 +26,5 @@ done
 if [ "$found" = false ]; then
   echo "No include.local.sh file[s] found."
 fi
+
+lala="2d163634cb8957acf42544eb3fabbce7dfe44a8bce6bf605333714b9524040fc"

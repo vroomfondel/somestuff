@@ -1,4 +1,4 @@
-.PHONY: tests help install venv lint dstart isort tcheck build build-nfs update-all-dockerhub-readmes commit-checks prepare flickrstuffpipe %
+.PHONY: tests help install venv lint dstart isort tcheck gitleaks build build-nfs update-all-dockerhub-readmes commit-checks prepare flickrstuffpipe %
 SHELL := /usr/bin/bash
 .ONESHELL:
 
@@ -8,6 +8,7 @@ help:
 	@printf "\nisort\n\tmake isort import corrections\n"
 	@printf "\nlint\n\tmake linter check with black\n"
 	@printf "\ntcheck\n\tmake static type checks with mypy\n"
+	@printf "\ngitleaks\n\tscan for hardcoded secrets with gitleaks\n"
 	@printf "\ntests\n\tLaunch tests\n"
 	@printf "\nprepare\n\tLaunch tests and commit-checks\n"
 	@printf "\ncommit-checks\n\trun pre-commit checks on all files\n"
@@ -44,7 +45,7 @@ tests: venv
 
 lint: venv
 	@$(venv_activated)
-	black -l 120 --extend-exclude nfs-subdir-external-provisioner .
+	black -l 120 --extend-exclude nfs-subdir-external-provisioner $(ARGS) .
 
 dstart:
 	# map config.local.yaml, gcal credentials, kubeconfig, ssh keys, and flickr config/data into container
@@ -83,7 +84,13 @@ isort: venv
 
 tcheck: venv
 	@$(venv_activated)
-	mypy *.py ecowittstuff/*.py llmstuff/*.py dnsstuff/*.py netatmostuff/*.py hydromailstuff/*.py k3shelperstuff/*.py gcalstuff/*.py
+	# mypy *.py ecowittstuff/*.py llmstuff/*.py dnsstuff/*.py netatmostuff/*.py hydromailstuff/*.py k3shelperstuff/*.py gcalstuff/*.py
+	mypy .
+
+gitleaks: venv .git/hooks/pre-commit
+	@$(venv_activated)
+	pre-commit run gitleaks --all-files
+	# gitleaks dir . -v
 
 build: venv
 	git submodule update --remote

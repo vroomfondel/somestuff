@@ -100,6 +100,8 @@ COPY --chmod=755 url-dbus-opener /usr/local/bin/url-dbus-opener
 COPY --chmod=755 flickr-docker.sh /usr/local/bin/flickr-docker.sh
 COPY --chmod=755 flickr-list-albums.py /usr/local/bin/flickr-list-albums.py
 COPY --chmod=755 flickr-download-wrapper.py /usr/local/bin/flickr-download-wrapper.py
+COPY --chmod=755 upload-to-immich.sh /usr/local/bin/upload-to-immich.sh
+COPY --chmod=755 immich-uploader-wrapped.py /usr/local/bin/immich-uploader-wrapped.py
 
 # Entrypoint script with improved shell support
 COPY --chmod=755 entrypoint.sh /entrypoint.sh

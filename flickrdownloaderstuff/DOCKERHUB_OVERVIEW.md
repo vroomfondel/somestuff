@@ -24,7 +24,7 @@ A Docker image for backing up Flickr photo libraries using [`flickr_download`](h
 | `flickr-list-albums.py` | `/usr/local/bin/flickr-list-albums.py` | Album listing with photo/video counts |
 | `url-opener` | `/usr/local/bin/url-opener` | Forwards browser-open requests to the host via a Unix socket (`USE_DSOCKET` mode) |
 | `url-dbus-opener` | `/usr/local/bin/url-dbus-opener` | Opens a URL on the host via XDG Desktop Portal D-Bus (`USE_DBUS` mode) |
-| `entrypoint.sh` | `/entrypoint.sh` | Container entrypoint; routes `shell` to bash, everything else to `flickr-docker.sh` |
+| `entrypoint.sh` | `/entrypoint.sh` | Container entrypoint; routes `shell` to bash, `download_then_upload` to download-then-Immich-upload, everything else to `flickr-docker.sh` |
 
 ### Installed packages
 
@@ -63,6 +63,7 @@ docker run --rm -it \
 | `test-browser [url]` | Test X11/browser connectivity (Linux only) |
 | `info` | Show paths, tool versions, and diagnostics |
 | `clean` | Remove Docker image and temp files |
+| `download_then_upload <user>` | Download all albums, then upload to Immich (requires `DATA_DIR`, `IMMICH_API_KEY`, `IMMICH_INSTANCE_URL`) |
 
 ## Browser modes
 
@@ -94,7 +95,7 @@ The modes are mutually exclusive.
 
 ## Immich upload
 
-`upload.sh` uploads downloaded photos and videos to an [Immich](https://immich.app/) instance, creating one Immich album per Flickr album directory. It uses `@immich/cli` (installed at runtime via npm).
+`upload-to-immich.sh` uploads downloaded photos and videos to an [Immich](https://immich.app/) instance, creating one Immich album per Flickr album directory. It uses `@immich/cli` (installed at runtime via npm).
 
 When running inside a container (`/.dockerenv`, `/run/.containerenv`, or `KUBERNETES_SERVICE_HOST` detected), the script runs `@immich/cli` directly. On the host it spins up a `node:lts-alpine` Podman container with the photo directory mounted read-only.
 
@@ -105,7 +106,7 @@ When running inside a container (`/.dockerenv`, `/run/.containerenv`, or `KUBERN
 | `DATA_DIR` | `$(pwd)/flickr-backup` (in-container) / `/data` (podman) | Directory containing album subdirectories |
 
 ```bash
-IMMICH_INSTANCE_URL=https://immich.example.com IMMICH_API_KEY=secret ./upload.sh
+IMMICH_INSTANCE_URL=https://immich.example.com IMMICH_API_KEY=secret ./upload-to-immich.sh
 ```
 
 Supported file types: `.jpg`, `.png`, `.mp4`.

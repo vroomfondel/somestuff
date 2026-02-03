@@ -91,7 +91,7 @@ Scripts copied into the container image at build time:
 | `flickr-list-albums.py` | `/usr/local/bin/flickr-list-albums.py` | Album listing with photo/video counts |
 | `url-opener` | `/usr/local/bin/url-opener` | Forwards browser-open requests to the host via a Unix socket (`USE_DSOCKET` mode) |
 | `url-dbus-opener` | `/usr/local/bin/url-dbus-opener` | Opens a URL on the host via XDG Desktop Portal D-Bus (`USE_DBUS` mode) |
-| `entrypoint.sh` | `/entrypoint.sh` | Container entrypoint; routes `shell` to bash, everything else to `flickr-docker.sh` |
+| `entrypoint.sh` | `/entrypoint.sh` | Container entrypoint; routes `shell` to bash, `download_then_upload` to download-then-Immich-upload, everything else to `flickr-docker.sh` |
 
 ## Data directories
 
@@ -187,7 +187,7 @@ Directory mapping (`make dstart`, only mounted when the host directory exists):
 
 ## Immich upload
 
-`upload.sh` uploads downloaded Flickr photos and videos to an [Immich](https://immich.app/) instance, creating one Immich album per Flickr album directory. It uses `@immich/cli` (installed at runtime via npm).
+`upload-to-immich.sh` uploads downloaded Flickr photos and videos to an [Immich](https://immich.app/) instance, creating one Immich album per Flickr album directory. It uses `@immich/cli` (installed at runtime via npm).
 
 **Container detection** uses the same markers as `flickr-docker.sh` (`/.dockerenv`, `/run/.containerenv`, `KUBERNETES_SERVICE_HOST`). When running inside a container, the script executes `@immich/cli` directly. On the host it spins up a `node:lts-alpine` Podman container with the photo directory mounted read-only.
 
@@ -202,17 +202,32 @@ Directory mapping (`make dstart`, only mounted when the host directory exists):
 **Usage — host mode** (launches a Podman container automatically):
 
 ```bash
-IMMICH_INSTANCE_URL=https://immich.example.com IMMICH_API_KEY=secret ./upload.sh
+IMMICH_INSTANCE_URL=https://immich.example.com IMMICH_API_KEY=secret ./upload-to-immich.sh
 ```
 
 **Usage — inside a container** (e.g. via `make dstart`):
 
 ```bash
 IMMICH_INSTANCE_URL=https://immich.example.com IMMICH_API_KEY=secret \
-  /app/flickrdownloaderstuff/upload.sh
+  /app/flickrdownloaderstuff/upload-to-immich.sh
 ```
 
-Supported file types: `.jpg`, `.png`, `.mp4`.
+### Combined download + upload (`download_then_upload`)
+
+The container entrypoint supports a `download_then_upload` command that runs a Flickr download followed by an Immich upload in a single invocation. It requires `DATA_DIR`, `IMMICH_API_KEY`, and `IMMICH_INSTANCE_URL` to be set — the entrypoint exits immediately if any is missing.
+
+```bash
+docker run --rm \
+  -e DATA_DIR=/root/flickr-backup \
+  -e IMMICH_INSTANCE_URL=https://immich.example.com \
+  -e IMMICH_API_KEY=secret \
+  -v "$(pwd)/flickr-config:/root" \
+  -v "$(pwd)/flickr-backup:/root/flickr-backup" \
+  -v "$(pwd)/flickr-cache:/root/flickr-cache" \
+  xomoxcc/flickr-download:latest download_then_upload <user>
+```
+
+The exit code is the higher of the download and upload exit codes.
 
 ## Podman notes
 
