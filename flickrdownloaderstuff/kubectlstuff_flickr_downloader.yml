@@ -22,6 +22,9 @@
 #     flickr_download_image: "localhost/flickr-download:latest"
 #     flickr_operator_check_interval: 60
 #     flickr_operator_restart_delay: 3600
+#     flickr_data_dir: "/home/poduser/flickr-backup"
+#     flickr_immich_api_key: "LALAL_SECRET_LALALA"
+#     flickr_immich_instance_url: "https://immich.immich.svc.cluster.local"
 
 - name: Create privateregcred secret in flickr-downloader namespace
   kubernetes.core.k8s:
@@ -36,7 +39,7 @@
       data:
         .dockerconfigjson: "{{ flickr_dockerconfigjson }}"
 
-- name: Delete orphaned flickr-downloader-{{ flickr_user }} pods
+- name: Delete orphaned flickr-downloader-{{ flickr_user | default('***') }} pods
   kubernetes.core.k8s:
     state: absent
     api_version: v1
@@ -48,7 +51,7 @@
   loop_control:
     loop_var: flickr_user
 
-- name: Delete previous flickr-downloader-{{ flickr_user }} job
+- name: Delete previous flickr-downloader-{{ flickr_user | default('***') }} job
   kubernetes.core.k8s:
     state: absent
     api_version: batch/v1
@@ -59,7 +62,7 @@
   loop_control:
     loop_var: flickr_user
 
-- name: Create flickr-downloader-{{ flickr_user }} job
+- name: Create flickr-downloader-{{ flickr_user | default('***') }} job
   kubernetes.core.k8s:
     state: present
     definition:
@@ -84,8 +87,15 @@
                 image: "{{ flickr_download_image }}"
                 imagePullPolicy: Always
                 # command: ["tail", "-f", "/dev/null"]
-                command: ["/entrypoint.sh", "download", "{{ flickr_user }}"]
+                # command: ["/entrypoint.sh", "download", "{{ flickr_user }}"]
+                command: ["/entrypoint.sh", "download_then_upload", "{{ flickr_user }}"]
                 env:
+                  - name: DATA_DIR
+                    value: "/home/poduser/flickr-backup"
+                  - name: IMMICH_API_KEY
+                    value: "{{ flickr_immich_api_key }}"
+                  - name: IMMICH_INSTANCE_URL
+                    value: "{{ flickr_immich_instance_url }}"
                   - name: BACKOFF_EXIT_ON_429
                     value: "true"
                   - name: HOME
@@ -218,6 +228,8 @@
                     value: "{{ flickr_operator_check_interval | string }}"
                   - name: RESTART_DELAY
                     value: "{{ flickr_operator_restart_delay | string }}"
+                  - name: SKIP_DELAY_ON_OOM
+                    value: "true"
                 resources:
                   requests:
                     cpu: 50m

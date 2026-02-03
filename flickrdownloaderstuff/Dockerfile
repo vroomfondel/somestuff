@@ -91,7 +91,6 @@ ENV HOME=/root
 # url-opener: forwards browser-open requests to the host via a Unix socket.
 # Used by USE_DSOCKET mode; installed unconditionally (mode is selected at runtime).
 COPY --chmod=755 url-opener /usr/local/bin/url-opener
-COPY --chmod=755 upload.sh /usr/local/bin/upload
 
 # url-dbus-opener: opens a URL on the host via the XDG Desktop Portal over D-Bus.
 # Used by USE_DBUS mode; installed unconditionally (mode is selected at runtime).
