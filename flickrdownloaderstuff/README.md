@@ -89,6 +89,8 @@ Scripts copied into the container image at build time:
 | `flickr-docker.sh` | `/usr/local/bin/flickr-docker.sh` | Main wrapper script (download, auth, album management) |
 | `flickr-download-wrapper.py` | `/usr/local/bin/flickr-download-wrapper.py` | Rate-limit backoff wrapper around `flickr_download` |
 | `flickr-list-albums.py` | `/usr/local/bin/flickr-list-albums.py` | Album listing with photo/video counts |
+| `upload-to-immich.sh` | `/usr/local/bin/upload-to-immich.sh` | Uploads downloaded photos/videos to Immich, one album per directory |
+| `immich-uploader-wrapped.py` | `/usr/local/bin/immich-uploader-wrapped.py` | Batched Immich uploader with streaming output |
 | `url-opener` | `/usr/local/bin/url-opener` | Forwards browser-open requests to the host via a Unix socket (`USE_DSOCKET` mode) |
 | `url-dbus-opener` | `/usr/local/bin/url-dbus-opener` | Opens a URL on the host via XDG Desktop Portal D-Bus (`USE_DBUS` mode) |
 | `entrypoint.sh` | `/entrypoint.sh` | Container entrypoint; routes `shell` to bash, `download_then_upload` to download-then-Immich-upload, everything else to `flickr-docker.sh` |
@@ -163,8 +165,8 @@ Directory mapping (`make dstart`, only mounted when the host directory exists):
 **What it creates:**
 
 - A `flickr-downloader` namespace
-- One Kubernetes `Job` per user (`flickr-downloader-<user>`), each running the container image with `BACKOFF_EXIT_ON_429=true` so the Job exits on rate limits instead of sleeping
-- A `flickr-operator` Deployment that watches those Jobs; after a configurable delay (default 1 hour) it deletes and recreates failed Jobs
+- One Kubernetes `Job` per user (`flickr-downloader-<user>`), each running `download_then_upload` (Flickr download followed by Immich upload) with `BACKOFF_EXIT_ON_429=true` so the Job exits on rate limits instead of sleeping
+- A `flickr-operator` Deployment that watches those Jobs; after a configurable delay (default 1 hour) it deletes and recreates failed Jobs. OOM-killed Jobs are restarted immediately (`SKIP_DELAY_ON_OOM=true`)
 
 **Ansible variables** (defined in `roles/kubectlstuff/defaults/main.yml`):
 
@@ -174,6 +176,9 @@ Directory mapping (`make dstart`, only mounted when the host directory exists):
 | `flickr_host_path_prefix` | Base path on the host for per-user config/backup/cache directories |
 | `flickr_download_image` | Container image to use for download Jobs |
 | `flickr_dockerconfigjson` | Base64-encoded Docker registry credentials |
+| `flickr_data_dir` | Data directory inside the container for Immich upload (default `/home/poduser/flickr-backup`) |
+| `flickr_immich_api_key` | Immich API key passed to download Jobs |
+| `flickr_immich_instance_url` | Immich server URL passed to download Jobs |
 | `flickr_operator_check_interval` | Seconds between operator check loops (default `60`) |
 | `flickr_operator_restart_delay` | Seconds to wait after a Job fails before restarting it (default `3600`) |
 

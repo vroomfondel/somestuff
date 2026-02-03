@@ -22,6 +22,8 @@ A Docker image for backing up Flickr photo libraries using [`flickr_download`](h
 | `flickr-docker.sh` | `/usr/local/bin/flickr-docker.sh` | Main wrapper script (download, auth, album management) |
 | `flickr-download-wrapper.py` | `/usr/local/bin/flickr-download-wrapper.py` | Rate-limit backoff wrapper around `flickr_download` |
 | `flickr-list-albums.py` | `/usr/local/bin/flickr-list-albums.py` | Album listing with photo/video counts |
+| `upload-to-immich.sh` | `/usr/local/bin/upload-to-immich.sh` | Uploads downloaded photos/videos to Immich, one album per directory |
+| `immich-uploader-wrapped.py` | `/usr/local/bin/immich-uploader-wrapped.py` | Batched Immich uploader with streaming output |
 | `url-opener` | `/usr/local/bin/url-opener` | Forwards browser-open requests to the host via a Unix socket (`USE_DSOCKET` mode) |
 | `url-dbus-opener` | `/usr/local/bin/url-dbus-opener` | Opens a URL on the host via XDG Desktop Portal D-Bus (`USE_DBUS` mode) |
 | `entrypoint.sh` | `/entrypoint.sh` | Container entrypoint; routes `shell` to bash, `download_then_upload` to download-then-Immich-upload, everything else to `flickr-docker.sh` |
