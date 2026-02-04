@@ -54,11 +54,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Tools
     bash \
     procps \
+    curl \
+    npm \
     ca-certificates \
     git \
     # Clean up
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+ENV HOME=/root
+
+#RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+#RUN . "/root/.nvm/nvm.sh" &&  nvm install 24
+
+RUN node -v && npm -v
+
+RUN npm install -g '@immich/cli'
 
 # Browser name symlinks ($BROWSER compatibility)
 # chrome/google-chrome -> chromium
@@ -86,7 +97,6 @@ RUN mkdir -p /root/.mozilla /home/poduser/.mozilla && \
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
-ENV HOME=/root
 
 # url-opener: forwards browser-open requests to the host via a Unix socket.
 # Used by USE_DSOCKET mode; installed unconditionally (mode is selected at runtime).
