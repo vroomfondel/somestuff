@@ -52,7 +52,8 @@ def main(batch_size: int, extensions: set[str]) -> None:
     # subprocess.run blocks until the command finishes and raises on failure (check=True),
     # which suits this one-shot install. upload_batch uses subprocess.Popen with threads
     # instead, to stream stdout/stderr in real time during long-running uploads.
-    subprocess.run(["npm", "install", "-g", "@immich/cli"], check=True)
+
+    # subprocess.run(["npm", "install", "-g", "@immich/cli"], check=True)
 
     for album_dir in sorted(data_dir.iterdir()):
         if not album_dir.is_dir():
