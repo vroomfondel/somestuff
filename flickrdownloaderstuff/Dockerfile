@@ -58,6 +58,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     procps \
     curl \
+    iputils-ping \
+    bind9-dnsutils \
     npm \
     ca-certificates \
     git \
