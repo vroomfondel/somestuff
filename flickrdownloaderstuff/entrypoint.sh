@@ -6,6 +6,8 @@ fi
 # Mozilla directory for Firefox
 mkdir -p "$HOME/.mozilla" 2>/dev/null || true
 
+echo BUILDTIME: $BUILDTIME
+
 if [ "$1" = "shell" ]; then
     shift
     if [ $# -eq 0 ]; then

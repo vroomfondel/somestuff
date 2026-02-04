@@ -15,6 +15,11 @@ ARG debian_version
 LABEL maintainer="Flickr Backup Script"
 LABEL description="Flickr Download with browser support for OAuth"
 
+
+ARG buildtime
+ENV BUILDTIME=${buildtime}
+
+
 # Install system packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # ExifTool for metadata
