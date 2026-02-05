@@ -253,8 +253,18 @@ build_local_only() {
 
   export BUILDKIT_PROGRESS=plain
 
+  # Detect native platform
+  local native_arch
+  native_arch="$(uname -m)"
+  case "${native_arch}" in
+    x86_64)  native_arch="amd64" ;;
+    aarch64) native_arch="arm64" ;;
+  esac
+  local native_platform="linux/${native_arch}"
+
   # Add latest tag if not already latest
   local -a build_args=("${BUILD_BASE_ARGS[@]}")
+  build_args+=("--platform" "${native_platform}")
   if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
     build_args+=("-t" "${DOCKER_IMAGE_LATEST}")
   fi
