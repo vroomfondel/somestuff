@@ -1,4 +1,4 @@
-.PHONY: tests help install venv lint dstart isort tcheck gitleaks build build-nfs update-all-dockerhub-readmes commit-checks prepare flickrstuffpipe %
+.PHONY: tests help install venv lint dstart isort tcheck gitleaks build build-nfs update-all-dockerhub-readmes check-dockerhub-token commit-checks prepare %
 SHELL := /usr/bin/bash
 .ONESHELL:
 
@@ -16,8 +16,8 @@ help:
 	@printf "\nbuild \n\tbuild docker image\n"
 	@printf "\nbuild-nfs \n\tbuild nfs-subdir-external-provisioner (applies overlay)\n"
 	@printf "\nupdate-all-dockerhub-readmes \n\tupdate ALL Docker Hub repo descriptions from DOCKERHUB_OVERVIEW.md resp */DOCKERHUB_OVERVIEW.md\n"
+	@printf "\ncheck-dockerhub-token\n\tcheck Docker Hub token permissions (credentials from include.sh)\n"
 	@printf "\ndstart \n\tlaunch \"app\" in docker\n"
-	@printf "\nflickrstuffpipe \n\textract and run flickr-docker.sh from container (no git clone needed)\n"
 
 
 
@@ -48,23 +48,12 @@ lint: venv
 	black -l 120 --extend-exclude nfs-subdir-external-provisioner $(ARGS) .
 
 dstart:
-	# map config.local.yaml, gcal credentials, kubeconfig, ssh keys, and flickr config/data into container
+	# map config.local.yaml, gcal credentials, kubeconfig, and ssh keys into container
 	# detect podman: add userns mapping so bind-mounted host files are owned by pythonuser (UID 1200)
 	if docker --version 2>&1 | grep -qi podman; then \
 		USERNS_FLAG="--userns=keep-id:uid=1200,gid=1201"; \
 	else \
 		USERNS_FLAG=""; \
-	fi
-	# only mount flickr directories when they exist on the host
-	FLICKR_FLAGS=""
-	if [ -d flickrdownloaderstuff/flickr-config ]; then \
-		FLICKR_FLAGS="$$FLICKR_FLAGS -v $$(pwd)/flickrdownloaderstuff/flickr-config:/home/pythonuser/.flickr-config:ro -e FLICKR_HOME=/home/pythonuser/.flickr-config"; \
-	fi
-	if [ -d flickrdownloaderstuff/flickr-backup ]; then \
-		FLICKR_FLAGS="$$FLICKR_FLAGS -v $$(pwd)/flickrdownloaderstuff/flickr-backup:/home/pythonuser/flickr-backup"; \
-	fi
-	if [ -d flickrdownloaderstuff/flickr-cache ]; then \
-		FLICKR_FLAGS="$$FLICKR_FLAGS -v $$(pwd)/flickrdownloaderstuff/flickr-cache:/home/pythonuser/flickr-cache"; \
 	fi
 	docker run --network=host -it --rm --name somestuffephemeral \
 		$$USERNS_FLAG \
@@ -72,11 +61,7 @@ dstart:
 		-v ~/.config/gcal:/home/pythonuser/.config/gcal \
 		-v ~/.kube:/home/pythonuser/.kube \
 		-v ~/.ssh:/home/pythonuser/.ssh:ro \
-		$$FLICKR_FLAGS \
 		xomoxcc/somestuff:latest /bin/bash
-
-flickrstuffpipe:
-	docker run --rm xomoxcc/somestuff:latest cat flickrdownloaderstuff/flickr-docker.sh | /bin/bash -s -- $(filter-out $@,$(MAKECMDGOALS))
 
 isort: venv
 	@$(venv_activated)
@@ -103,6 +88,12 @@ build-nfs:
 	cd nfs-subdir-external-provisioner && make && ./build.sh
 	# cd nfs-subdir-external-provisioner && make clean && make && ./build.sh
 
+check-dockerhub-token:
+	source scripts/include.sh
+	NS_ARGS=""
+	for ns in "$${DOCKERHUB_NAMESPACES[@]}"; do NS_ARGS+=" -n $$ns"; done
+	python3 scripts/check_dockerhub_token.py "$${DOCKER_TOKENUSER}" "$${DOCKER_TOKEN}" $$NS_ARGS
+
 update-all-dockerhub-readmes:
 	@AUTH=$$(jq -r '.auths["https://index.docker.io/v1/"].auth' docker-config/config.json | base64 -d) && \
 	USERNAME=$$(echo "$$AUTH" | cut -d: -f1) && \
@@ -116,8 +107,7 @@ update-all-dockerhub-readmes:
 	  "python314jit:xomoxcc/python314-jit" \
 	  "python314pandasmultiarch:xomoxcc/pythonpandasmultiarch" \
 	  "mosquitto-2.1:xomoxcc/mosquitto" \
-	  "tangstuff:xomoxcc/tang" \
-	  "flickrdownloaderstuff:xomoxcc/flickr-download"; do \
+	  "tangstuff:xomoxcc/tang"; do \
 	  DIR=$$(echo "$$mapping" | cut -d: -f1) && \
 	  REPO=$$(echo "$$mapping" | cut -d: -f2) && \
 	  FILE="$$DIR/DOCKERHUB_OVERVIEW.md" && \
