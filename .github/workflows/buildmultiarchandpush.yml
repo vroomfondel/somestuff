@@ -8,6 +8,28 @@ name: BuildAndPushMultiarch
 #  pull_request:
 
 on:
+  workflow_dispatch:
+    inputs:
+      build_main:
+        description: 'Build main somestuff image'
+        type: boolean
+        default: false
+      build_mosquitto:
+        description: 'Build mosquitto'
+        type: boolean
+        default: false
+      build_tang:
+        description: 'Build tang'
+        type: boolean
+        default: false
+      build_python314jit:
+        description: 'Build python314-jit'
+        type: boolean
+        default: false
+      build_python314pandasmultiarch:
+        description: 'Build pythonpandasmultiarch'
+        type: boolean
+        default: false
   workflow_run:
     workflows: ["mypy and pytests"]
     branches: ["main"]
@@ -30,9 +52,59 @@ on:
 
 
 jobs:
-  build:
+  build-selector:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      main: ${{ steps.filter.outputs.main }}
+      mosquitto: ${{ steps.filter.outputs.mosquitto }}
+      tangstuff: ${{ steps.filter.outputs.tangstuff }}
+      python314jit: ${{ steps.filter.outputs.python314jit }}
+      python314pandasmultiarch: ${{ steps.filter.outputs.python314pandasmultiarch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Determine which images to build
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "main=${{ inputs.build_main }}" >> $GITHUB_OUTPUT
+            echo "mosquitto=${{ inputs.build_mosquitto }}" >> $GITHUB_OUTPUT
+            echo "tangstuff=${{ inputs.build_tang }}" >> $GITHUB_OUTPUT
+            echo "python314jit=${{ inputs.build_python314jit }}" >> $GITHUB_OUTPUT
+            echo "python314pandasmultiarch=${{ inputs.build_python314pandasmultiarch }}" >> $GITHUB_OUTPUT
+          else
+            echo "main=true" >> $GITHUB_OUTPUT
+            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            if echo "$CHANGED" | grep -q '^mosquitto-2.1/'; then
+              echo "mosquitto=true" >> $GITHUB_OUTPUT
+            else
+              echo "mosquitto=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED" | grep -q '^tangstuff/'; then
+              echo "tangstuff=true" >> $GITHUB_OUTPUT
+            else
+              echo "tangstuff=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED" | grep -q '^python314jit/'; then
+              echo "python314jit=true" >> $GITHUB_OUTPUT
+            else
+              echo "python314jit=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED" | grep -q '^python314pandasmultiarch/'; then
+              echo "python314pandasmultiarch=true" >> $GITHUB_OUTPUT
+            else
+              echo "python314pandasmultiarch=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  build:
+    needs: build-selector
+    runs-on: ubuntu-latest
+    if: ${{ needs.build-selector.outputs.main == 'true' }}
     steps:
       # Get the repository's code
       # NOTE: not really needed since build-push-action uses the "Git context"
@@ -84,6 +156,155 @@ jobs:
             debian_version=slim-trixie
           # tags: ${{ steps.<meta_id>.outputs.tags }}
           # labels: ${{ steps.<meta_id>.outputs.labels }}
+
+  build-mosquitto:
+    needs: build-selector
+    runs-on: ubuntu-latest
+    if: ${{ needs.build-selector.outputs.mosquitto == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get Berlin Time
+        id: berlin_time
+        run: |
+          BUILDTIME=$(TZ='Europe/Berlin' date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
+
+      - name: Build and push mosquitto
+        uses: docker/build-push-action@v6
+        with:
+          context: ./mosquitto-2.1
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: "xomoxcc/mosquitto:2.1,xomoxcc/mosquitto:latest"
+          build-args: |
+            buildtime=${{ steps.berlin_time.outputs.buildtime }}
+
+  build-tang:
+    needs: build-selector
+    runs-on: ubuntu-latest
+    if: ${{ needs.build-selector.outputs.tangstuff == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get Berlin Time
+        id: berlin_time
+        run: |
+          BUILDTIME=$(TZ='Europe/Berlin' date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
+
+      - name: Build and push tang
+        uses: docker/build-push-action@v6
+        with:
+          context: ./tangstuff
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: "xomoxcc/tang:trixie-slim,xomoxcc/tang:latest"
+          build-args: |
+            buildtime=${{ steps.berlin_time.outputs.buildtime }}
+            debian_version=trixie-slim
+
+  build-python314jit:
+    needs: build-selector
+    runs-on: ubuntu-latest
+    if: ${{ needs.build-selector.outputs.python314jit == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get Berlin Time
+        id: berlin_time
+        run: |
+          BUILDTIME=$(TZ='Europe/Berlin' date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
+
+      - name: Build and push python314-jit
+        uses: docker/build-push-action@v6
+        with:
+          context: ./python314jit
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: "xomoxcc/python314-jit:trixie-slim,xomoxcc/python314-jit:latest"
+          build-args: |
+            buildtime=${{ steps.berlin_time.outputs.buildtime }}
+            debian_version=trixie-slim
+
+  build-python314pandasmultiarch:
+    needs: build-selector
+    runs-on: ubuntu-latest
+    if: ${{ needs.build-selector.outputs.python314pandasmultiarch == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get Berlin Time
+        id: berlin_time
+        run: |
+          BUILDTIME=$(TZ='Europe/Berlin' date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
+
+      - name: Build and push pythonpandasmultiarch
+        uses: docker/build-push-action@v6
+        with:
+          context: ./python314pandasmultiarch
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: "xomoxcc/pythonpandasmultiarch:python-3.14-pandas-2.2.3-slim-trixie,xomoxcc/pythonpandasmultiarch:latest"
+          build-args: |
+            buildtime=${{ steps.berlin_time.outputs.buildtime }}
+            debian_version=slim-trixie
+            pandas_version=2.2.3
+            python_version=3.14
 
 #      - name: Login to GHCR
 #        if: github.event_name != 'pull_request'

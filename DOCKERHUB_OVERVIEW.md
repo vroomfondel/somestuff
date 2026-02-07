@@ -22,7 +22,6 @@ Contents overview (Python packages/modules):
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `mqttstuff`: tiny MQTT wrapper utility
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `flickrdownloaderstuff`: Docker/Podman wrapper for Flickr photo library backups via `flickr_download`
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -161,23 +160,11 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
 
 
-### flickrdownloaderstuff
-Docker/Podman wrapper script for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download). Builds a container image with Chromium, Firefox ESR, and ExifTool. Supports three browser modes for OAuth login on Linux: X11 forwarding (default), domain socket (`USE_DSOCKET`), and D-Bus portal (`USE_DBUS`).
+### flickrdownloaderstuff (moved)
+The Flickr photo backup functionality has been moved to a standalone repository:
+**[github.com/vroomfondel/flickrtoimmich](https://github.com/vroomfondel/flickrtoimmich)**
 
-- Entrypoint: `flickrdownloaderstuff/flickr-docker.sh`
-- Usage:
-```bash
-./flickr-docker.sh build              # build the container image
-./flickr-docker.sh auth               # authenticate via OAuth (opens browser)
-./flickr-docker.sh download <user>    # download all albums for a Flickr user
-./flickr-docker.sh list <user>        # list albums
-```
-- Auto-detects Docker or Podman and adjusts runtime flags (Podman uses `--userns=keep-id` for X11 access).
-- Cross-platform: X11 forwarding (default), domain socket (`USE_DSOCKET`), or D-Bus portal (`USE_DBUS`) on Linux; URL-based OAuth flow on Mac/Windows.
-- Automatic rate-limit backoff: when Flickr returns `429 Too Many Requests`, the download process is suspended, the script sleeps with increasing backoff (60 s base, 600 s cap), then resumes.
-- Kubernetes deployment: an Ansible playbook (`kubectlstuff_flickr_downloader.yml`) creates per-user Kubernetes Jobs and a `flickr-operator` Deployment that watches for failed Jobs and restarts them after a configurable delay (default 1 hour).
-- Also runs directly inside the main `xomoxcc/somestuff` container (auto-detected via `FLICKR_HOME`), no nested container needed.
-- Usefulness: hands-off Flickr photo library backups with resumable downloads, metadata preservation, and rate-limit handling.
+The Docker image is still available at [Docker Hub: xomoxcc/flickr-download](https://hub.docker.com/r/xomoxcc/flickr-download/tags).
 
 
 ### Root helpers and configuration

@@ -10,8 +10,9 @@ KUBECTL_CONTEXT="arley@local"
 
 declare -a include_local_sh
 include_local_sh[0]="include.local.sh"
-include_local_sh[1]="$(dirname "$0")/scripts/include.local.sh"
-include_local_sh[2]="$(dirname "$0")/../scripts/include.local.sh"
+include_local_sh[1]="scripts/include.local.sh"
+include_local_sh[2]="$(dirname "$0")/scripts/include.local.sh"
+include_local_sh[3]="$(dirname "$0")/../scripts/include.local.sh"
 found=false
 
 for path in "${include_local_sh[@]}"; do

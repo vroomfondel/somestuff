@@ -22,7 +22,6 @@ Contents overview (Python packages/modules):
 - `k3shelperstuff`: K3s kubeconfig credential synchronization utility
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `flickrdownloaderstuff`: Docker/Podman wrapper for Flickr photo library backups via `flickr_download`
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -32,7 +31,6 @@ Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh
 - `python314jit`: Python 3.14 base image with JIT support
 - `python314pandasmultiarch`: Python 3.14 base image with pandas (multi‑arch)
 - `nfs-subdir-external-provisioner`: Kubernetes NFS provisioner (external submodule with local overlay)
-- `flickrdownloaderstuff`: Flickr photo backup image with Chromium, Firefox ESR, and ExifTool ([Docker Hub](https://hub.docker.com/r/xomoxcc/flickr-download/tags))
 
 
 ## Getting started
@@ -170,29 +168,11 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
 
 
-### flickrdownloaderstuff
-Docker/Podman wrapper script for backing up Flickr photo libraries using [`flickr_download`](https://github.com/beaufour/flickr-download). Builds a container image (published separately as `xomoxcc/flickr-download`) with Chromium, Firefox ESR, and ExifTool. Supports three browser modes for OAuth login on Linux: X11 forwarding (default), domain socket (`USE_DSOCKET`), and D-Bus portal (`USE_DBUS`).
+### flickrdownloaderstuff (moved)
+The Flickr photo backup functionality has been moved to a standalone repository:
+**[github.com/vroomfondel/flickrtoimmich](https://github.com/vroomfondel/flickrtoimmich)**
 
-- Entrypoint: `flickrdownloaderstuff/flickr-docker.sh`
-- Usage:
-```
-./flickr-docker.sh build              # build the container image
-./flickr-docker.sh auth               # authenticate via OAuth (opens browser)
-./flickr-docker.sh download <user>    # download all albums for a Flickr user
-./flickr-docker.sh list <user>        # list albums
-```
-- **Quick start without git clone**: extract and run the script directly from the published Docker image:
-```
-make flickrstuffpipe
-# or manually:
-docker run --rm xomoxcc/somestuff:latest cat flickrdownloaderstuff/flickr-docker.sh | /bin/bash
-```
-- Auto-detects Docker or Podman and adjusts runtime flags (Podman uses `--userns=keep-id` for X11 access).
-- Cross-platform: X11 forwarding (default), domain socket (`USE_DSOCKET`), or D-Bus portal (`USE_DBUS`) on Linux; URL-based OAuth flow on Mac/Windows.
-- Automatic rate-limit backoff: when Flickr returns `429 Too Many Requests`, the download process is suspended (`SIGSTOP`), the script sleeps with increasing backoff (60 s base, 600 s cap), then resumes (`SIGCONT`).
-- Kubernetes deployment: an Ansible playbook (`kubectlstuff_flickr_downloader.yml`) creates per-user Kubernetes Jobs and a `flickr-operator` Deployment that watches for failed Jobs and restarts them after a configurable delay (default 1 hour).
-- `flickr_download` is installed from GitHub (not PyPI) to include an unreleased fix ([#166](https://github.com/beaufour/flickr-download/issues/166)) that skips photos with unavailable sizes instead of crashing.
-- See `flickrdownloaderstuff/README.md` for details.
+The Docker image is still available at [Docker Hub: xomoxcc/flickr-download](https://hub.docker.com/r/xomoxcc/flickr-download/tags).
 
 
 ### Root helpers and configuration
@@ -249,6 +229,16 @@ Usage:
 
 The script also sets `DOCKER_CONFIG` to the bundled `docker-config/` directory so the builder state is isolated per‑repo. The primary tag is `xomoxcc/somestuff:python-3.14-slim-trixie` and an additional `:latest` tag is automatically added if missing.
 
+### Check Docker Hub token permissions
+Verify which permissions (pull, push, delete) a Docker Hub token has for all repositories in a namespace:
+```
+make check-dockerhub-token
+```
+This uses `DOCKER_TOKENUSER` and `DOCKER_TOKEN` from `scripts/include.sh` (overridden by `scripts/include.local.sh`). Additional namespaces defined in the `DOCKERHUB_NAMESPACES` bash array are passed automatically. The script can also be called directly:
+```
+python3 scripts/check_dockerhub_token.py <username> <token> -n <extra-namespace> -n <another>
+```
+
 ### Update Docker Hub READMEs
 To update the Docker Hub repository descriptions from the `DOCKERHUB_OVERVIEW.md` files:
 ```
@@ -257,7 +247,7 @@ make update-all-dockerhub-readmes
 This updates all Docker Hub repos (somestuff, python314-jit, pythonpandasmultiarch, mosquitto, tang) using the credentials from `docker-config/config.json`.
 
 ### GitHub Actions
-- `.github/workflows/buildmultiarchandpush.yml` builds and pushes multi‑arch images on CI.
+- `.github/workflows/buildmultiarchandpush.yml` builds and pushes multi‑arch images. Triggers automatically after a successful mypy/pytest run (only rebuilds sub‑project images when their directory changed). Can also be triggered manually via **Actions → BuildAndPushMultiarch → Run workflow**, where checkboxes let you select which images to build (main somestuff, mosquitto, tang, python314‑jit, pythonpandasmultiarch).
 - `.github/workflows/mypynpytests.yml` runs mypy + pytest.
 - `.github/workflows/checkblack.yml` checks code style.
 - `.github/workflows/update-clone-badge.yml` updates the clones badge.

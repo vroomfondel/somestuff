@@ -49,9 +49,6 @@ ENV PATH="/home/pythonuser/.local/bin:$PATH"
 COPY --chown=${UID}:${GID} requirements.txt /
 RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
 
-# flickr_download from GitHub — includes unreleased fix for issue #166
-RUN pip3 install --no-cache-dir git+https://github.com/beaufour/flickr-download.git
-
 # ADD --chown=${UID}:${GID} "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 
 COPY --chown=${UID}:${GID} dinogame /app/dinogame
@@ -62,7 +59,6 @@ COPY --chown=${UID}:${GID} netatmostuff /app/netatmostuff
 COPY --chown=${UID}:${GID} hydromailstuff /app/hydromailstuff
 COPY --chown=${UID}:${GID} k3shelperstuff /app/k3shelperstuff
 COPY --chown=${UID}:${GID} gcalstuff /app/gcalstuff
-# COPY --chown=${UID}:${GID} flickrdownloaderstuff /app/flickrdownloaderstuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 
