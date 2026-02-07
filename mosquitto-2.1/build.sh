@@ -152,9 +152,11 @@ build_with_docker() {
 build_with_podman() {
   log "Building with Podman manifest workflow..."
 
-  # Remove existing manifest if it exists
+  # Remove existing manifest/image tag if it exists
   echo podman manifest rm "${DOCKER_IMAGE}"
   podman manifest rm "${DOCKER_IMAGE}" 2>/dev/null || true
+  echo podman rmi "${DOCKER_IMAGE}"
+  podman rmi "${DOCKER_IMAGE}" 2>/dev/null || true
 
   # Track platform-specific data
   local -a platform_tags=()
@@ -294,5 +296,5 @@ main() {
 }
 
 # Run main and ensure cleanup
-trap stop_podman_vm_if_started EXIT
+trap 'stop_podman_vm_if_started || true' EXIT
 main "$@"

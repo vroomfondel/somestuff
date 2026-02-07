@@ -4,20 +4,20 @@
 
 # Mosquitto 2.1 MQTT Broker
 
-This directory contains a custom, production-ready build of **Mosquitto 2.1.0-rc3**. It is specifically tailored for deployment on Ubuntu-based environments (Ubuntu 24.04) and includes support for modern MQTT features, enhanced security, and containerized orchestration via Kubernetes.
+This directory contains a custom, production-ready build of **Mosquitto 2.1.1**. It is specifically tailored for deployment on Ubuntu-based environments (Ubuntu 24.04) and includes support for modern MQTT features, enhanced security, and containerized orchestration via Kubernetes.
 
 ---
 
 ## 🚀 Features & Usefulness
 
-- **Mosquitto 2.1.0-test1**: Built from source to leverage the latest experimental features, including the new HTTP API.
+- **Mosquitto 2.1.1**: Built from source to leverage the latest features, including the new HTTP API.
 - **Dynamic Security**: Integrated `mosquitto_dynamic_security.so` plugin allows for real-time management of users, groups, and ACLs without broker restarts.
 - **SQLite Persistence**: Utilizes the `mosquitto_persist_sqlite.so` plugin for robust, high-performance persistent storage, superior to standard file-based persistence in containerized environments.
 - **WebSockets Support**: Native support enabled on port `9001`, allowing web-based clients to communicate via MQTT.
 - **HTTP API & Dashboard**: Includes a built-in HTTP management API and a web dashboard on port `9883`.
 - **Multi-Arch Docker Image**: Optimized for both `amd64` and `arm64` architectures, making it suitable for both cloud servers and edge devices (like Raspberry Pi).
 - **Proxy Protocol v2 Support**: Configured to work behind Load Balancers (like Traefik or HAProxy) while preserving client IP addresses.
-- **Enhanced IP Logging**: Includes a custom patch (`log-with-ip.patch`) that adds client IP addresses to all disconnect log messages. Now it is finally possible to properly use fail2ban based on IP addresses for MQTT authentication failures.
+- **Enhanced IP Logging**: Mosquitto 2.1.1 natively logs client IP addresses and ports in all disconnect log messages. This makes it possible to use fail2ban based on IP addresses for MQTT authentication failures.
 
 ---
 
@@ -25,8 +25,7 @@ This directory contains a custom, production-ready build of **Mosquitto 2.1.0-rc
 
 | File | Description |
 | :--- | :--- |
-| `Dockerfile` | Multi-stage build file compiling Mosquitto from source on Ubuntu 24.04. It handles complex dependency linking for plugins and `mosquitto_ctrl`. |
-| `log-with-ip.patch` | Patch for `src/loop.c` that adds client IP addresses to disconnect log messages, enabling fail2ban integration. |
+| `Dockerfile` | Single-layer build file compiling Mosquitto from source on Ubuntu 24.04. It handles dependency linking for plugins and `mosquitto_ctrl`. |
 | `build.sh` | A utility script for building multi-architecture Docker images and pushing them to a registry. |
 | `mosquitto_test.conf` | The primary configuration file. Includes listeners for MQTT (1883), WebSockets (9001), and the HTTP API (9883). |
 | `mosquitto_test.acl` | Initial Access Control List template. |
@@ -95,7 +94,7 @@ kubectl apply -f k3s_mosquitto_deployment.yml
 
 ## 🔧 Implementation Details (Breadcrumbs)
 
-- **Library Linking**: The build process specifically addresses shared library issues common with Mosquitto plugins. `libmosquitto_common.so.1` and `libedit.so.0` are correctly handled to ensure `mosquitto_ctrl` and plugins function out-of-the-box.
+- **Library Linking**: The build process addresses shared library issues common with Mosquitto plugins. `libedit.so.0` is correctly handled to ensure `mosquitto_ctrl` and plugins function out-of-the-box.
 - **Bootstrap Logic**: `runmosquitto.sh` handles the initial setup of the environment, ensuring that if no configuration or user database exists, a default `admin` user is created to allow immediate access for testing.
 - **Proxy Protocol**: Enabled for all listeners to support modern ingress controllers. Ensure your Load Balancer is configured to send Proxy Protocol v2 headers.
 

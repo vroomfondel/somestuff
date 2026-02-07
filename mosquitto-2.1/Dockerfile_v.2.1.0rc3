@@ -14,14 +14,28 @@ FROM ubuntu:24.04
 # docker run -it --rm --name haproxy --network=host -v $(pwd)/haproxy_test.cfg:/usr/local/etc/haproxy/haproxy.cfg  haproxy:latest
 
 
-# ORIG FILE from https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/2.1.1.tar.gz :: docker :: 2.1-ubuntu
+# THIS ONE LACKS SOME CONFIG/LIBRARIES...
 
-ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/v2.1.1.tar.gz"
+# FROM registry.cedalo.com/eclipse-mosquitto-2.1-testing/mosquitto:latest
 
-# log-with-ip.patch no longer needed: v2.1.1 natively logs client IP+port in disconnect messages
+# ldd /usr/bin/mosquitto_ctrl
+#	/lib/ld-musl-x86_64.so.1 (0x7f4a2c290000)
+#	libcjson.so.1 => /usr/lib/libcjson.so.1 (0x7f4a2c25c000)
+#	libmosquitto.so.1 => /usr/lib/libmosquitto.so.1 (0x7f4a2c238000)
+#	libcrypto.so.3 => /usr/lib/libcrypto.so.3 (0x7f4a2bd73000)
+#Error loading shared library libedit.so.0: No such file or directory (needed by /usr/bin/mosquitto_ctrl)
+#	libc.musl-x86_64.so.1 => /lib/ld-musl-x86_64.so.1 (0x7f4a2c290000)
+#	libssl.so.3 => /usr/lib/libssl.so.3 (0x7f4a2bca5000)
 
-# single-layer build (aligned with upstream docker/2.1-ubuntu)
-# somehow having all cpu cores when building in podman-vm-qemu, this fails since rc3
+# / # ldd /usr/lib/mosquitto_password_file.so
+#	/lib/ld-musl-x86_64.so.1 (0x7f8bc9937000)
+#Error loading shared library ../../libcommon/libmosquitto_common.so.1: No such file or directory (needed by /usr/lib/mosquitto_password_file.so)
+#	libc.musl-x86_64.so.1 => /lib/ld-musl-x86_64.so.1 (0x7f8bc9937000)
+
+
+# ORIG FILE from https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/2.1.0-test1.tar.gz :: docker :: 2.1-ubuntu
+
+ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/v2.1.0rc3.tar.gz"
 
 RUN set -x && \
     apt-get update && \
@@ -37,14 +51,22 @@ RUN set -x && \
         libsqlite3-dev \
         wget \
         tini \
-        bind9-dnsutils \
-        iputils-ping \
-        gettext-base && \
-    wget ${SRC} -O /tmp/mosq.tar.gz && \
-    mkdir -p /build/mosq && \
+        gettext-base
+
+RUN set -x && wget ${SRC} -O /tmp/mosq.tar.gz
+
+RUN set -x && mkdir -p /build/mosq && \
     tar --strip=1 -xf /tmp/mosq.tar.gz -C /build/mosq && \
-    rm /tmp/mosq.tar.gz && \
-    make -C /build/mosq -j "$(( $(nproc) / 2))" \
+    rm /tmp/mosq.tar.gz
+
+
+# Getting mosquitto to log IPs
+COPY log-with-ip.patch /log-with-ip.patch
+RUN cd /build/mosq && patch -p1 < /log-with-ip.patch
+
+# somehow having all cpu cores when building in podman-vm-qemu, this fails since rc3
+
+RUN set -x && make -C /build/mosq -j "$(( $(nproc) / 2))" \
         CFLAGS="-Wall -O2 -I/build -DHTTP_API_DIR=\\\"/usr/share/mosquitto/dashboard\\\"" \
         WITH_ADNS=no \
         WITH_DOCS=no \
@@ -53,11 +75,16 @@ RUN set -x && \
         WITH_STRIP=yes \
         WITH_WEBSOCKETS=yes \
         prefix=/usr \
-        binary && \
-    addgroup --system --quiet --gid 1883 mosquitto 2>/dev/null && \
+        binary
+
+RUN set -x && addgroup --system --quiet --gid 1883 mosquitto 2>/dev/null && \
     adduser --system --quiet --no-create-home --ingroup mosquitto --uid 1883 --home /var/empty --shell /usr/sbin/nologin mosquitto 2>/dev/null && \
-    mkdir -p /mosquitto/config /mosquitto/data /mosquitto/log && \
-    install -d /usr/sbin/ && \
+    mkdir -p /mosquitto/config /mosquitto/data /mosquitto/log
+
+#RUN ls -haltr /build/mosq/
+#RUN ls -haltr /build/mosq/libcommon
+
+RUN set -x && install -d /usr/sbin/ && mkdir -p /libcommon && \
     install -s -m755 /build/mosq/client/mosquitto_pub /usr/bin/mosquitto_pub && \
     install -s -m755 /build/mosq/client/mosquitto_rr /usr/bin/mosquitto_rr && \
     install -s -m755 /build/mosq/client/mosquitto_sub /usr/bin/mosquitto_sub && \
@@ -67,6 +94,7 @@ RUN set -x && \
     install -s -m755 /build/mosq/apps/mosquitto_passwd/mosquitto_passwd /usr/bin/mosquitto_passwd && \
     install -s -m755 /build/mosq/apps/mosquitto_signal/mosquitto_signal /usr/bin/mosquitto_signal && \
     install -s -m755 /build/mosq/plugins/acl-file/mosquitto_acl_file.so /usr/lib/mosquitto_acl_file.so && \
+    install -s -m755 /build/mosq/libcommon/libmosquitto_common.so.1 /libcommon/libmosquitto_common.so.1 && \
     install -s -m755 /build/mosq/plugins/dynamic-security/mosquitto_dynamic_security.so /usr/lib/mosquitto_dynamic_security.so && \
     install -s -m755 /build/mosq/plugins/password-file/mosquitto_password_file.so /usr/lib/mosquitto_password_file.so && \
     install -s -m755 /build/mosq/plugins/persist-sqlite/mosquitto_persist_sqlite.so /usr/lib/mosquitto_persist_sqlite.so && \
@@ -77,13 +105,12 @@ RUN set -x && \
     install -Dm644 /build/mosq/epl-v20 /usr/share/licenses/mosquitto/epl-v20 && \
     install -Dm644 /build/mosq/edl-v10 /usr/share/licenses/mosquitto/edl-v10 && \
     chown -R mosquitto:mosquitto /mosquitto && \
-    apt-get install -y \
+    apt-get install \
         ca-certificates \
         libargon2-1 \
         libcjson1 \
         libmicrohttpd12 \
-        libsqlite3-0 \
-        tzdata && \
+        libsqlite3-0 && \
     apt-get clean && \
     apt-get remove --purge --auto-remove -y build-essential cmake gnupg && \
     rm -rf /var/lib/apt/lists/* && \
@@ -186,8 +213,6 @@ echo
 
 EOF
 
-
-ENV TZ=Europe/Berlin
 
 ENTRYPOINT ["tini", "--"]
 
