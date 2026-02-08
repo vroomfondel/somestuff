@@ -199,12 +199,25 @@ class SipCaller:
         ep_cfg = pj.EpConfig()
         ep_cfg.logConfig.level = 3
         ep_cfg.logConfig.consoleLevel = 3
+
+        # STUN servers (endpoint-level)
+        if self.config.nat.stun_servers:
+            self._log.info(
+                f"STUN servers: {self.config.nat.stun_servers} (ignore failure: {self.config.nat.stun_ignore_failure})"
+            )
+            for srv in self.config.nat.stun_servers:
+                ep_cfg.uaConfig.stunServer.append(srv)
+            ep_cfg.uaConfig.stunIgnoreFailure = self.config.nat.stun_ignore_failure
+
         self._ep.libInit(ep_cfg)
 
         # Transport(s) — also bound to the correct interface
         tp_cfg = pj.TransportConfig()
         tp_cfg.port = self.config.sip.local_port
         tp_cfg.boundAddress = local_ip
+        if self.config.nat.public_address:
+            tp_cfg.publicAddress = self.config.nat.public_address
+            self._log.info(f"Public address override: {self.config.nat.public_address} (local bind: {local_ip})")
 
         if self.config.sip.transport == "tls":
             tp_type = pj.PJSIP_TRANSPORT_TLS
@@ -242,6 +255,8 @@ class SipCaller:
         # Bind RTP/media sockets to the correct interface (avoids SDP
         # advertising the wrong IP on multi-homed hosts).
         acfg.mediaConfig.transportConfig.boundAddress = local_ip
+        if self.config.nat.public_address:
+            acfg.mediaConfig.transportConfig.publicAddress = self.config.nat.public_address
 
         # SRTP media encryption
         srtp_map = {
@@ -253,6 +268,32 @@ class SipCaller:
         acfg.mediaConfig.srtpSecureSignaling = 0 if self.config.sip.srtp == "disabled" else 1
         if self.config.sip.srtp != "disabled":
             self._log.info(f"SRTP: {self.config.sip.srtp}")
+
+        # NAT traversal — ICE, TURN, keepalive (account-level)
+        nat = self.config.nat
+        if not nat.stun_servers and not nat.ice_enabled and not nat.turn_enabled and nat.keepalive_sec == 0:
+            self._log.info("NAT traversal: disabled (no STUN/ICE/TURN/keepalive configured)")
+
+        if self.config.nat.ice_enabled:
+            self._log.info("ICE enabled for media transport")
+            acfg.natConfig.iceEnabled = True
+
+        if self.config.nat.turn_enabled:
+            self._log.info(
+                f"TURN relay: {self.config.nat.turn_server} (transport: {self.config.nat.turn_transport}, user: {self.config.nat.turn_username})"
+            )
+            acfg.natConfig.turnEnabled = True
+            acfg.natConfig.turnServer = self.config.nat.turn_server
+            acfg.natConfig.turnUserName = self.config.nat.turn_username
+            acfg.natConfig.turnPassword = self.config.nat.turn_password
+            acfg.natConfig.turnPasswordType = 0
+            turn_tp = {"udp": pj.PJ_TURN_TP_UDP, "tcp": pj.PJ_TURN_TP_TCP, "tls": pj.PJ_TURN_TP_TLS}
+            acfg.natConfig.turnConnType = turn_tp[self.config.nat.turn_transport]
+
+        if self.config.nat.keepalive_sec > 0:
+            self._log.info(f"UDP keepalive: {self.config.nat.keepalive_sec}s")
+            acfg.natConfig.udpKaIntervalSec = self.config.nat.keepalive_sec
+            acfg.natConfig.udpKaData = "\r\n"
 
         self._account = pj.Account()
         try:
@@ -294,6 +335,7 @@ class SipCaller:
         timeout: int | None = None,
         pre_delay: float | None = None,
         post_delay: float | None = None,
+        inter_delay: float | None = None,
         repeat: int | None = None,
     ) -> bool:
         """Place a SIP call, play WAV on answer, hang up after playback.
@@ -304,6 +346,7 @@ class SipCaller:
             timeout: Override call timeout (seconds). None = use config value.
             pre_delay: Seconds to wait after answer before playback. None = use config value.
             post_delay: Seconds to wait after playback before hangup. None = use config value.
+            inter_delay: Seconds to wait between WAV repeats. None = use config value.
             repeat: Number of times to play the WAV. None = use config value.
 
         Returns:
@@ -315,6 +358,7 @@ class SipCaller:
         timeout = timeout if timeout is not None else self.config.call.timeout
         pre_delay = pre_delay if pre_delay is not None else self.config.call.pre_delay
         post_delay = post_delay if post_delay is not None else self.config.call.post_delay
+        inter_delay = inter_delay if inter_delay is not None else self.config.call.inter_delay
         repeat = repeat if repeat is not None else self.config.call.repeat
 
         # Validate WAV
@@ -334,7 +378,7 @@ class SipCaller:
             sip_uri = f"{scheme}:{destination}@{self.config.sip.server}{tp_param}"
 
         self._log.info(
-            f"Calling {sip_uri} (timeout: {timeout}s, repeat: {repeat}x, pre: {pre_delay}s, post: {post_delay}s)"
+            f"Calling {sip_uri} (timeout: {timeout}s, repeat: {repeat}x, pre: {pre_delay}s, inter: {inter_delay}s, post: {post_delay}s)"
         )
 
         # Don't autoplay — we manage playback timing ourselves
@@ -401,6 +445,13 @@ class SipCaller:
                 if call.disconnected_event.wait(timeout=wav_info.duration):
                     self._log.info("Remote party hung up during playback")
                     return True
+
+                # Inter-delay between repeats (not after the last one)
+                if inter_delay > 0 and i < repeat - 1:
+                    self._log.info(f"Inter-delay: {inter_delay}s")
+                    if call.disconnected_event.wait(timeout=inter_delay):
+                        self._log.info("Remote party hung up during inter-delay")
+                        return True
         finally:
             call.stop_wav(_orphan_store=self._orphaned_players)
 

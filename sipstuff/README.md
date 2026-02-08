@@ -64,8 +64,15 @@ python -m sipstuff.cli call \
     --config sip_config.yaml \
     --transport tls --srtp mandatory \
     --dest +491234567890 --wav alert.wav \
-    --pre-delay 1.5 --post-delay 2.0 --repeat 3 \
+    --pre-delay 1.5 --post-delay 2.0 --inter-delay 1.0 --repeat 3 \
     --timeout 30 -v
+
+# NAT traversal — STUN + ICE behind a NAT gateway
+python -m sipstuff.cli call \
+    --server pbx.example.com --user 1000 --password secret \
+    --stun-servers stun.l.google.com:19302,stun1.l.google.com:19302 \
+    --ice \
+    --dest +491234567890 --wav alert.wav -v
 ```
 
 ### CLI Flags
@@ -89,7 +96,16 @@ python -m sipstuff.cli call \
 | `--timeout`, `-t` | Call timeout in seconds (default: 60) |
 | `--pre-delay` | Seconds to wait after answer before playback (default: 0) |
 | `--post-delay` | Seconds to wait after playback before hangup (default: 0) |
+| `--inter-delay` | Seconds to wait between WAV repeats (default: 0) |
 | `--repeat` | Number of times to play the WAV (default: 1) |
+| `--stun-servers` | Comma-separated STUN servers (e.g. `stun.l.google.com:19302`) |
+| `--ice` | Enable ICE for media NAT traversal |
+| `--turn-server` | TURN relay server (`host:port`) |
+| `--turn-username` | TURN username |
+| `--turn-password` | TURN password |
+| `--turn-transport` | TURN transport: `udp`, `tcp`, or `tls` (default: udp) |
+| `--keepalive` | UDP keepalive interval in seconds (0 = disabled) |
+| `--public-address` | Public IP to advertise in SDP/Contact (e.g. K3s node IP) |
 | `--verbose`, `-v` | Debug logging |
 
 ## Docker / Podman Example
@@ -212,6 +228,7 @@ success = make_sip_call(
     timeout=30,
     pre_delay=1.5,
     post_delay=2.0,
+    inter_delay=1.0,
     repeat=3,
 )
 ```
@@ -296,12 +313,58 @@ call:
   timeout: 60
   pre_delay: 0.0
   post_delay: 0.0
+  inter_delay: 0.0
   repeat: 1
 
 tts:
   model: "de_DE-thorsten-high"  # piper voice model (auto-downloaded on first use)
   sample_rate: 0                # 0 = keep native (22050), use 8000 for narrowband SIP
 ```
+
+### NAT Traversal
+
+For hosts behind NAT, add a `nat:` section to the YAML config:
+
+```yaml
+nat:
+  stun_servers:                # STUN servers for public IP discovery
+    - "stun.l.google.com:19302"
+  stun_ignore_failure: true    # continue if STUN unreachable (default: true)
+  ice_enabled: true            # ICE for media NAT traversal
+  turn_enabled: false          # TURN relay (requires turn_server)
+  turn_server: ""              # host:port
+  turn_username: ""
+  turn_password: ""
+  turn_transport: "udp"        # udp, tcp, or tls
+  keepalive_sec: 15            # UDP keepalive interval (0 = disabled)
+  public_address: ""           # Manual public IP for SDP/Contact (e.g. K3s node IP)
+```
+
+- **STUN only** — sufficient when the NAT gateway preserves port mappings (cone NAT). Lets PJSIP discover its public IP for the SDP `c=` line.
+- **STUN + ICE** — adds connectivity checks so both sides probe multiple candidate pairs. Handles most residential/corporate NATs.
+- **TURN** — needed when the NAT is symmetric or a firewall blocks direct UDP. All media is relayed through the TURN server, adding latency but guaranteeing connectivity.
+- **Keepalive** — sends periodic UDP packets to keep NAT bindings alive during long calls or idle registrations.
+
+#### Static NAT / K3s
+
+When running in a K3s pod (10.x.x.x pod IP) calling a SIP server in a DMZ (e.g. Fritzbox), the auto-detected local IP is the pod IP which is unreachable from the SIP server. STUN doesn't help either — it returns the WAN IP, not the node IP. Use `public_address` to manually set the IP that appears in SDP and SIP Contact headers, while the socket stays bound to the pod IP:
+
+```yaml
+nat:
+  public_address: "192.168.1.50"  # K3s node IP reachable from the SIP server
+```
+
+Or via CLI / environment variable:
+
+```bash
+# CLI
+python -m sipstuff.cli call --public-address 192.168.1.50 --dest +491234567890 --wav alert.wav
+
+# Environment variable
+export SIP_PUBLIC_ADDRESS=192.168.1.50
+```
+
+This works because K3s uses SNAT (conntrack) for pod-to-external traffic — reply packets from the Fritzbox to the node IP are translated back to the pod IP by the kernel's connection tracking.
 
 ### Environment Variables
 
@@ -320,9 +383,20 @@ All settings can be set via `SIP_` prefixed environment variables:
 | `SIP_TIMEOUT` | `call.timeout` |
 | `SIP_PRE_DELAY` | `call.pre_delay` |
 | `SIP_POST_DELAY` | `call.post_delay` |
+| `SIP_INTER_DELAY` | `call.inter_delay` |
 | `SIP_REPEAT` | `call.repeat` |
 | `SIP_TTS_MODEL` | `tts.model` |
 | `SIP_TTS_SAMPLE_RATE` | `tts.sample_rate` |
+| `SIP_STUN_SERVERS` | `nat.stun_servers` (comma-separated) |
+| `SIP_STUN_IGNORE_FAILURE` | `nat.stun_ignore_failure` |
+| `SIP_ICE_ENABLED` | `nat.ice_enabled` |
+| `SIP_TURN_ENABLED` | `nat.turn_enabled` |
+| `SIP_TURN_SERVER` | `nat.turn_server` |
+| `SIP_TURN_USERNAME` | `nat.turn_username` |
+| `SIP_TURN_PASSWORD` | `nat.turn_password` |
+| `SIP_TURN_TRANSPORT` | `nat.turn_transport` |
+| `SIP_KEEPALIVE_SEC` | `nat.keepalive_sec` |
+| `SIP_PUBLIC_ADDRESS` | `nat.public_address` |
 
 TTS runtime environment variables (for overriding piper binary paths):
 

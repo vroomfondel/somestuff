@@ -71,7 +71,27 @@ def parse_args() -> argparse.Namespace:
     call_parser.add_argument(
         "--post-delay", dest="post_delay", type=float, help="Seconds to wait after playback before hangup (default: 0)"
     )
+    call_parser.add_argument(
+        "--inter-delay", dest="inter_delay", type=float, help="Seconds to wait between WAV repeats (default: 0)"
+    )
     call_parser.add_argument("--repeat", type=int, help="Number of times to play the WAV (default: 1)")
+
+    # NAT traversal
+    nat_group = call_parser.add_argument_group("NAT traversal")
+    nat_group.add_argument(
+        "--stun-servers", dest="stun_servers", help="Comma-separated STUN servers (e.g. stun.l.google.com:19302)"
+    )
+    nat_group.add_argument("--ice", dest="ice_enabled", action="store_true", default=None, help="Enable ICE for media")
+    nat_group.add_argument("--turn-server", dest="turn_server", help="TURN relay server (host:port)")
+    nat_group.add_argument("--turn-username", dest="turn_username", help="TURN username")
+    nat_group.add_argument("--turn-password", dest="turn_password", help="TURN password")
+    nat_group.add_argument(
+        "--turn-transport", dest="turn_transport", choices=["udp", "tcp", "tls"], help="TURN transport (default: udp)"
+    )
+    nat_group.add_argument("--keepalive", dest="keepalive_sec", type=int, help="UDP keepalive interval in seconds")
+    nat_group.add_argument(
+        "--public-address", dest="public_address", help="Public IP to advertise in SDP/Contact (e.g. K3s node IP)"
+    )
 
     # Logging
     call_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging (DEBUG level)")
@@ -99,13 +119,28 @@ def cmd_call(args: argparse.Namespace) -> int:
         "timeout",
         "pre_delay",
         "post_delay",
+        "inter_delay",
         "repeat",
         "tts_model",
         "tts_sample_rate",
+        "ice_enabled",
+        "turn_server",
+        "turn_username",
+        "turn_password",
+        "turn_transport",
+        "keepalive_sec",
+        "public_address",
     ):
         val = getattr(args, key, None)
         if val is not None:
             overrides[key] = val
+
+    # --stun-servers: comma-separated → list
+    if args.stun_servers:
+        overrides["stun_servers"] = [s.strip() for s in args.stun_servers.split(",") if s.strip()]
+    # --turn-server implies turn_enabled
+    if args.turn_server:
+        overrides["turn_enabled"] = True
 
     try:
         config = load_config(config_path=args.config, overrides=overrides)

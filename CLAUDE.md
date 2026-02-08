@@ -82,6 +82,16 @@ These subdirectories contain independent Docker image builds with their own `bui
 - Entry point uses `tini` for proper signal handling
 - `PYTHONPATH=/app` is set; all modules copied to `/app/`
 
+### sipstuff / PJSUA2 Notes
+
+- **Multi-homed hosts**: `sip_caller.py` auto-detects the local IP via `_local_address_for()` (UDP connect to SIP server, no data sent) and binds both SIP and RTP transports to it. Without this, PJSIP picks the wrong interface and causes one-way audio.
+- **PJSUA2 Python bindings quirks**: `EpConfig` uses `medConfig` (not `mediaConfig`); `AccountConfig` uses `mediaConfig`. `MediaConfig` has no `transportConfig`, but `AccountMediaConfig.transportConfig` exists and controls per-call RTP socket binding.
+- **WAV player uses loop mode**: `AudioMediaPlayer.createPlayer()` without `PJMEDIA_FILE_NO_LOOP` keeps the conference port alive for clean `stopTransmit()` teardown. With `NO_LOOP` the player auto-detaches at EOF, causing `PJ_EINVAL` on any subsequent port operation.
+- **Orphaned player pattern**: `stop_wav()` moves the player reference into `SipCaller._orphaned_players` instead of destroying it immediately (CPython refcounting triggers the C++ destructor which races with conference bridge teardown). Players are cleared in `SipCaller.stop()` before `libDestroy()`.
+- **Known harmless warnings**: `PJSIP_ETPNOTSUITABLE` on INVITE (transport selection retry) and `conference.c Remove port failed` on hangup (port already invalidated by call teardown) are cosmetic and do not affect functionality.
+- **NAT traversal**: Optional STUN/ICE/TURN support via `NatConfig` in `sipconfig.py`. STUN servers are configured at endpoint level (`EpConfig.uaConfig.stunServer`); ICE, TURN, and UDP keepalives at account level (`AccountConfig.natConfig.*`). `_local_address_for()` still runs for local interface binding regardless of NAT config.
+- **Static NAT / `publicAddress`**: For K3s pods or SNAT scenarios where auto-detection returns an unreachable IP (pod IP) and STUN returns the wrong IP (WAN IP), `NatConfig.public_address` sets `TransportConfig.publicAddress` on both SIP and RTP transports. PJSIP then advertises this IP in SDP `c=` and Contact headers while the socket stays bound to the local (pod) IP. Requires stateful SNAT (conntrack) so replies are translated back.
+
 ## Code Style
 
 - Black formatter with 120 character line length

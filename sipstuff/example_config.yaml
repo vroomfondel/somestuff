@@ -16,8 +16,24 @@ call:
   timeout: 60                  # seconds until call attempt is aborted
   pre_delay: 0.0               # seconds to wait after answer before playback
   post_delay: 0.0              # seconds to wait after playback before hangup
+  inter_delay: 0.0             # seconds to wait between WAV repeats (only when repeat > 1)
   repeat: 1                    # number of times to play the WAV
 
 tts:
   model: "de_DE-thorsten-high" # piper voice model (auto-downloaded on first use)
   sample_rate: 0               # resample TTS output (0 = keep native, 8000/16000 for SIP)
+
+# NAT traversal (optional — omit entirely for direct-routable / LAN deployments)
+# nat:
+#   stun_servers:              # STUN servers for public IP discovery
+#     - "stun.l.google.com:19302"
+#   stun_ignore_failure: true  # continue if STUN unreachable
+#   ice_enabled: false         # ICE for media NAT traversal
+#   turn_enabled: false        # TURN relay (requires turn_server)
+#   turn_server: ""            # host:port
+#   turn_username: ""
+#   turn_password: ""
+#   turn_transport: "udp"      # udp, tcp, or tls
+#   keepalive_sec: 15          # UDP keepalive interval (0 = disabled)
+#   public_address: "192.168.1.100"  # Manual public IP for SDP/Contact headers
+#                                    # (use when running behind SNAT, e.g. K3s pod → DMZ)

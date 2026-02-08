@@ -30,6 +30,7 @@ def make_sip_call(
     transport: str = "udp",
     pre_delay: float = 0.0,
     post_delay: float = 0.0,
+    inter_delay: float = 0.0,
     repeat: int = 1,
     tts_model: str = "de_DE-thorsten-high",
 ) -> bool:
@@ -49,6 +50,7 @@ def make_sip_call(
         transport: "udp", "tcp", or "tls".
         pre_delay: Seconds to wait after answer before playback.
         post_delay: Seconds to wait after playback before hangup.
+        inter_delay: Seconds to wait between WAV repeats.
         repeat: Number of times to play the WAV.
         tts_model: Piper voice model for TTS.
 
@@ -75,6 +77,7 @@ def make_sip_call(
             "transport": transport,
             "pre_delay": pre_delay,
             "post_delay": post_delay,
+            "inter_delay": inter_delay,
             "repeat": repeat,
             "tts_model": tts_model,
         }

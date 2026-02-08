@@ -5,12 +5,13 @@ import struct
 import tempfile
 import wave
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from sipstuff.sip_caller import SipCallError, SipCaller, WavInfo
-from sipstuff.sipconfig import CallConfig, SipCallerConfig, SipConfig, load_config
+from sipstuff.sipconfig import CallConfig, NatConfig, SipCallerConfig, SipConfig, load_config
 
 # ─── Config model tests ──────────────────────────────────────────────────────
 
@@ -72,6 +73,82 @@ class TestSipCallerConfig:
         assert cfg.call.timeout == 30
 
 
+class TestNatConfig:
+    def test_nat_defaults(self) -> None:
+        nat = NatConfig()
+        assert nat.stun_servers == []
+        assert nat.stun_ignore_failure is True
+        assert nat.ice_enabled is False
+        assert nat.turn_enabled is False
+        assert nat.turn_server == ""
+        assert nat.keepalive_sec == 0
+        assert nat.public_address == ""
+
+    def test_public_address(self) -> None:
+        nat = NatConfig(public_address="192.168.1.50")
+        assert nat.public_address == "192.168.1.50"
+
+    def test_stun_only(self) -> None:
+        nat = NatConfig(stun_servers=["stun.l.google.com:19302"])
+        assert len(nat.stun_servers) == 1
+        assert nat.ice_enabled is False
+
+    def test_ice_with_stun(self) -> None:
+        nat = NatConfig(stun_servers=["stun.example.com:3478"], ice_enabled=True)
+        assert nat.ice_enabled is True
+        assert len(nat.stun_servers) == 1
+
+    def test_turn_requires_server(self) -> None:
+        with pytest.raises(Exception, match="turn_enabled requires turn_server"):
+            NatConfig(turn_enabled=True)
+
+    def test_turn_with_server(self) -> None:
+        nat = NatConfig(turn_enabled=True, turn_server="turn.example.com:3478", turn_username="u", turn_password="p")
+        assert nat.turn_enabled is True
+        assert nat.turn_server == "turn.example.com:3478"
+        assert nat.turn_transport == "udp"
+
+    def test_full_nat_config(self) -> None:
+        cfg = SipCallerConfig(
+            sip=SipConfig(server="pbx", user="u", password="p"),
+            nat=NatConfig(
+                stun_servers=["stun.example.com:3478"],
+                ice_enabled=True,
+                turn_enabled=True,
+                turn_server="turn.example.com:3478",
+                turn_username="tu",
+                turn_password="tp",
+                turn_transport="tcp",
+                keepalive_sec=30,
+            ),
+        )
+        assert len(cfg.nat.stun_servers) == 1
+        assert cfg.nat.ice_enabled is True
+        assert cfg.nat.turn_enabled is True
+        assert cfg.nat.keepalive_sec == 30
+
+    def test_backward_compat_no_nat(self) -> None:
+        cfg = SipCallerConfig(sip=SipConfig(server="pbx", user="u", password="p"))
+        assert cfg.nat.stun_servers == []
+        assert cfg.nat.ice_enabled is False
+        assert cfg.nat.turn_enabled is False
+
+    def test_flat_dict_with_nat(self) -> None:
+        cfg = SipCallerConfig(
+            **{"server": "pbx", "user": "u", "password": "p", "stun_servers": ["stun:3478"], "ice_enabled": True}
+        )
+        assert cfg.nat.stun_servers == ["stun:3478"]
+        assert cfg.nat.ice_enabled is True
+
+    def test_flat_dict_with_public_address(self) -> None:
+        cfg = SipCallerConfig(**{"server": "pbx", "user": "u", "password": "p", "public_address": "192.168.1.50"})
+        assert cfg.nat.public_address == "192.168.1.50"
+
+    def test_keepalive_out_of_range(self) -> None:
+        with pytest.raises(Exception):
+            NatConfig(keepalive_sec=999)
+
+
 class TestLoadConfig:
     def test_from_yaml(self, tmp_path: Path) -> None:
         yaml_file = tmp_path / "sip.yaml"
@@ -105,6 +182,52 @@ class TestLoadConfig:
     def test_nonexistent_yaml(self) -> None:
         cfg = load_config(config_path="/nonexistent/sip.yaml", overrides={"server": "s", "user": "u", "password": "p"})
         assert cfg.sip.server == "s"
+
+    def test_nat_from_yaml(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "sip.yaml"
+        yaml_file.write_text(
+            "sip:\n  server: pbx\n  user: u\n  password: p\n"
+            "nat:\n  stun_servers:\n    - stun.example.com:3478\n  ice_enabled: true\n  keepalive_sec: 30\n"
+        )
+        cfg = load_config(config_path=yaml_file)
+        assert cfg.nat.stun_servers == ["stun.example.com:3478"]
+        assert cfg.nat.ice_enabled is True
+        assert cfg.nat.keepalive_sec == 30
+
+    def test_nat_env_stun_servers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SIP_SERVER", "pbx")
+        monkeypatch.setenv("SIP_USER", "u")
+        monkeypatch.setenv("SIP_PASSWORD", "p")
+        monkeypatch.setenv("SIP_STUN_SERVERS", "a:3478, b:3478")
+        cfg = load_config()
+        assert cfg.nat.stun_servers == ["a:3478", "b:3478"]
+
+    def test_nat_overrides(self) -> None:
+        cfg = load_config(
+            overrides={"server": "pbx", "user": "u", "password": "p", "ice_enabled": True, "keepalive_sec": 20}
+        )
+        assert cfg.nat.ice_enabled is True
+        assert cfg.nat.keepalive_sec == 20
+
+    def test_public_address_from_yaml(self, tmp_path: Path) -> None:
+        yaml_file = tmp_path / "sip.yaml"
+        yaml_file.write_text(
+            "sip:\n  server: pbx\n  user: u\n  password: p\n" "nat:\n  public_address: '192.168.1.50'\n"
+        )
+        cfg = load_config(config_path=yaml_file)
+        assert cfg.nat.public_address == "192.168.1.50"
+
+    def test_public_address_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SIP_SERVER", "pbx")
+        monkeypatch.setenv("SIP_USER", "u")
+        monkeypatch.setenv("SIP_PASSWORD", "p")
+        monkeypatch.setenv("SIP_PUBLIC_ADDRESS", "10.0.0.1")
+        cfg = load_config()
+        assert cfg.nat.public_address == "10.0.0.1"
+
+    def test_public_address_from_overrides(self) -> None:
+        cfg = load_config(overrides={"server": "pbx", "user": "u", "password": "p", "public_address": "172.16.0.1"})
+        assert cfg.nat.public_address == "172.16.0.1"
 
 
 # ─── WAV validation tests ────────────────────────────────────────────────────
@@ -169,6 +292,11 @@ class TestSipCallerNoPjsua2:
 class TestSipCallerMocked:
     """Test SipCaller with fully mocked pjsua2 module."""
 
+    @pytest.fixture(autouse=True)
+    def _patch_local_addr(self) -> Any:
+        with patch("sipstuff.sip_caller._local_address_for", return_value="127.0.0.1"):
+            yield
+
     @pytest.fixture
     def mock_pj(self) -> MagicMock:
         return MagicMock()
@@ -201,3 +329,62 @@ class TestSipCallerMocked:
             caller = SipCaller(config)
             with pytest.raises(SipCallError, match="not started"):
                 caller.make_call("+491234", "/tmp/test.wav")
+
+    def test_start_applies_stun(self, mock_pj: MagicMock) -> None:
+        cfg = SipCallerConfig(
+            sip=SipConfig(server="pbx", user="u", password="p"),
+            nat=NatConfig(stun_servers=["stun.example.com:3478", "stun2.example.com:3478"]),
+        )
+        with patch("sipstuff.sip_caller.pj", mock_pj), patch("sipstuff.sip_caller.PJSUA2_AVAILABLE", True):
+            caller = SipCaller(cfg)
+            caller.start()
+            ep_cfg = mock_pj.EpConfig()
+            assert ep_cfg.uaConfig.stunServer.append.call_count == 2
+            caller.stop()
+
+    def test_start_applies_public_address(self, mock_pj: MagicMock) -> None:
+        cfg = SipCallerConfig(
+            sip=SipConfig(server="pbx", user="u", password="p"),
+            nat=NatConfig(public_address="192.168.1.50"),
+        )
+        with patch("sipstuff.sip_caller.pj", mock_pj), patch("sipstuff.sip_caller.PJSUA2_AVAILABLE", True):
+            caller = SipCaller(cfg)
+            caller.start()
+            tp_cfg = mock_pj.TransportConfig()
+            assert tp_cfg.publicAddress == "192.168.1.50"
+            acfg = mock_pj.AccountConfig()
+            assert acfg.mediaConfig.transportConfig.publicAddress == "192.168.1.50"
+            caller.stop()
+
+    def test_start_no_public_address_by_default(self, config: SipCallerConfig, mock_pj: MagicMock) -> None:
+        with patch("sipstuff.sip_caller.pj", mock_pj), patch("sipstuff.sip_caller.PJSUA2_AVAILABLE", True):
+            caller = SipCaller(config)
+            caller.start()
+            tp_cfg = mock_pj.TransportConfig()
+            # publicAddress should not be set (MagicMock default, not explicitly assigned to a string)
+            assert not isinstance(tp_cfg.publicAddress, str) or tp_cfg.publicAddress != "192.168.1.50"
+            caller.stop()
+
+    def test_start_applies_ice_turn(self, mock_pj: MagicMock) -> None:
+        cfg = SipCallerConfig(
+            sip=SipConfig(server="pbx", user="u", password="p"),
+            nat=NatConfig(
+                ice_enabled=True,
+                turn_enabled=True,
+                turn_server="turn.example.com:3478",
+                turn_username="tu",
+                turn_password="tp",
+                keepalive_sec=30,
+            ),
+        )
+        with patch("sipstuff.sip_caller.pj", mock_pj), patch("sipstuff.sip_caller.PJSUA2_AVAILABLE", True):
+            caller = SipCaller(cfg)
+            caller.start()
+            acfg = mock_pj.AccountConfig()
+            assert acfg.natConfig.iceEnabled is True
+            assert acfg.natConfig.turnEnabled is True
+            assert acfg.natConfig.turnServer == "turn.example.com:3478"
+            assert acfg.natConfig.turnUserName == "tu"
+            assert acfg.natConfig.turnPassword == "tp"
+            assert acfg.natConfig.udpKaIntervalSec == 30
+            caller.stop()
