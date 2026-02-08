@@ -42,6 +42,7 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 
 | Module                       | Purpose                                                     |
 |------------------------------|-------------------------------------------------------------|
+| `dhcpstuff/dhcp_discover.py` | DHCP Discover sender with PXE/Proxy DHCP support            |
 | `dnsstuff/pcbwaydnsstuff.py` | SPF record crawler → ipset updater for SMTP allowlisting    |
 | `ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
 | `gcalstuff/gcal_event.py`   | Google Calendar event creation CLI (OAuth2)                 |
@@ -49,6 +50,7 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 | `k3shelperstuff/`           | K3s kubeconfig credential sync via SSH                      |
 | `llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
 | `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
+| `sipstuff/sip_caller.py`    | SIP caller — phone calls with WAV playback or piper TTS via PJSUA2 |
 | `dinogame/`                  | Grid pathfinding visualization (A* experiments)             |
 | `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
 
@@ -73,6 +75,8 @@ These subdirectories contain independent Docker image builds with their own `bui
 ### Docker Image
 
 - Base: `python:3.14-slim-trixie`
+- Multi-stage build: stage 1 compiles PJSIP with Python bindings, stage 2 creates a Python 3.12 venv for piper-tts at `/opt/piper-venv` (piper-phonemize lacks Python 3.14 wheels), stage 3 assembles the final image
+- `sipstuff/tts.py` calls the piper CLI via subprocess from the 3.12 venv; model downloads use `piper.download_voices` via the venv's Python
 - Runs as non-root user `pythonuser` (UID 1200)
 - Multi-arch: linux/amd64, linux/arm64
 - Entry point uses `tini` for proper signal handling

@@ -1,0 +1,23 @@
+# SIP Caller configuration example
+# Copy to sip_config.yaml or sip_config.local.yaml and fill in real values.
+# Alternatively, set environment variables: SIP_SERVER, SIP_USER, SIP_PASSWORD, etc.
+
+sip:
+  server: "pbx.example.com"    # PBX hostname or IP
+  port: 5060                   # SIP port (default: 5060)
+  user: "1000"                 # SIP extension / username
+  password: "changeme"         # SIP password
+  transport: "udp"             # udp, tcp, or tls
+  srtp: "disabled"             # disabled, optional, or mandatory
+  tls_verify_server: false     # verify TLS server certificate
+  local_port: 0                # 0 = auto-select
+
+call:
+  timeout: 60                  # seconds until call attempt is aborted
+  pre_delay: 0.0               # seconds to wait after answer before playback
+  post_delay: 0.0              # seconds to wait after playback before hangup
+  repeat: 1                    # number of times to play the WAV
+
+tts:
+  model: "de_DE-thorsten-high" # piper voice model (auto-downloaded on first use)
+  sample_rate: 0               # resample TTS output (0 = keep native, 8000/16000 for SIP)

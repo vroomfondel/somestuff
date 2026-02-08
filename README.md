@@ -21,7 +21,9 @@ Contents overview (Python packages/modules):
 - `hydromailstuff`: assemble and send "hydro"/weather summary emails, pulling data from MQTT/Netatmo
 - `k3shelperstuff`: K3s kubeconfig credential synchronization utility
 - `llmstuff`: helpers for working with LLM APIs and local OCR
+- `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
+- `sipstuff`: SIP caller — place phone calls and play WAV files via PJSUA2
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -67,6 +69,19 @@ gitleaks dir . -v
 
 
 ## Modules and their usefulness
+
+### dhcpstuff
+DHCP discovery and diagnostic tools. Includes a Python DHCP Discover sender that displays all responses (including Proxy DHCP/PXE boot servers) and a bash diagnostic script for finding unwanted DHCP on physical interfaces (Ubuntu Server).
+
+- CLI usage (requires root):
+```bash
+sudo python -m dhcpstuff -i eth0 -a efi64
+```
+- Flags: `-i` interface, `-t` timeout, `-m` MAC, `-a` PXE architecture (`bios`, `efi64`, `efi64-http`).
+- The bash script `diagnose-dhcp.sh` checks cloud-init, netplan, systemd-networkd, NetworkManager, kernel cmdline, leases, and hooks for unwanted DHCP sources.
+- No external dependencies (stdlib only).
+- Usefulness: quickly identify all DHCP/PXE servers on a network segment, or diagnose why a Linux host is unexpectedly obtaining a DHCP lease.
+
 
 ### dinogame
 Pathfinding toy project and visualization to prototype search/planning strategies on a grid world, loosely inspired by “The Farmer Was Replaced”. Useful to experiment with A* heuristics and safe‑move constraints while visualizing planning vs execution.
@@ -168,6 +183,31 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
 
 
+### sipstuff
+SIP caller module using PJSUA2. Registers with a SIP/PBX server, dials a destination, plays a WAV file or TTS‑generated speech on answer, and hangs up. Designed for headless/container operation (null audio device, no sound card required). Supports UDP, TCP, and TLS transports with optional SRTP media encryption. Text‑to‑speech via [piper TTS](https://github.com/rhasspy/piper) — no pre‑recorded audio file needed.
+
+- CLI usage:
+```bash
+# WAV playback
+python -m sipstuff.cli call --server pbx.local --user 1000 --password secret --dest +491234567890 --wav alert.wav
+
+# TTS (auto‑downloads voice model on first use)
+python -m sipstuff.cli call --server pbx.local --user 1000 --password secret --dest +491234567890 \
+    --text "Achtung! Wasserstand kritisch!" --tts-data-dir /data/piper
+```
+- Library usage:
+```python
+from sipstuff import make_sip_call
+make_sip_call(server="pbx.local", user="1000", password="secret", destination="+49123", wav_file="alert.wav")
+make_sip_call(server="pbx.local", user="1000", password="secret", destination="+49123", text="Server offline!")
+```
+- Config: YAML file, `SIP_*` environment variables, or direct arguments. Priority: overrides > env > YAML.
+- Dependencies: `pjsua2` (PJSIP Python bindings, built from source in Docker), `pydantic`, `ruamel.yaml`, `loguru`.
+- Docker: PJSIP is compiled in a multi‑stage build (stage 1); piper‑tts runs in a separate Python 3.12 venv (stage 2, because `piper-phonemize` has no 3.14 wheels). Both are copied into the final image.
+- See `sipstuff/README.md` for full CLI flags, Docker examples, and library API.
+- Usefulness: automated alert/notification calls from scripts, cron jobs, or monitoring systems.
+
+
 ### flickrdownloaderstuff (moved)
 The Flickr photo backup functionality has been moved to a standalone repository:
 **[github.com/vroomfondel/flickrtoimmich](https://github.com/vroomfondel/flickrtoimmich)**
@@ -186,8 +226,9 @@ The Docker image is still available at [Docker Hub: xomoxcc/flickr-download](htt
 ## Docker: build process, use, and usefulness
 
 There is a single Docker image defined by the repo‑root `Dockerfile`. The image:
-- Uses `python:3.14-trixie` base (commented alternatives exist for 3.13/ PyPy).
-- Installs a few system tools (`htop`, `dnsutils`, `tini`, etc.) and Python deps via `requirements.txt`.
+- Uses `python:3.14-slim-trixie` base (commented alternatives exist for 3.13/ PyPy).
+- Multi‑stage build: stage 1 compiles PJSIP with Python bindings, stage 2 creates a Python 3.12 venv for piper‑tts (needed because `piper-phonemize` lacks 3.14 wheels), stage 3 assembles the final image.
+- Installs a few system tools (`htop`, `dnsutils`, `tini`, `ffmpeg`, etc.) and Python deps via `requirements.txt`.
 - Creates a non‑root user (`pythonuser`, configurable via build args `UID`, `GID`, `UNAME`).
 - Copies the packages into `/app` and sets `PYTHONPATH` accordingly.
 - Accepts build‑time metadata args and exports them as envs: `GITHUB_REF`, `GITHUB_SHA`, `BUILDTIME`.

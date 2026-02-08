@@ -21,7 +21,9 @@ Contents overview (Python packages/modules):
 - `k3shelperstuff`: K3s kubeconfig credential synchronization utility
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `mqttstuff`: tiny MQTT wrapper utility
+- `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
+- `sipstuff`: SIP caller — place phone calls and play WAV files via PJSUA2
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -57,6 +59,19 @@ mypy .
 
 
 ## Modules and their usefulness
+
+### dhcpstuff
+DHCP discovery and diagnostic tools. Includes a Python DHCP Discover sender that displays all responses (including Proxy DHCP/PXE boot servers) and a bash diagnostic script for finding unwanted DHCP on physical interfaces (Ubuntu Server).
+
+- CLI usage (requires root):
+```bash
+sudo python -m dhcpstuff -i eth0 -a efi64
+```
+- Flags: `-i` interface, `-t` timeout, `-m` MAC, `-a` PXE architecture (`bios`, `efi64`, `efi64-http`).
+- The bash script `diagnose-dhcp.sh` checks cloud-init, netplan, systemd-networkd, NetworkManager, kernel cmdline, leases, and hooks for unwanted DHCP sources.
+- No external dependencies (stdlib only).
+- Usefulness: quickly identify all DHCP/PXE servers on a network segment, or diagnose why a Linux host is unexpectedly obtaining a DHCP lease.
+
 
 ### dinogame
 Pathfinding toy project and visualization to prototype search/planning strategies on a grid world, loosely inspired by “The Farmer Was Replaced”. Useful to experiment with A* heuristics and safe‑move constraints while visualizing planning vs execution.
@@ -158,6 +173,19 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 - Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
 - Docker: mount `~/.kube` into the container (read‑write, since the script updates the local kubeconfig). The script SSHs to the remote host, so `~/.ssh` must also be accessible.
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
+
+
+### sipstuff
+SIP caller module using PJSUA2. Registers with a SIP/PBX server, dials a destination, plays a WAV file on answer, and hangs up. Designed for headless/container operation (null audio device, no sound card required). Supports UDP, TCP, and TLS transports with optional SRTP media encryption.
+
+- CLI usage:
+```bash
+python -m sipstuff.cli call --server pbx.local --user 1000 --password secret --dest +491234567890 --wav alert.wav
+```
+- Config: YAML file, `SIP_*` environment variables, or direct arguments. Priority: overrides > env > YAML.
+- Dependencies: `pjsua2` (PJSIP Python bindings, built from source in Docker), `pydantic`, `ruamel.yaml`, `loguru`.
+- Docker: PJSIP is compiled in a multi-stage build (stage 1) and the shared libraries + Python bindings are copied into the final image.
+- Usefulness: automated alert/notification calls from scripts, cron jobs, or monitoring systems.
 
 
 ### flickrdownloaderstuff (moved)

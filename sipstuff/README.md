@@ -1,0 +1,360 @@
+# sipstuff
+
+SIP caller module — place phone calls and play WAV files or TTS-generated speech via [PJSUA2](https://www.pjsip.org/).
+
+## Overview
+
+Registers with a SIP/PBX server, dials a destination, plays a WAV file (or synthesizes text via [piper TTS](https://github.com/rhasspy/piper)) on answer, and hangs up. Designed for headless/container operation (uses a null audio device, no sound card required). Supports UDP, TCP, and TLS transports with optional SRTP media encryption.
+
+## Prerequisites
+
+PJSIP with Python bindings (`pjsua2`) must be installed. The main project Dockerfile builds PJSIP from source in a multi-stage build. For local development:
+
+```bash
+# Debian/Ubuntu prerequisites
+sudo apt install build-essential python3-dev swig \
+    libasound2-dev libssl-dev libopus-dev wget
+
+# Build and install PJSIP (default: 2.16)
+./sipstuff/install_pjsip.sh
+
+# Or specify a version
+PJSIP_VERSION=2.14.1 ./sipstuff/install_pjsip.sh
+```
+
+Other Python dependencies: `pydantic`, `ruamel.yaml`, `loguru`.
+
+For TTS support: install `piper-tts` (optional, only needed for `--text`). Because `piper-phonemize` has no Python 3.14 wheels, the Docker image uses a separate Python 3.12 virtualenv at `/opt/piper-venv`. Resampling TTS output requires `ffmpeg`.
+
+## CLI Usage
+
+```bash
+# Minimal — using a config file with a WAV file
+python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
+
+# Using CLI flags directly (no config file)
+python -m sipstuff.cli call \
+    --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --wav alert.wav
+
+# Connection via environment variables, only destination and audio via CLI
+export SIP_SERVER=pbx.local SIP_USER=1000 SIP_PASSWORD=secret
+python -m sipstuff.cli call --dest +491234567890 --wav alert.wav
+
+# TTS instead of a WAV file (no audio file needed)
+python -m sipstuff.cli call \
+    --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 \
+    --text "Achtung! Wasserstand kritisch!" \
+    --tts-model de_DE-thorsten-high --tts-sample-rate 8000
+
+# TTS with a custom model directory
+python -m sipstuff.cli call \
+    --config sip_config.yaml --dest +491234567890 \
+    --text "Server offline!" \
+    --tts-data-dir /opt/piper-voices
+
+# Calling a SIP URI directly (instead of a phone number)
+python -m sipstuff.cli call \
+    --server pbx.local --user 1000 --password secret \
+    --dest sip:conference@pbx.local --wav announcement.wav
+
+# TLS transport with SRTP encryption and playback options
+python -m sipstuff.cli call \
+    --config sip_config.yaml \
+    --transport tls --srtp mandatory \
+    --dest +491234567890 --wav alert.wav \
+    --pre-delay 1.5 --post-delay 2.0 --repeat 3 \
+    --timeout 30 -v
+```
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--config`, `-c` | Path to YAML config file |
+| `--server`, `-s` | PBX hostname or IP |
+| `--port`, `-p` | SIP port (default: 5060) |
+| `--user`, `-u` | SIP extension / username |
+| `--password` | SIP password |
+| `--transport` | `udp`, `tcp`, or `tls` (default: udp) |
+| `--srtp` | `disabled`, `optional`, or `mandatory` (default: disabled) |
+| `--tls-verify` | Verify TLS server certificate |
+| `--dest`, `-d` | Destination phone number or SIP URI (required) |
+| `--wav`, `-w` | Path to WAV file to play (mutually exclusive with `--text`) |
+| `--text` | Text to synthesize via piper TTS (mutually exclusive with `--wav`) |
+| `--tts-model` | Piper voice model (default: `de_DE-thorsten-high`) |
+| `--tts-sample-rate` | Resample TTS output to this rate in Hz (default: native/22050) |
+| `--tts-data-dir` | Directory for piper voice models (default: `~/.local/share/piper-voices`) |
+| `--timeout`, `-t` | Call timeout in seconds (default: 60) |
+| `--pre-delay` | Seconds to wait after answer before playback (default: 0) |
+| `--post-delay` | Seconds to wait after playback before hangup (default: 0) |
+| `--repeat` | Number of times to play the WAV (default: 1) |
+| `--verbose`, `-v` | Debug logging |
+
+## Docker / Podman Example
+
+Convert a WAV file to 8 kHz mono PCM and place a TLS+SRTP call from a container:
+
+```bash
+ffmpeg -i alert.wav -ar 8000 -ac 1 -sample_fmt s16 -y /tmp/alert.wav 2>/dev/null && \
+podman run --network=host -it --rm --userns=keep-id:uid=1200,gid=1201 \
+    -v /tmp/alert.wav:/app/alert.wav:ro \
+    xomoxcc/somestuff:latest \
+    python3 -m sipstuff.cli \
+    call --server pbx.example.com \
+    --port 5161 --transport tls --srtp mandatory \
+    --user 1000 \
+    --password changeme \
+    --dest +491234567890 \
+    --wav /app/alert.wav \
+    --pre-delay 3.0 \
+    --post-delay 1.0 \
+    --repeat 3 -v
+```
+
+TTS call from a container (no WAV file needed on the host):
+
+```bash
+podman run --network=host -it --rm --userns=keep-id:uid=1200,gid=1201 \
+    xomoxcc/somestuff:latest \
+    python3 -m sipstuff.cli \
+    call --server pbx.example.com \
+    --port 5161 --transport tls --srtp mandatory \
+    --user 1000 \
+    --password changeme \
+    --dest +491234567890 \
+    --text "Achtung! Wasserstand kritisch!" \
+    --tts-sample-rate 8000 \
+    --pre-delay 3.0 \
+    --post-delay 1.0 \
+    --repeat 3 -v
+```
+
+TTS with persistent voice models (avoids re-downloading on every `--rm` run):
+
+```bash
+podman run --network=host -it --rm --userns=keep-id:uid=1200,gid=1201 \
+    -v ~/.local/share/piper-voices:/data/piper \
+    xomoxcc/somestuff:latest \
+    python3 -m sipstuff.cli \
+    call --server pbx.example.com \
+    --port 5161 --transport tls --srtp mandatory \
+    --user 1000 \
+    --password changeme \
+    --dest +491234567890 \
+    --text "Achtung! Wasserstand kritisch!" \
+    --tts-data-dir /data/piper \
+    --tts-sample-rate 8000 \
+    --pre-delay 3.0 -v
+```
+
+Passing connection parameters via environment variables:
+
+```bash
+podman run --network=host -it --rm --userns=keep-id:uid=1200,gid=1201 \
+    -e SIP_SERVER=pbx.example.com \
+    -e SIP_PORT=5161 \
+    -e SIP_USER=1000 \
+    -e SIP_PASSWORD=changeme \
+    -e SIP_TRANSPORT=tls \
+    -e SIP_SRTP=mandatory \
+    xomoxcc/somestuff:latest \
+    python3 -m sipstuff.cli \
+    call --dest +491234567890 \
+    --text "Server nicht erreichbar!" \
+    --tts-sample-rate 8000 -v
+```
+
+Notes:
+- `--network=host` is needed for SIP/RTP media traffic.
+- `--userns=keep-id:uid=1200,gid=1201` maps the container's `pythonuser` to your host user (rootless Podman).
+- The `ffmpeg` step in the WAV example ensures the file is in a SIP-friendly format (8 kHz, mono, 16-bit PCM).
+- The TTS example needs no host-side WAV file — piper generates speech inside the container. Use `--tts-sample-rate 8000` to resample for narrowband SIP.
+
+## Library Usage
+
+```python
+from sipstuff import make_sip_call
+
+# Simple call with a WAV file
+success = make_sip_call(
+    server="pbx.local",
+    user="1000",
+    password="secret",
+    destination="+491234567890",
+    wav_file="/path/to/alert.wav",
+    transport="udp",
+    repeat=2,
+)
+
+# Call with TTS (no WAV file needed)
+success = make_sip_call(
+    server="pbx.local",
+    user="1000",
+    password="secret",
+    destination="+491234567890",
+    text="Achtung! Wasserstand kritisch!",
+    tts_model="de_DE-thorsten-high",
+    pre_delay=1.0,
+    post_delay=1.0,
+)
+
+# TLS + SRTP call with all options
+success = make_sip_call(
+    server="pbx.example.com",
+    user="1000",
+    password="secret",
+    destination="+491234567890",
+    wav_file="/path/to/alert.wav",
+    port=5061,
+    transport="tls",
+    timeout=30,
+    pre_delay=1.5,
+    post_delay=2.0,
+    repeat=3,
+)
+```
+
+### Context Manager for Multiple Calls
+
+```python
+from sipstuff import SipCaller, load_config
+
+config = load_config(config_path="sip_config.yaml")
+with SipCaller(config) as caller:
+    caller.make_call("+491234567890", "alert.wav")
+    caller.make_call("+490987654321", "other.wav")
+```
+
+### Using TTS Directly
+
+```python
+from sipstuff import generate_wav, TtsError
+
+# Generate a WAV file from text (auto-downloads model on first use)
+try:
+    wav_path = generate_wav(
+        text="Server nicht erreichbar!",
+        model="de_DE-thorsten-high",
+        sample_rate=8000,  # resample for narrowband SIP (0 = keep native)
+    )
+    # wav_path is a temporary file — use it, then clean up
+    print(f"Generated: {wav_path}")
+except TtsError as exc:
+    print(f"TTS failed: {exc}")
+
+# With a specific output path and model directory
+wav_path = generate_wav(
+    text="Wasserstand kritisch!",
+    output_path="/tmp/alert_tts.wav",
+    data_dir="/opt/piper-voices",
+)
+```
+
+### Error Handling
+
+```python
+from sipstuff import make_sip_call, SipCallError, TtsError
+
+try:
+    success = make_sip_call(
+        server="pbx.local",
+        user="1000",
+        password="secret",
+        destination="+491234567890",
+        wav_file="alert.wav",
+    )
+    if not success:
+        print("Call was not answered")
+except SipCallError as exc:
+    print(f"SIP error: {exc}")  # registration, transport, or WAV issues
+except TtsError as exc:
+    print(f"TTS error: {exc}")  # piper not found, synthesis failed
+```
+
+## Configuration
+
+Configuration is loaded with the following priority (highest first): CLI flags / overrides > environment variables > YAML file.
+
+### YAML Config
+
+See `example_config.yaml` for a full example:
+
+```yaml
+sip:
+  server: "pbx.example.com"
+  port: 5060
+  user: "1000"
+  password: "changeme"
+  transport: "udp"        # udp, tcp, or tls
+  srtp: "disabled"        # disabled, optional, or mandatory
+  tls_verify_server: false
+  local_port: 0           # 0 = auto
+
+call:
+  timeout: 60
+  pre_delay: 0.0
+  post_delay: 0.0
+  repeat: 1
+
+tts:
+  model: "de_DE-thorsten-high"  # piper voice model (auto-downloaded on first use)
+  sample_rate: 0                # 0 = keep native (22050), use 8000 for narrowband SIP
+```
+
+### Environment Variables
+
+All settings can be set via `SIP_` prefixed environment variables:
+
+| Variable | Maps to |
+|----------|---------|
+| `SIP_SERVER` | `sip.server` |
+| `SIP_PORT` | `sip.port` |
+| `SIP_USER` | `sip.user` |
+| `SIP_PASSWORD` | `sip.password` |
+| `SIP_TRANSPORT` | `sip.transport` |
+| `SIP_SRTP` | `sip.srtp` |
+| `SIP_TLS_VERIFY_SERVER` | `sip.tls_verify_server` |
+| `SIP_LOCAL_PORT` | `sip.local_port` |
+| `SIP_TIMEOUT` | `call.timeout` |
+| `SIP_PRE_DELAY` | `call.pre_delay` |
+| `SIP_POST_DELAY` | `call.post_delay` |
+| `SIP_REPEAT` | `call.repeat` |
+| `SIP_TTS_MODEL` | `tts.model` |
+| `SIP_TTS_SAMPLE_RATE` | `tts.sample_rate` |
+
+TTS runtime environment variables (for overriding piper binary paths):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PIPER_BIN` | `/opt/piper-venv/bin/piper` | Path to piper CLI binary |
+| `PIPER_PYTHON` | `/opt/piper-venv/bin/python` | Python interpreter for piper venv |
+| `PIPER_DATA_DIR` | `~/.local/share/piper-voices` | Directory for downloaded voice models |
+
+## WAV File Requirements
+
+The module accepts standard WAV files. Recommended format for SIP:
+- 16-bit PCM, mono, 8000 or 16000 Hz sample rate
+
+Non-standard formats (stereo, different bit depths/rates) will produce warnings but playback is still attempted.
+
+## Module Structure
+
+| File | Purpose |
+|------|---------|
+| `__init__.py` | Public API: `make_sip_call`, `SipCaller`, `SipCallError`, `SipCallerConfig`, `TtsError`, `generate_wav`, `load_config` |
+| `sip_caller.py` | Core calling logic: `SipCaller` (context manager), `SipCall` (PJSUA2 callbacks), `WavInfo` |
+| `sipconfig.py` | Pydantic config models with YAML / env / override loading |
+| `tts.py` | Piper TTS integration: text-to-WAV generation with optional resampling (uses `/opt/piper-venv`) |
+| `cli.py` | CLI entry point (`python -m sipstuff.cli call ...`) |
+| `install_pjsip.sh` | Build script for PJSIP with Python bindings (default: 2.16) |
+| `example_config.yaml` | Sample configuration file |
+
+## Tests
+
+```bash
+pytest tests/test_sipstuff.py -v
+```
+
+Tests cover config validation, WAV validation, and mocked PJSUA2 caller behavior (no real SIP server needed).
