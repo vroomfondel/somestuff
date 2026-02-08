@@ -3,6 +3,7 @@
 Provides SipCaller (high-level, context-manager) and SipCall (PJSUA2 callback handler).
 """
 
+import socket
 import threading
 import time
 import wave
@@ -57,6 +58,18 @@ class WavInfo:
         )
 
 
+def _local_address_for(remote_host: str, remote_port: int = 5060) -> str:
+    """Return the local IP address that the OS would use to reach *remote_host*.
+
+    Opens a UDP socket and connects (no data sent) so the kernel selects
+    the correct source address based on the routing table.  This avoids
+    multi-homed hosts advertising the wrong IP in SDP.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect((remote_host, remote_port))
+        return s.getsockname()[0]
+
+
 def _require_pjsua2() -> None:
     if not PJSUA2_AVAILABLE:
         raise SipCallError(
@@ -107,13 +120,17 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
                 break
 
     def play_wav(self) -> bool:
-        """Start playing the configured WAV file. Returns True on success."""
+        """Start playing the configured WAV file. Reuses the player on subsequent calls."""
         if not self._wav_path or not self._audio_media:
             return False
         try:
-            self.wav_player = pj.AudioMediaPlayer()
-            self.wav_player.createPlayer(self._wav_path, pj.PJMEDIA_FILE_NO_LOOP)
-            self.wav_player.startTransmit(self._audio_media)
+            if self.wav_player is not None:
+                # Rewind existing player instead of destroying/recreating
+                self.wav_player.setPos(0)
+            else:
+                self.wav_player = pj.AudioMediaPlayer()
+                self.wav_player.createPlayer(self._wav_path, pj.PJMEDIA_FILE_NO_LOOP)
+                self.wav_player.startTransmit(self._audio_media)
             logger.info(f"Playing WAV: {self._wav_path}")
             return True
         except Exception as exc:
@@ -121,12 +138,14 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
             return False
 
     def stop_wav(self) -> None:
-        """Stop current WAV playback."""
-        if self.wav_player and self._audio_media:
-            try:
-                self.wav_player.stopTransmit(self._audio_media)
-            except Exception:
-                pass
+        """Stop current WAV playback.
+
+        With PJMEDIA_FILE_NO_LOOP the player auto-detaches from the
+        conference bridge at EOF, so calling stopTransmit() would fail
+        with PJ_EINVAL.  Destroying the player object is sufficient.
+        """
+        if self.wav_player is not None:
+            del self.wav_player
             self.wav_player = None
 
 
@@ -160,14 +179,20 @@ class SipCaller:
         self._ep = pj.Endpoint()
         self._ep.libCreate()
 
+        # Determine the local IP that routes to the SIP server so both
+        # signaling and media (RTP) sockets bind to the correct interface.
+        local_ip = _local_address_for(self.config.sip.server, self.config.sip.port)
+        self._log.info(f"Local address for SIP server: {local_ip}")
+
         ep_cfg = pj.EpConfig()
         ep_cfg.logConfig.level = 3
         ep_cfg.logConfig.consoleLevel = 3
         self._ep.libInit(ep_cfg)
 
-        # Transport(s)
+        # Transport(s) — also bound to the correct interface
         tp_cfg = pj.TransportConfig()
         tp_cfg.port = self.config.sip.local_port
+        tp_cfg.boundAddress = local_ip
 
         if self.config.sip.transport == "tls":
             tp_type = pj.PJSIP_TRANSPORT_TLS
@@ -190,14 +215,21 @@ class SipCaller:
         self._ep.audDevManager().setNullDev()
         self._log.info("PJSUA2 endpoint started (null audio device)")
 
-        # Account registration
+        # Account registration — bind to our transport so PJSIP never tries
+        # an unsupported transport (avoids PJSIP_EUNSUPTRANSPORT on INVITE).
         acfg = pj.AccountConfig()
         scheme = "sips" if self.config.sip.transport == "tls" else "sip"
+        tp_param = f";transport={self.config.sip.transport}"
         acfg.idUri = f"{scheme}:{self.config.sip.user}@{self.config.sip.server}"
-        acfg.regConfig.registrarUri = f"{scheme}:{self.config.sip.server}:{self.config.sip.port}"
+        acfg.regConfig.registrarUri = f"{scheme}:{self.config.sip.server}:{self.config.sip.port}{tp_param}"
+        acfg.sipConfig.transportId = self._transport
 
         cred = pj.AuthCredInfo("digest", "*", self.config.sip.user, 0, self.config.sip.password)
         acfg.sipConfig.authCreds.append(cred)
+
+        # Bind RTP/media sockets to the correct interface (avoids SDP
+        # advertising the wrong IP on multi-homed hosts).
+        acfg.mediaConfig.transportConfig.boundAddress = local_ip
 
         # SRTP media encryption
         srtp_map = {
@@ -273,15 +305,17 @@ class SipCaller:
         wav_info = WavInfo(wav_file)
         wav_info.validate()
 
-        # Build SIP URI (include port for non-standard ports so PJSIP doesn't use defaults)
+        # Build SIP URI — always include ;transport= so PJSIP uses the correct
+        # transport directly without NAPTR/SRV fallback attempts.
         scheme = "sips" if self.config.sip.transport == "tls" else "sip"
+        tp_param = f";transport={self.config.sip.transport}"
         default_port = 5061 if self.config.sip.transport == "tls" else 5060
         if destination.startswith("sip:") or destination.startswith("sips:"):
             sip_uri = destination
         elif self.config.sip.port != default_port:
-            sip_uri = f"{scheme}:{destination}@{self.config.sip.server}:{self.config.sip.port}"
+            sip_uri = f"{scheme}:{destination}@{self.config.sip.server}:{self.config.sip.port}{tp_param}"
         else:
-            sip_uri = f"{scheme}:{destination}@{self.config.sip.server}"
+            sip_uri = f"{scheme}:{destination}@{self.config.sip.server}{tp_param}"
 
         self._log.info(
             f"Calling {sip_uri} (timeout: {timeout}s, repeat: {repeat}x, pre: {pre_delay}s, post: {post_delay}s)"
@@ -313,7 +347,22 @@ class SipCaller:
         self._log.info("Call answered")
 
         # Wait for media to be ready
-        call.media_ready_event.wait(timeout=5)
+        if not call.media_ready_event.wait(timeout=5):
+            self._log.error("Media channel not ready after 5s — hanging up")
+            try:
+                call.hangup(pj.CallOpParam())
+            except Exception:
+                pass
+            return False
+
+        # Log negotiated media info for diagnostics
+        try:
+            ci = call.getInfo()
+            for mi in ci.media:
+                if mi.type == pj.PJMEDIA_TYPE_AUDIO:
+                    self._log.debug(f"Audio media: dir={mi.dir}, status={mi.status}")
+        except Exception:
+            pass
 
         # Pre-delay
         if pre_delay > 0:
@@ -322,23 +371,24 @@ class SipCaller:
                 self._log.info("Remote party hung up during pre-delay")
                 return True
 
-        # Play WAV repeat times
-        for i in range(repeat):
-            if call.disconnected_event.is_set():
-                self._log.info("Remote party hung up during playback")
-                return True
+        # Play WAV repeat times (reuse player across repeats to avoid conference port race)
+        try:
+            for i in range(repeat):
+                if call.disconnected_event.is_set():
+                    self._log.info("Remote party hung up during playback")
+                    return True
 
-            if repeat > 1:
-                self._log.info(f"Playing WAV ({i + 1}/{repeat})")
+                if repeat > 1:
+                    self._log.info(f"Playing WAV ({i + 1}/{repeat})")
 
-            call.play_wav()
+                call.play_wav()
 
-            # Wait for WAV duration + small buffer
-            playback_wait = wav_info.duration + 0.5
-            if call.disconnected_event.wait(timeout=playback_wait):
-                self._log.info("Remote party hung up during playback")
-                return True
-
+                # Wait for WAV duration + small buffer
+                playback_wait = wav_info.duration + 0.5
+                if call.disconnected_event.wait(timeout=playback_wait):
+                    self._log.info("Remote party hung up during playback")
+                    return True
+        finally:
             call.stop_wav()
 
         # Post-delay
