@@ -332,6 +332,33 @@ TTS runtime environment variables (for overriding piper binary paths):
 | `PIPER_PYTHON` | `/opt/piper-venv/bin/python` | Python interpreter for piper venv |
 | `PIPER_DATA_DIR` | `~/.local/share/piper-voices` | Directory for downloaded voice models |
 
+## Troubleshooting
+
+### One-way audio on multi-homed hosts
+
+On hosts with multiple network interfaces PJSIP may auto-detect the wrong local IP and advertise it in the SDP `c=` line. The SIP gateway then sends RTP to the wrong address, resulting in **one-way audio** (you can see `RX total 0pkt` in the call stats). `sip_caller.py` works around this by calling `_local_address_for()` at startup — a non-sending UDP connect to the SIP server that lets the kernel's routing table select the correct source address. Both the SIP transport and the account media transport are then bound to that IP.
+
+Symptom in logs:
+```
+pjsua_acc.c !....IP address change detected for account 0 (192.168.x.x --> 192.168.y.y)
+```
+
+### `PJSIP_ETPNOTSUITABLE` warning on INVITE
+
+```
+Temporary failure in sending Request msg INVITE ... Unsuitable transport selected (PJSIP_ETPNOTSUITABLE)
+```
+
+This is a PJSIP-internal transport selection warning that appears when the SIP URI includes `;transport=udp` and the bound transport doesn't match PJSIP's initial candidate. The call still succeeds on the retry. It does not affect media or audio quality.
+
+### `conference.c Remove port failed` warning on hangup
+
+```
+conference.c !.Remove port failed: Invalid value or argument (PJ_EINVAL)
+```
+
+A cosmetic PJSIP warning during WAV player cleanup. The player's conference port is invalidated when the call's media is torn down; the subsequent C++ destructor tries to remove it again. Audio and call lifecycle are unaffected.
+
 ## WAV File Requirements
 
 The module accepts standard WAV files. Recommended format for SIP:

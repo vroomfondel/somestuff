@@ -120,16 +120,18 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
                 break
 
     def play_wav(self) -> bool:
-        """Start playing the configured WAV file. Reuses the player on subsequent calls."""
+        """Start playing the configured WAV file (loop mode).
+
+        The player is created once and loops continuously.  Repeat
+        count and timing are managed by make_call(); the loop keeps
+        the conference port alive for clean stopTransmit() teardown.
+        """
         if not self._wav_path or not self._audio_media:
             return False
         try:
-            if self.wav_player is not None:
-                # Rewind existing player instead of destroying/recreating
-                self.wav_player.setPos(0)
-            else:
+            if self.wav_player is None:
                 self.wav_player = pj.AudioMediaPlayer()
-                self.wav_player.createPlayer(self._wav_path, pj.PJMEDIA_FILE_NO_LOOP)
+                self.wav_player.createPlayer(self._wav_path)
                 self.wav_player.startTransmit(self._audio_media)
             logger.info(f"Playing WAV: {self._wav_path}")
             return True
@@ -137,15 +139,24 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
             logger.error(f"Failed to play WAV: {exc}")
             return False
 
-    def stop_wav(self) -> None:
-        """Stop current WAV playback.
+    def stop_wav(self, _orphan_store: list[Any] | None = None) -> None:
+        """Stop current WAV playback and disconnect from conference bridge.
 
-        With PJMEDIA_FILE_NO_LOOP the player auto-detaches from the
-        conference bridge at EOF, so calling stopTransmit() would fail
-        with PJ_EINVAL.  Destroying the player object is sufficient.
+        If *_orphan_store* is provided the player object is kept alive
+        there instead of being destroyed immediately — this avoids the
+        PJSIP "Remove port failed" warning that occurs when CPython's
+        ref-counting triggers the C++ destructor while the conference
+        bridge is still active.  The caller (SipCaller) clears the
+        store during endpoint shutdown when cleanup is safe.
         """
         if self.wav_player is not None:
-            del self.wav_player
+            if self._audio_media is not None:
+                try:
+                    self.wav_player.stopTransmit(self._audio_media)
+                except Exception:
+                    pass
+            if _orphan_store is not None:
+                _orphan_store.append(self.wav_player)
             self.wav_player = None
 
 
@@ -163,6 +174,7 @@ class SipCaller:
         self._ep: pj.Endpoint | None = None
         self._account: pj.Account | None = None
         self._transport: Any = None
+        self._orphaned_players: list[Any] = []
         self._log = logger.bind(classname="SipCaller")
 
     def __enter__(self) -> "SipCaller":
@@ -261,6 +273,10 @@ class SipCaller:
             except Exception:
                 pass
             self._account = None
+
+        # Destroy orphaned WAV players while the conference bridge
+        # (owned by the endpoint) is still alive.
+        self._orphaned_players.clear()
 
         if self._ep is not None:
             try:
@@ -371,25 +387,22 @@ class SipCaller:
                 self._log.info("Remote party hung up during pre-delay")
                 return True
 
-        # Play WAV repeat times (reuse player across repeats to avoid conference port race)
+        # Start the looping WAV player once; wait for duration × repeats.
         try:
+            call.play_wav()
             for i in range(repeat):
                 if call.disconnected_event.is_set():
                     self._log.info("Remote party hung up during playback")
                     return True
 
                 if repeat > 1:
-                    self._log.info(f"Playing WAV ({i + 1}/{repeat})")
+                    self._log.info(f"Playing WAV pass ({i + 1}/{repeat})")
 
-                call.play_wav()
-
-                # Wait for WAV duration + small buffer
-                playback_wait = wav_info.duration + 0.5
-                if call.disconnected_event.wait(timeout=playback_wait):
+                if call.disconnected_event.wait(timeout=wav_info.duration):
                     self._log.info("Remote party hung up during playback")
                     return True
         finally:
-            call.stop_wav()
+            call.stop_wav(_orphan_store=self._orphaned_players)
 
         # Post-delay
         if post_delay > 0:
