@@ -23,7 +23,7 @@ Contents overview (Python packages/modules):
 - `mqttstuff`: tiny MQTT wrapper utility
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `sipstuff`: SIP caller — place phone calls and play WAV files via PJSUA2
+- `sipstuff`: SIP caller — phone calls with WAV playback or piper TTS via PJSUA2
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -176,15 +176,36 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 
 
 ### sipstuff
-SIP caller module using PJSUA2. Registers with a SIP/PBX server, dials a destination, plays a WAV file on answer, and hangs up. Designed for headless/container operation (null audio device, no sound card required). Supports UDP, TCP, and TLS transports with optional SRTP media encryption.
+SIP caller module using PJSUA2. Registers with a SIP/PBX server, dials a destination, plays a WAV file **or synthesizes speech via piper TTS** on answer, and hangs up. Designed for headless/container operation (null audio device, no sound card required).
 
-- CLI usage:
+Features:
+- **Transports**: UDP, TCP, TLS (with optional server certificate verification).
+- **SRTP**: disabled, optional, or mandatory media encryption.
+- **TTS**: piper text‑to‑speech via a bundled Python 3.12 venv (piper‑phonemize lacks 3.14 wheels). Automatic voice model download; default model `de_DE-thorsten-high`. Optional ffmpeg resampling to SIP‑friendly rates (8000/16000 Hz).
+- **NAT traversal**: STUN servers, ICE, TURN relay (with auth, UDP/TCP/TLS transport), UDP keepalive interval, and static `--public-address` for K3s/SNAT scenarios where auto‑detection returns an unreachable IP.
+- **Playback controls**: `--repeat`, `--pre-delay`, `--post-delay`, `--inter-delay`.
+- **Multi‑homed host support**: auto‑detects the correct local IP and binds SIP + RTP transports to it, avoiding one‑way audio.
+
+CLI usage:
 ```bash
-python -m sipstuff.cli call --server pbx.local --user 1000 --password secret --dest +491234567890 --wav alert.wav
+# WAV playback
+python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --wav alert.wav
+
+# Text-to-speech
+python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --text "Achtung! Wasserstand kritisch!"
+
+# With NAT traversal and TLS transport
+python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --wav alert.wav \
+    --transport tls --srtp mandatory \
+    --stun-servers stun.l.google.com:19302 --ice
 ```
-- Config: YAML file, `SIP_*` environment variables, or direct arguments. Priority: overrides > env > YAML.
+- Config: YAML file, `SIP_*` environment variables, or direct CLI arguments. Priority: CLI overrides > env > YAML.
+- Library API: `make_sip_call()` for one‑off calls, `SipCaller` context manager for multiple calls, `generate_wav()` for standalone TTS.
 - Dependencies: `pjsua2` (PJSIP Python bindings, built from source in Docker), `pydantic`, `ruamel.yaml`, `loguru`.
-- Docker: PJSIP is compiled in a multi-stage build (stage 1) and the shared libraries + Python bindings are copied into the final image.
+- Docker: PJSIP is compiled in a multi‑stage build (stage 1), piper‑tts is installed in a Python 3.12 venv (stage 2), and both are copied into the final image (stage 3).
 - Usefulness: automated alert/notification calls from scripts, cron jobs, or monitoring systems.
 
 
@@ -205,13 +226,17 @@ The Docker image is still available at [Docker Hub: xomoxcc/flickr-download](htt
 
 ## Docker: build process, use, and usefulness
 
-There is a single Docker image defined by the repo‑root `Dockerfile`. The image:
-- Uses `python:3.14-slim-trixie` base (commented alternatives exist for 3.13/ PyPy).
-- Installs a few system tools (`htop`, `dnsutils`, `tini`, etc.) and Python deps via `requirements.txt`.
-- Creates a non‑root user (`pythonuser`, configurable via build args `UID`, `GID`, `UNAME`).
-- Copies the packages into `/app` and sets `PYTHONPATH` accordingly.
-- Accepts build‑time metadata args and exports them as envs: `GITHUB_REF`, `GITHUB_SHA`, `BUILDTIME`.
-- Entrypoint is `tini --`, default `CMD` tails the log (adjust for your workload).
+There is a single Docker image defined by the repo‑root `Dockerfile`. It uses a **three‑stage** multi‑stage build:
+1. **Stage 1 — PJSIP builder** (`python:3.14-slim-trixie`): compiles PJSIP 2.16 with Python bindings (`pjsua2`) and stages the shared libraries.
+2. **Stage 2 — piper builder** (`python:3.12-slim-trixie`): creates a self‑contained Python 3.12 venv with `piper-tts` (piper‑phonemize has no Python 3.14 wheels). The portable Python 3.12 runtime and venv are copied into the final image at `/opt/python312` and `/opt/piper-venv`.
+3. **Stage 3 — Final image** (`python:3.14-slim-trixie`):
+   - Installs system tools (`htop`, `dnsutils`, `tini`, `ffmpeg`, etc.) and audio runtime libraries (`libasound2`, `libssl3`, `libopus0`).
+   - Installs Python deps via `requirements.txt`.
+   - Creates a non‑root user (`pythonuser`, configurable via build args `UID`, `GID`, `UNAME`).
+   - Copies PJSIP libs + bindings from stage 1 and piper venv from stage 2.
+   - Copies the packages into `/app` and sets `PYTHONPATH` accordingly.
+   - Accepts build‑time metadata args and exports them as envs: `GITHUB_REF`, `GITHUB_SHA`, `BUILDTIME`.
+   - Entrypoint is `tini --`, default `CMD` tails the log (adjust for your workload).
 
 Why this is useful:
 - Reproducible environment across machines/architectures.
