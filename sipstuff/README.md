@@ -1,6 +1,6 @@
 # sipstuff
 
-SIP caller module — place phone calls and play WAV files or TTS-generated speech via [PJSUA2](https://www.pjsip.org/).
+SIP caller module — place phone calls and play WAV files or TTS-generated speech via [PJSUA2](https://www.pjsip.org/). Includes speech-to-text transcription of recorded calls via [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
 
 ## Overview
 
@@ -25,6 +25,8 @@ PJSIP_VERSION=2.14.1 ./sipstuff/install_pjsip.sh
 Other Python dependencies: `pydantic`, `ruamel.yaml`, `loguru`.
 
 For TTS support: install `piper-tts` (optional, only needed for `--text`). Because `piper-phonemize` has no Python 3.14 wheels, the Docker image uses a separate Python 3.12 virtualenv at `/opt/piper-venv`. Resampling TTS output requires `ffmpeg`.
+
+For STT support: `pip install faster-whisper` (optional, only needed for transcription). Whisper models are auto-downloaded on first use (~1.5 GB for the `medium` model).
 
 ## CLI Usage
 
@@ -269,10 +271,47 @@ wav_path = generate_wav(
 )
 ```
 
+### Using STT (Speech-to-Text) Directly
+
+```python
+from sipstuff import transcribe_wav, SttError
+
+# Transcribe a recorded call (auto-downloads model on first use)
+try:
+    text = transcribe_wav("/tmp/recording.wav")  # default: medium model, German
+    print(f"Transcription: {text}")
+except SttError as exc:
+    print(f"STT failed: {exc}")
+
+# English transcription with a different model
+text = transcribe_wav("/tmp/recording.wav", language="en", model="large-v3")
+
+# Custom model cache directory (useful for Docker volumes)
+text = transcribe_wav(
+    "/tmp/recording.wav",
+    data_dir="/opt/whisper-models",
+)
+```
+
+### Call with Recording and Transcription
+
+```python
+from sipstuff import SipCaller, load_config, transcribe_wav
+
+config = load_config(config_path="sip_config.yaml")
+with SipCaller(config) as caller:
+    success = caller.make_call(
+        "+491234567890", "alert.wav", record_path="/tmp/recording.wav"
+    )
+    if success:
+        text = transcribe_wav("/tmp/recording.wav")
+        print(f"Remote party said: {text}")
+```
+
 ### Error Handling
 
 ```python
-from sipstuff import make_sip_call, SipCallError, TtsError
+from sipstuff import make_sip_call, SipCallError, TtsError, SttError
 
 try:
     success = make_sip_call(
@@ -288,6 +327,8 @@ except SipCallError as exc:
     print(f"SIP error: {exc}")  # registration, transport, or WAV issues
 except TtsError as exc:
     print(f"TTS error: {exc}")  # piper not found, synthesis failed
+except SttError as exc:
+    print(f"STT error: {exc}")  # faster-whisper not found, transcription failed
 ```
 
 ## Configuration
@@ -406,6 +447,15 @@ TTS runtime environment variables (for overriding piper binary paths):
 | `PIPER_PYTHON` | `/opt/piper-venv/bin/python` | Python interpreter for piper venv |
 | `PIPER_DATA_DIR` | `~/.local/share/piper-voices` | Directory for downloaded voice models |
 
+STT (speech-to-text) environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WHISPER_DATA_DIR` | `~/.local/share/faster-whisper-models` | Directory for downloaded Whisper models |
+| `WHISPER_MODEL` | `medium` | Default model size (`tiny`, `base`, `small`, `medium`, `large-v3`) |
+| `WHISPER_DEVICE` | `cpu` | Compute device (`cpu` or `cuda`) |
+| `WHISPER_COMPUTE_TYPE` | `int8` (CPU) / `float16` (CUDA) | Quantization type (`int8`, `float16`, `float32`) |
+
 PJSIP native log routing:
 
 | Variable | Default | Description |
@@ -455,10 +505,11 @@ Non-standard formats (stereo, different bit depths/rates) will produce warnings 
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Public API: `make_sip_call`, `SipCaller`, `SipCallError`, `SipCallerConfig`, `TtsError`, `generate_wav`, `load_config` |
+| `__init__.py` | Public API: `make_sip_call`, `SipCaller`, `SipCallError`, `SipCallerConfig`, `TtsError`, `generate_wav`, `SttError`, `transcribe_wav`, `load_config` |
 | `sip_caller.py` | Core calling logic: `SipCaller` (context manager), `SipCall` (PJSUA2 callbacks), `WavInfo` |
 | `sipconfig.py` | Pydantic config models with YAML / env / override loading |
 | `tts.py` | Piper TTS integration: text-to-WAV generation with optional resampling (uses `/opt/piper-venv`) |
+| `stt.py` | Speech-to-text via faster-whisper: WAV transcription with configurable model and language |
 | `cli.py` | CLI entry point (`python -m sipstuff.cli call ...`) |
 | `install_pjsip.sh` | Build script for PJSIP with Python bindings (default: 2.16) |
 | `example_config.yaml` | Sample configuration file |

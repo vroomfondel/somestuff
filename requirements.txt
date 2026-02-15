@@ -48,5 +48,7 @@ tabulate
 # piper-tts — installed in /opt/piper-venv via Python 3.12 (piper-phonemize lacks 3.14 wheels)
 pathvalidate
 
+faster-whisper
+
 mqttstuff==0.0.5
 reputils==0.0.16

@@ -5,13 +5,15 @@ Provides the ``python -m sipstuff.cli`` command which registers with a SIP
 server, dials a destination, plays a WAV file or piper-TTS-generated speech,
 and hangs up.
 
-Example:
-    .. code-block:: bash
-
-        python -m sipstuff.cli call --dest +491234567890 --wav alert.wav
-        python -m sipstuff.cli call --dest +491234567890 --text "Achtung!"
-        python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
-        python -m sipstuff.cli call --server 192.168.123.123 --port 5060 --transport udp --srtp disabled --user sipuser --password sippasword --dest +491234567890 --text "Houston, wir haben ein Problem." --pre-delay 3.0 --post-delay 1.0 --inter-delay 2.1 --repeat 3 -v
+Examples:
+    $ python -m sipstuff.cli call --dest +491234567890 --wav alert.wav
+    $ python -m sipstuff.cli call --dest +491234567890 --text "Achtung!"
+    $ python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
+    $ python -m sipstuff.cli call --dest +491234567890 --wav alert.wav --record /tmp/recording.wav
+    $ python -m sipstuff.cli call --server 192.168.123.123 --port 5060 \
+        --transport udp --srtp disabled --user sipuser --password sippasword \
+        --dest +491234567890 --text "Houston, wir haben ein Problem." \
+        --pre-delay 3.0 --post-delay 1.0 --inter-delay 2.1 --repeat 3 -v
 """
 
 import argparse
@@ -115,6 +117,7 @@ def parse_args() -> argparse.Namespace:
         "--inter-delay", dest="inter_delay", type=float, help="Seconds to wait between WAV repeats (default: 0)"
     )
     call_parser.add_argument("--repeat", type=int, help="Number of times to play the WAV (default: 1)")
+    call_parser.add_argument("--record", dest="record_path", help="Record remote party audio to this WAV file path")
 
     # NAT traversal
     nat_group = call_parser.add_argument_group("NAT traversal")
@@ -225,7 +228,7 @@ def cmd_call(args: argparse.Namespace) -> int:
 
     try:
         with SipCaller(config) as caller:
-            success = caller.make_call(args.dest, wav_path)
+            success = caller.make_call(args.dest, wav_path, record_path=args.record_path)
     except SipCallError as exc:
         logger.error(f"SIP call failed: {exc}")
         return 1

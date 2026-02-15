@@ -3,7 +3,8 @@
 Provides a high-level convenience function (``make_sip_call``) for one-shot
 calls and a context-manager class (``SipCaller``) for placing multiple calls
 on a single SIP registration.  Text-to-speech is handled by piper TTS
-(``generate_wav``).
+(``generate_wav``).  Speech-to-text transcription of recorded calls is
+provided by faster-whisper (``transcribe_wav``).
 
 Typical usage::
 
@@ -27,6 +28,7 @@ __version__ = "0.1.0"
 
 from sipstuff.sip_caller import SipCallError, SipCaller
 from sipstuff.sipconfig import SipCallerConfig, load_config
+from sipstuff.stt import SttError, transcribe_wav
 from sipstuff.tts import TtsError, generate_wav
 
 __all__ = [
@@ -35,6 +37,8 @@ __all__ = [
     "SipCallError",
     "SipCaller",
     "SipCallerConfig",
+    "SttError",
+    "transcribe_wav",
     "TtsError",
     "generate_wav",
     "load_config",

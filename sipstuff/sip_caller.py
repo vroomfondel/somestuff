@@ -106,6 +106,13 @@ def _local_address_for(remote_host: str, remote_port: int = 5060) -> str:
     Opens a UDP socket and connects (no data sent) so the kernel selects
     the correct source address based on the routing table.  This avoids
     multi-homed hosts advertising the wrong IP in SDP.
+
+    Args:
+        remote_host: Hostname or IP of the remote SIP server.
+        remote_port: Port on the remote host (default 5060).
+
+    Returns:
+        Local IP address string selected by the OS routing table.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.connect((remote_host, remote_port))
@@ -113,7 +120,11 @@ def _local_address_for(remote_host: str, remote_port: int = 5060) -> str:
 
 
 def _require_pjsua2() -> None:
-    """Raise ``SipCallError`` if the pjsua2 Python bindings are not installed."""
+    """Raise ``SipCallError`` if the pjsua2 Python bindings are not installed.
+
+    Raises:
+        SipCallError: If the ``pjsua2`` module could not be imported.
+    """
     if not PJSUA2_AVAILABLE:
         raise SipCallError(
             "pjsua2 Python bindings not available. "
@@ -137,6 +148,7 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
         disconnected_event: Set when the call enters DISCONNECTED state.
         media_ready_event: Set when an active audio media channel is available.
         wav_player: The active ``AudioMediaPlayer``, or ``None``.
+        audio_recorder: The active ``AudioMediaRecorder``, or ``None``.
     """
 
     def __init__(self, account: "pj.Account", call_id: int = pj.PJSUA_INVALID_ID if PJSUA2_AVAILABLE else -1) -> None:
@@ -146,11 +158,21 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
         self.disconnected_event = threading.Event()
         self.media_ready_event = threading.Event()
         self.wav_player: pj.AudioMediaPlayer | None = None
+        self.audio_recorder: pj.AudioMediaRecorder | None = None
         self._wav_path: str | None = None
+        self._record_path: str | None = None
         self._audio_media: Any = None
         self._account = account
         self._disconnect_reason: str = ""
         self._autoplay: bool = True
+
+    def set_record_path(self, record_path: str | None) -> None:
+        """Configure the output WAV path for recording remote-party audio.
+
+        Args:
+            record_path: Path to the output WAV file, or ``None`` to disable recording.
+        """
+        self._record_path = record_path
 
     def set_wav_path(self, wav_path: str | None, autoplay: bool = True) -> None:
         """Configure the WAV file to play and whether to start on media ready.
@@ -188,8 +210,9 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
         """PJSUA2 callback invoked when media state changes.
 
         Finds the first active audio media channel, stores it, sets
-        ``media_ready_event``, and optionally starts WAV playback if
-        ``autoplay`` is enabled.
+        ``media_ready_event``, starts recording if a record path is
+        configured, and optionally starts WAV playback if ``autoplay``
+        is enabled.
 
         Args:
             prm: PJSUA2 media-state callback parameter (unused directly).
@@ -199,6 +222,8 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
             if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
                 self._audio_media = self.getAudioMedia(mi.index)
                 self.media_ready_event.set()
+                if self._record_path:
+                    self.start_recording()
                 if self._autoplay and self._wav_path:
                     self.play_wav()
                 break
@@ -251,6 +276,49 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
                 _orphan_store.append(self.wav_player)
             self.wav_player = None
 
+    def start_recording(self) -> bool:
+        """Start recording remote-party audio to the configured WAV file.
+
+        Creates an ``AudioMediaRecorder`` and connects the call's audio
+        media to it (reverse direction of playback).
+
+        Returns:
+            ``True`` if recording started successfully, ``False`` if no
+            record path or audio media is configured, or if an error occurred.
+        """
+        if not self._record_path or not self._audio_media:
+            return False
+        try:
+            if self.audio_recorder is None:
+                self.audio_recorder = pj.AudioMediaRecorder()
+                self.audio_recorder.createRecorder(self._record_path)
+                self._audio_media.startTransmit(self.audio_recorder)
+            logger.info(f"Recording remote audio to: {self._record_path}")
+            return True
+        except Exception as exc:
+            logger.error(f"Failed to start recording: {exc}")
+            return False
+
+    def stop_recording(self, _orphan_store: list[Any] | None = None) -> None:
+        """Stop recording and disconnect the recorder from the conference bridge.
+
+        Uses the same orphan pattern as ``stop_wav`` to avoid the PJSIP
+        conference bridge teardown race.
+
+        Args:
+            _orphan_store: Optional list to receive the detached recorder
+                reference for deferred destruction.
+        """
+        if self.audio_recorder is not None:
+            if self._audio_media is not None:
+                try:
+                    self._audio_media.stopTransmit(self.audio_recorder)
+                except Exception:
+                    pass
+            if _orphan_store is not None:
+                _orphan_store.append(self.audio_recorder)
+            self.audio_recorder = None
+
 
 class _PjLogWriter(pj.LogWriter if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
     """PJSUA2 ``LogWriter`` subclass that routes native PJSIP log output through loguru.
@@ -299,8 +367,7 @@ class SipCaller:
         DEFAULT_PJSIP_LOG_LEVEL: Class-level default for ``pjsip_log_level`` (3).
         DEFAULT_PJSIP_CONSOLE_LEVEL: Class-level default for ``pjsip_console_level`` (4).
 
-    Usage::
-
+    Examples:
         with SipCaller(config) as caller:
             success = caller.make_call("+491234567890", "/path/to/alert.wav")
 
@@ -519,6 +586,7 @@ class SipCaller:
         post_delay: float | None = None,
         inter_delay: float | None = None,
         repeat: int | None = None,
+        record_path: str | Path | None = None,
     ) -> bool:
         """Place a SIP call, play a WAV file on answer, and hang up after playback.
 
@@ -540,6 +608,8 @@ class SipCaller:
                 ``None`` uses the config value.
             repeat: Number of times to play the WAV.
                 ``None`` uses the config value.
+            record_path: Path to a WAV file for recording remote-party audio.
+                ``None`` disables recording.
 
         Returns:
             ``True`` if the call was answered and the WAV played (at least
@@ -581,6 +651,8 @@ class SipCaller:
         # Don't autoplay — we manage playback timing ourselves
         call = SipCall(self._account)
         call.set_wav_path(str(wav_info.path), autoplay=False)
+        if record_path is not None:
+            call.set_record_path(str(Path(record_path).resolve()))
 
         prm = pj.CallOpParam(True)
         try:
@@ -663,6 +735,7 @@ class SipCaller:
                             pass
         finally:
             call.stop_wav(_orphan_store=self._orphaned_players)
+            call.stop_recording(_orphan_store=self._orphaned_players)
 
         # Post-delay
         if post_delay > 0:
