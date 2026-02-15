@@ -188,12 +188,15 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
         avg = statistics.mean(self._rms_buf)
         med = statistics.median(self._rms_buf)
         std = statistics.stdev(self._rms_buf) if len(self._rms_buf) > 1 else 0.0
-        self._log.debug(f"{label} (n={len(self._rms_buf)}, avg={avg:.0f}, med={med:.0f}, std={std:.0f})")
+        self._log.info(f"{label} (n={len(self._rms_buf)}, avg={avg:.0f}, med={med:.0f}, std={std:.0f})")
         self._rms_buf.clear()
         self._last_log = now
 
     def onFrameReceived(self, frame: "pj.MediaFrame") -> None:  # noqa: N802
         """Called by PJSUA2 for every incoming audio frame (~20 ms)."""
+        if not hasattr(self, "_frame_received_logged"):
+            self._frame_received_logged = True
+            self._log.info("onFrameReceived: first frame arrived")
         if self.silence_event.is_set():
             return
 
@@ -221,6 +224,12 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
         if now - self._last_log >= 0.5:
             # log not more often than 0.5s
             self._flush_rms_stats(now, "Audio activity")
+
+    def onFrameRequested(self, frame: "pj.MediaFrame") -> None:  # noqa: N802
+        """Diagnostic: check if PJSUA2 calls the source direction."""
+        if not hasattr(self, "_frame_requested_logged"):
+            self._frame_requested_logged = True
+            self._log.info("onFrameRequested: first frame requested")
 
 
 class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
@@ -771,168 +780,184 @@ class SipCaller:
         except Exception as exc:
             raise SipCallError(f"Failed to initiate call to {sip_uri}: {exc}") from exc
 
-        # Wait for answer or timeout
-        answered = call.connected_event.wait(timeout=timeout)
+        # Outer try/finally: guarantee the call is hung up even if an
+        # unexpected exception occurs anywhere after makeCall.
+        try:
+            # Wait for answer or timeout
+            answered = call.connected_event.wait(timeout=timeout)
 
-        if not answered or call.disconnected_event.is_set():
-            reason = call._disconnect_reason or "timeout / no answer"
-            self._log.warning(f"Call not answered: {reason}")
-            if not call.disconnected_event.is_set():
+            if not answered or call.disconnected_event.is_set():
+                reason = call._disconnect_reason or "timeout / no answer"
+                self._log.warning(f"Call not answered: {reason}")
+                if not call.disconnected_event.is_set():
+                    try:
+                        call.hangup(pj.CallOpParam())
+                    except Exception:
+                        pass
+                call_end = time.time()
+                self.last_call_result = CallResult(
+                    success=False,
+                    call_start=call_start,
+                    call_end=call_end,
+                    call_duration=call_end - call_start,
+                    answered=False,
+                    disconnect_reason=reason,
+                )
+                return False
+
+            self._log.info("Call answered")
+
+            # Wait for media to be ready
+            if not call.media_ready_event.wait(timeout=5):
+                self._log.error("Media channel not ready after 5s — hanging up")
                 try:
                     call.hangup(pj.CallOpParam())
                 except Exception:
                     pass
-            call_end = time.time()
-            self.last_call_result = CallResult(
-                success=False,
-                call_start=call_start,
-                call_end=call_end,
-                call_duration=call_end - call_start,
-                answered=False,
-                disconnect_reason=reason,
-            )
-            return False
+                call_end = time.time()
+                self.last_call_result = CallResult(
+                    success=False,
+                    call_start=call_start,
+                    call_end=call_end,
+                    call_duration=call_end - call_start,
+                    answered=True,
+                    disconnect_reason="media not ready",
+                )
+                return False
 
-        self._log.info("Call answered")
-
-        # Wait for media to be ready
-        if not call.media_ready_event.wait(timeout=5):
-            self._log.error("Media channel not ready after 5s — hanging up")
+            # Log negotiated media info for diagnostics
             try:
-                call.hangup(pj.CallOpParam())
+                ci = call.getInfo()
+                for mi in ci.media:
+                    if mi.type == pj.PJMEDIA_TYPE_AUDIO:
+                        self._log.debug(f"Audio media: dir={mi.dir}, status={mi.status}")
             except Exception:
                 pass
+
+            # Pre-delay
+            if pre_delay > 0:
+                self._log.info(f"Pre-delay: {pre_delay}s")
+                if call.disconnected_event.wait(timeout=pre_delay):
+                    self._log.info("Remote party hung up during pre-delay")
+                    call_end = time.time()
+                    self.last_call_result = CallResult(
+                        success=True,
+                        call_start=call_start,
+                        call_end=call_end,
+                        call_duration=call_end - call_start,
+                        answered=True,
+                        disconnect_reason=call._disconnect_reason,
+                    )
+                    return True
+
+            # Wait for silence from remote party before playback (e.g. wait
+            # for callee's "Hello?" to finish).
+            if wait_for_silence and wait_for_silence > 0 and call._audio_media is not None:
+                silence_timeout = min(wait_for_silence + 10.0, timeout)
+                self._log.info(f"Waiting for {wait_for_silence}s of silence (timeout: {silence_timeout}s)")
+                detector = SilenceDetector(duration=wait_for_silence)
+                try:
+                    fmt = pj.MediaFormatAudio()
+                    fmt.init(pj.PJMEDIA_FORMAT_PCM, 16000, 1, 20000, 16)
+                    detector.createPort("silence_det", fmt)
+                    self._log.info(f"SilenceDetector port registered, portId={detector.getPortId()}")
+                    call._audio_media.startTransmit(detector)
+                    detector.startTransmit(call._audio_media)  # diagnostic: test reverse (source) direction
+                    # Wait for silence or disconnect, whichever comes first
+                    start_wait = time.monotonic()
+                    while not detector.silence_event.is_set() and not call.disconnected_event.is_set():
+                        remaining = silence_timeout - (time.monotonic() - start_wait)
+                        if remaining <= 0:
+                            self._log.warning("Silence wait timed out — proceeding with playback")
+                            break
+                        detector.silence_event.wait(timeout=min(remaining, 0.25))
+                    call._audio_media.stopTransmit(detector)
+                    detector.stopTransmit(call._audio_media)  # diagnostic: stop reverse direction
+                except Exception as exc:
+                    self._log.warning(f"Silence detection failed ({exc}) — proceeding with playback")
+
+                if call.disconnected_event.is_set():
+                    self._log.info("Remote party hung up while waiting for silence")
+                    call_end = time.time()
+                    self.last_call_result = CallResult(
+                        success=True,
+                        call_start=call_start,
+                        call_end=call_end,
+                        call_duration=call_end - call_start,
+                        answered=True,
+                        disconnect_reason=call._disconnect_reason,
+                    )
+                    return True
+
+            # Start the looping WAV player once; wait for duration × repeats.
+            try:
+                call.play_wav()
+                for i in range(repeat):
+                    if call.disconnected_event.is_set():
+                        self._log.info("Remote party hung up during playback")
+                        break
+
+                    if repeat > 1:
+                        self._log.info(f"Playing WAV pass ({i + 1}/{repeat})")
+
+                    if call.disconnected_event.wait(timeout=wav_info.duration):
+                        self._log.info("Remote party hung up during playback")
+                        break
+
+                    # Inter-delay between repeats (not after the last one)
+                    if inter_delay > 0 and i < repeat - 1:
+                        # Pause transmission so the remote side hears silence
+                        if call.wav_player is not None and call._audio_media is not None:
+                            try:
+                                call.wav_player.stopTransmit(call._audio_media)
+                            except Exception:
+                                pass
+                        self._log.info(f"Inter-delay: {inter_delay}s")
+                        if call.disconnected_event.wait(timeout=inter_delay):
+                            self._log.info("Remote party hung up during inter-delay")
+                            break
+                        # Resume transmission for the next repeat
+                        if call.wav_player is not None and call._audio_media is not None:
+                            try:
+                                call.wav_player.startTransmit(call._audio_media)
+                            except Exception:
+                                pass
+            finally:
+                call.stop_wav(_orphan_store=self._orphaned_players)
+                call.stop_recording(_orphan_store=self._orphaned_players)
+
+            # Post-delay (skip if remote already hung up)
+            if not call.disconnected_event.is_set() and post_delay > 0:
+                self._log.info(f"Post-delay: {post_delay}s")
+                if call.disconnected_event.wait(timeout=post_delay):
+                    self._log.info("Remote party hung up during post-delay")
+
+            # Hang up (if still connected)
+            if not call.disconnected_event.is_set():
+                self._log.info("Playback completed, hanging up")
+                try:
+                    call.hangup(pj.CallOpParam())
+                except Exception:
+                    pass
+                call.disconnected_event.wait(timeout=5)
+
             call_end = time.time()
             self.last_call_result = CallResult(
-                success=False,
+                success=True,
                 call_start=call_start,
                 call_end=call_end,
                 call_duration=call_end - call_start,
                 answered=True,
-                disconnect_reason="media not ready",
+                disconnect_reason=call._disconnect_reason,
             )
-            return False
-
-        # Log negotiated media info for diagnostics
-        try:
-            ci = call.getInfo()
-            for mi in ci.media:
-                if mi.type == pj.PJMEDIA_TYPE_AUDIO:
-                    self._log.debug(f"Audio media: dir={mi.dir}, status={mi.status}")
-        except Exception:
-            pass
-
-        # Pre-delay
-        if pre_delay > 0:
-            self._log.info(f"Pre-delay: {pre_delay}s")
-            if call.disconnected_event.wait(timeout=pre_delay):
-                self._log.info("Remote party hung up during pre-delay")
-                call_end = time.time()
-                self.last_call_result = CallResult(
-                    success=True,
-                    call_start=call_start,
-                    call_end=call_end,
-                    call_duration=call_end - call_start,
-                    answered=True,
-                    disconnect_reason=call._disconnect_reason,
-                )
-                return True
-
-        # Wait for silence from remote party before playback (e.g. wait
-        # for callee's "Hello?" to finish).
-        if wait_for_silence and wait_for_silence > 0 and call._audio_media is not None:
-            silence_timeout = min(wait_for_silence + 10.0, timeout)
-            self._log.info(f"Waiting for {wait_for_silence}s of silence (timeout: {silence_timeout}s)")
-            detector = SilenceDetector(duration=wait_for_silence)
-            try:
-                fmt = pj.MediaFormatAudio()
-                fmt.init(pj.PJMEDIA_FORMAT_PCM, 16000, 1, 20000, 16)
-                detector.createPort("silence_det", fmt)
-                call._audio_media.startTransmit(detector)
-                # Wait for silence or disconnect, whichever comes first
-                start_wait = time.monotonic()
-                while not detector.silence_event.is_set() and not call.disconnected_event.is_set():
-                    remaining = silence_timeout - (time.monotonic() - start_wait)
-                    if remaining <= 0:
-                        self._log.warning("Silence wait timed out — proceeding with playback")
-                        break
-                    detector.silence_event.wait(timeout=min(remaining, 0.25))
-                call._audio_media.stopTransmit(detector)
-            except Exception as exc:
-                self._log.warning(f"Silence detection failed ({exc}) — proceeding with playback")
-
-            if call.disconnected_event.is_set():
-                self._log.info("Remote party hung up while waiting for silence")
-                call_end = time.time()
-                self.last_call_result = CallResult(
-                    success=True,
-                    call_start=call_start,
-                    call_end=call_end,
-                    call_duration=call_end - call_start,
-                    answered=True,
-                    disconnect_reason=call._disconnect_reason,
-                )
-                return True
-
-        # Start the looping WAV player once; wait for duration × repeats.
-        try:
-            call.play_wav()
-            for i in range(repeat):
-                if call.disconnected_event.is_set():
-                    self._log.info("Remote party hung up during playback")
-                    break
-
-                if repeat > 1:
-                    self._log.info(f"Playing WAV pass ({i + 1}/{repeat})")
-
-                if call.disconnected_event.wait(timeout=wav_info.duration):
-                    self._log.info("Remote party hung up during playback")
-                    break
-
-                # Inter-delay between repeats (not after the last one)
-                if inter_delay > 0 and i < repeat - 1:
-                    # Pause transmission so the remote side hears silence
-                    if call.wav_player is not None and call._audio_media is not None:
-                        try:
-                            call.wav_player.stopTransmit(call._audio_media)
-                        except Exception:
-                            pass
-                    self._log.info(f"Inter-delay: {inter_delay}s")
-                    if call.disconnected_event.wait(timeout=inter_delay):
-                        self._log.info("Remote party hung up during inter-delay")
-                        break
-                    # Resume transmission for the next repeat
-                    if call.wav_player is not None and call._audio_media is not None:
-                        try:
-                            call.wav_player.startTransmit(call._audio_media)
-                        except Exception:
-                            pass
+            return True
         finally:
-            call.stop_wav(_orphan_store=self._orphaned_players)
-            call.stop_recording(_orphan_store=self._orphaned_players)
-
-        # Post-delay (skip if remote already hung up)
-        if not call.disconnected_event.is_set() and post_delay > 0:
-            self._log.info(f"Post-delay: {post_delay}s")
-            if call.disconnected_event.wait(timeout=post_delay):
-                self._log.info("Remote party hung up during post-delay")
-
-        # Hang up (if still connected)
-        if not call.disconnected_event.is_set():
-            self._log.info("Playback completed, hanging up")
-            try:
-                call.hangup(pj.CallOpParam())
-            except Exception:
-                pass
-            call.disconnected_event.wait(timeout=5)
-
-        call_end = time.time()
-        self.last_call_result = CallResult(
-            success=True,
-            call_start=call_start,
-            call_end=call_end,
-            call_duration=call_end - call_start,
-            answered=True,
-            disconnect_reason=call._disconnect_reason,
-        )
-        return True
+            # Failsafe: if we exit make_call for any reason (exception, early
+            # return) and the call is still active, send BYE so the remote
+            # side doesn't stay connected indefinitely.
+            if not call.disconnected_event.is_set():
+                self._log.warning("Failsafe hangup — call still active on make_call exit")
+                try:
+                    call.hangup(pj.CallOpParam())
+                except Exception:
+                    pass

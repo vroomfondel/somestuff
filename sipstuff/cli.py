@@ -468,6 +468,8 @@ def main() -> int:
         os.environ.setdefault("LOGURU_LEVEL", "INFO")
         configure_logging()
 
+    logger.info(f"LOGURU_LEVEL={os.getenv("LOGURU_LEVEL")}")
+
     _print_banner()
 
     if args.command == "call":
