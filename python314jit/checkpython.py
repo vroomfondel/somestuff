@@ -1,6 +1,6 @@
+import os
 import sys
 import sysconfig
-import os
 import time
 
 print(f"Python Version: {sys.version}")

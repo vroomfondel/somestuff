@@ -22,6 +22,7 @@ PJSIP Log Routing:
     suppress native console output and rely solely on the loguru writer.
 """
 
+import dataclasses
 import os
 import socket
 import threading
@@ -41,6 +42,27 @@ try:
 except ImportError:
     pj = None  # type: ignore[assignment]
     PJSUA2_AVAILABLE = False
+
+
+@dataclasses.dataclass
+class CallResult:
+    """Result of a SIP call placed by ``SipCaller.make_call``.
+
+    Attributes:
+        success: Whether the call was answered and playback started.
+        call_start: Epoch timestamp when the call was initiated.
+        call_end: Epoch timestamp when the call finished.
+        call_duration: Wall-clock duration of the call in seconds.
+        answered: Whether the remote party answered.
+        disconnect_reason: SIP disconnect reason string from PJSIP.
+    """
+
+    success: bool
+    call_start: float
+    call_end: float
+    call_duration: float
+    answered: bool
+    disconnect_reason: str
 
 
 class SipCallError(Exception):
@@ -333,9 +355,10 @@ class _PjLogWriter(pj.LogWriter if PJSUA2_AVAILABLE else object):  # type: ignor
         if PJSUA2_AVAILABLE:
             pj.LogWriter.__init__(self)
         self._log = logger.bind(classname="pjsip")
+        self._buffer: list[str] = []
 
     def write(self, entry: "pj.LogEntry") -> None:
-        """Forward a single PJSIP log entry to loguru.
+        """Forward a single PJSIP log entry to loguru and capture it.
 
         Args:
             entry: PJSIP log entry containing ``level`` (int) and ``msg`` (str).
@@ -343,6 +366,7 @@ class _PjLogWriter(pj.LogWriter if PJSUA2_AVAILABLE else object):  # type: ignor
         level = self._PJ_TO_LOGURU.get(entry.level, "DEBUG")
         msg = entry.msg.rstrip("\n")
         if msg:
+            self._buffer.append(msg)
             self._log.log(level, "{}", msg)
 
 
@@ -403,6 +427,7 @@ class SipCaller:
         self._orphaned_players: list[Any] = []
         self._pj_log_writer: _PjLogWriter | None = None
         self._log = logger.bind(classname="SipCaller")
+        self.last_call_result: CallResult | None = None
 
     def __enter__(self) -> "SipCaller":
         """Start the PJSUA2 endpoint and return ``self`` for use as a context manager."""
@@ -577,6 +602,12 @@ class SipCaller:
 
         self._log.info("PJSUA2 endpoint stopped")
 
+    def get_pjsip_logs(self) -> list[str]:
+        """Return captured PJSIP log messages."""
+        if self._pj_log_writer is not None:
+            return list(self._pj_log_writer._buffer)
+        return []
+
     def make_call(
         self,
         destination: str,
@@ -619,6 +650,9 @@ class SipCaller:
             SipCallError: If the caller is not started or the call cannot
                 be initiated.
         """
+        self.last_call_result = None
+        call_start = time.time()
+
         if self._account is None:
             raise SipCallError("SipCaller not started — call start() or use context manager")
 
@@ -652,7 +686,9 @@ class SipCaller:
         call = SipCall(self._account)
         call.set_wav_path(str(wav_info.path), autoplay=False)
         if record_path is not None:
-            call.set_record_path(str(Path(record_path).resolve()))
+            resolved_record = Path(record_path).resolve()
+            resolved_record.parent.mkdir(parents=True, exist_ok=True)
+            call.set_record_path(str(resolved_record))
 
         prm = pj.CallOpParam(True)
         try:
@@ -671,6 +707,15 @@ class SipCaller:
                     call.hangup(pj.CallOpParam())
                 except Exception:
                     pass
+            call_end = time.time()
+            self.last_call_result = CallResult(
+                success=False,
+                call_start=call_start,
+                call_end=call_end,
+                call_duration=call_end - call_start,
+                answered=False,
+                disconnect_reason=reason,
+            )
             return False
 
         self._log.info("Call answered")
@@ -682,6 +727,15 @@ class SipCaller:
                 call.hangup(pj.CallOpParam())
             except Exception:
                 pass
+            call_end = time.time()
+            self.last_call_result = CallResult(
+                success=False,
+                call_start=call_start,
+                call_end=call_end,
+                call_duration=call_end - call_start,
+                answered=True,
+                disconnect_reason="media not ready",
+            )
             return False
 
         # Log negotiated media info for diagnostics
@@ -698,6 +752,15 @@ class SipCaller:
             self._log.info(f"Pre-delay: {pre_delay}s")
             if call.disconnected_event.wait(timeout=pre_delay):
                 self._log.info("Remote party hung up during pre-delay")
+                call_end = time.time()
+                self.last_call_result = CallResult(
+                    success=True,
+                    call_start=call_start,
+                    call_end=call_end,
+                    call_duration=call_end - call_start,
+                    answered=True,
+                    disconnect_reason=call._disconnect_reason,
+                )
                 return True
 
         # Start the looping WAV player once; wait for duration × repeats.
@@ -706,14 +769,14 @@ class SipCaller:
             for i in range(repeat):
                 if call.disconnected_event.is_set():
                     self._log.info("Remote party hung up during playback")
-                    return True
+                    break
 
                 if repeat > 1:
                     self._log.info(f"Playing WAV pass ({i + 1}/{repeat})")
 
                 if call.disconnected_event.wait(timeout=wav_info.duration):
                     self._log.info("Remote party hung up during playback")
-                    return True
+                    break
 
                 # Inter-delay between repeats (not after the last one)
                 if inter_delay > 0 and i < repeat - 1:
@@ -726,7 +789,7 @@ class SipCaller:
                     self._log.info(f"Inter-delay: {inter_delay}s")
                     if call.disconnected_event.wait(timeout=inter_delay):
                         self._log.info("Remote party hung up during inter-delay")
-                        return True
+                        break
                     # Resume transmission for the next repeat
                     if call.wav_player is not None and call._audio_media is not None:
                         try:
@@ -737,19 +800,28 @@ class SipCaller:
             call.stop_wav(_orphan_store=self._orphaned_players)
             call.stop_recording(_orphan_store=self._orphaned_players)
 
-        # Post-delay
-        if post_delay > 0:
+        # Post-delay (skip if remote already hung up)
+        if not call.disconnected_event.is_set() and post_delay > 0:
             self._log.info(f"Post-delay: {post_delay}s")
             if call.disconnected_event.wait(timeout=post_delay):
                 self._log.info("Remote party hung up during post-delay")
-                return True
 
-        # Hang up
-        self._log.info("Playback completed, hanging up")
-        try:
-            call.hangup(pj.CallOpParam())
-        except Exception:
-            pass
-        call.disconnected_event.wait(timeout=5)
+        # Hang up (if still connected)
+        if not call.disconnected_event.is_set():
+            self._log.info("Playback completed, hanging up")
+            try:
+                call.hangup(pj.CallOpParam())
+            except Exception:
+                pass
+            call.disconnected_event.wait(timeout=5)
 
+        call_end = time.time()
+        self.last_call_result = CallResult(
+            success=True,
+            call_start=call_start,
+            call_end=call_end,
+            call_duration=call_end - call_start,
+            answered=True,
+            disconnect_reason=call._disconnect_reason,
+        )
         return True

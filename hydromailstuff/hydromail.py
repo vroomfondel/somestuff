@@ -6,12 +6,12 @@ from typing import Dict, List, Optional, Tuple
 # import pytz
 from jinja2 import Template
 from loguru import logger
-from reputils import MRSendmail, SMTPServerInfo, SendResult, EmailAddress
+from mqttstuff.mosquittomqttwrapper import MQTTLastDataReader, MWMqttMessage
+from reputils import EmailAddress, MRSendmail, SendResult, SMTPServerInfo
 
 import config
 import Helper
 from config import TIMEZONE, is_in_cluster, settings
-from mqttstuff.mosquittomqttwrapper import MQTTLastDataReader, MWMqttMessage
 from netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
 
 # from netatmostuff.Crontanamo import write_netatmo_credentials_to_shared_file
@@ -186,11 +186,9 @@ def get_current_waterlevel_and_busvoltage_and_ma(
 
 
 def read_netatmo() -> dict:
-    from netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
-
     # import needed since module import has side effects -> creates ~/.netatmo.credentials
-
     import netatmostuff.lnetatmo as lnetatmo
+    from netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
 
     # Example: USERNAME and PASSWORD supposed to be defined by one of the previous methods
     ret: dict = {}

@@ -19,6 +19,7 @@ Environment Variables:
 
 import os
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -53,7 +54,7 @@ def transcribe_wav(
     device: str | None = None,
     compute_type: str | None = None,
     data_dir: str | Path | None = None,
-) -> str:
+) -> tuple[str, dict[str, Any]]:
     """Transcribe a WAV file to text using faster-whisper.
 
     Args:
@@ -71,7 +72,9 @@ def transcribe_wav(
             ``~/.local/share/faster-whisper-models``.
 
     Returns:
-        The transcribed text.
+        A tuple of ``(text, metadata)`` where *text* is the transcribed
+        string and *metadata* is a dict with keys ``audio_duration``,
+        ``language``, and ``language_probability``.
 
     Raises:
         SttError: If faster-whisper is not installed, the WAV file
@@ -103,4 +106,9 @@ def transcribe_wav(
     log.info(
         f"Transcribed {info.duration:.1f}s audio ({language}, p={info.language_probability:.2f}): {len(text)} chars"
     )
-    return text
+    stt_meta: dict[str, Any] = {
+        "audio_duration": info.duration,
+        "language": language,
+        "language_probability": info.language_probability,
+    }
+    return text, stt_meta

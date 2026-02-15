@@ -69,6 +69,19 @@ python -m sipstuff.cli call \
     --pre-delay 1.5 --post-delay 2.0 --inter-delay 1.0 --repeat 3 \
     --timeout 30 -v
 
+# Record remote-party audio and auto-transcribe (STT)
+python -m sipstuff.cli call \
+    --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --wav alert.wav \
+    --record /tmp/recording.wav
+
+# Record with explicit STT options
+python -m sipstuff.cli call \
+    --config sip_config.yaml --dest +491234567890 --wav alert.wav \
+    --record /tmp/recording.wav \
+    --stt-model small --stt-language en \
+    --stt-data-dir /opt/whisper-models
+
 # NAT traversal — STUN + ICE behind a NAT gateway
 python -m sipstuff.cli call \
     --server pbx.example.com --user 1000 --password secret \
@@ -100,6 +113,10 @@ python -m sipstuff.cli call \
 | `--post-delay` | Seconds to wait after playback before hangup (default: 0) |
 | `--inter-delay` | Seconds to wait between WAV repeats (default: 0) |
 | `--repeat` | Number of times to play the WAV (default: 1) |
+| `--record` | Record remote-party audio to this WAV file path (parent dirs created automatically) |
+| `--stt-data-dir` | Directory for Whisper STT models (default: `~/.local/share/faster-whisper-models`) |
+| `--stt-model` | Whisper model size for transcription (default: `medium`, options: `tiny`/`base`/`small`/`medium`/`large-v3`) |
+| `--stt-language` | Language code for STT transcription (default: `de`) |
 | `--stun-servers` | Comma-separated STUN servers (e.g. `stun.l.google.com:19302`) |
 | `--ice` | Enable ICE for media NAT traversal |
 | `--turn-server` | TURN relay server (`host:port`) |

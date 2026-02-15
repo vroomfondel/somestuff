@@ -17,14 +17,17 @@ Examples:
 """
 
 import argparse
+import json
 import os
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 from loguru import logger
 from tabulate import tabulate
 
-from sipstuff import __version__
-from sipstuff.sip_caller import SipCallError, SipCaller
+from sipstuff import __version__, configure_logging
+from sipstuff.sip_caller import SipCaller, SipCallError
 from sipstuff.sipconfig import load_config
 
 
@@ -134,6 +137,12 @@ def parse_args() -> argparse.Namespace:
         default="de",
         help="Language code for STT transcription (default: de)",
     )
+    call_parser.add_argument(
+        "--transcribe",
+        action="store_true",
+        default=False,
+        help="Transcribe recorded audio via STT and write a JSON call report (requires --record)",
+    )
 
     # NAT traversal
     nat_group = call_parser.add_argument_group("NAT traversal")
@@ -171,12 +180,6 @@ def cmd_call(args: argparse.Namespace) -> int:
         Exit code: 0 on success, 1 on failure (config error, TTS error,
         SIP error, or unanswered call).
     """
-    if args.verbose:
-        logger.remove()
-        logger.add(sys.stderr, level="DEBUG")
-    else:
-        logger.remove()
-        logger.add(sys.stderr, level="INFO")
 
     overrides: dict[str, object] = {}
     for key in (
@@ -240,11 +243,18 @@ def cmd_call(args: argparse.Namespace) -> int:
             logger.error(f"TTS failed: {exc}")
             return 1
 
+    if args.transcribe and not args.record_path:
+        logger.error("--transcribe requires --record")
+        return 1
+
     logger.info(f"Calling {args.dest} via {config.sip.server}:{config.sip.port}")
 
+    pjsip_logs: list[str] = []
     try:
         with SipCaller(config) as caller:
             success = caller.make_call(args.dest, wav_path, record_path=args.record_path)
+            call_result = caller.last_call_result
+            pjsip_logs = caller.get_pjsip_logs()
     except SipCallError as exc:
         logger.error(f"SIP call failed: {exc}")
         return 1
@@ -259,20 +269,54 @@ def cmd_call(args: argparse.Namespace) -> int:
     if success:
         logger.info("Call completed successfully")
 
-        # Transcribe recording if a record path was given
-        if args.record_path and os.path.isfile(args.record_path):
+        # Transcribe recording and write JSON report if --transcribe was given
+        if args.transcribe and args.record_path and os.path.isfile(args.record_path):
             from sipstuff.stt import SttError, transcribe_wav
 
+            transcript_text: str | None = None
+            stt_meta: dict[str, object] = {}
             try:
-                transcript = transcribe_wav(
+                transcript_text, stt_meta = transcribe_wav(
                     args.record_path,
                     model=args.stt_model,
                     language=args.stt_language,
                     data_dir=args.stt_data_dir,
                 )
-                logger.info(f"Transcript: {transcript}")
+                logger.info(f"Transcript: {transcript_text}")
             except SttError as exc:
                 logger.error(f"STT transcription failed: {exc}")
+
+            # Build and write JSON call report
+            report: dict[str, object] = {
+                "timestamp": datetime.now(timezone.utc).astimezone().isoformat(),
+                "destination": args.dest,
+                "wav_file": args.wav or "(tts)",
+                "tts_text": args.text,
+                "tts_model": args.tts_model,
+                "record_path": args.record_path,
+                "call_duration": call_result.call_duration if call_result else None,
+                "answered": call_result.answered if call_result else None,
+                "disconnect_reason": call_result.disconnect_reason if call_result else None,
+                "playback": {
+                    "repeat": config.call.repeat,
+                    "pre_delay": config.call.pre_delay,
+                    "post_delay": config.call.post_delay,
+                    "inter_delay": config.call.inter_delay,
+                    "timeout": config.call.timeout,
+                },
+                "recording_duration": stt_meta.get("audio_duration"),
+                "transcript": transcript_text,
+                "stt": {
+                    "model": args.stt_model or "medium",
+                    "language": args.stt_language,
+                    "language_probability": stt_meta.get("language_probability"),
+                },
+                "pjsip_log": pjsip_logs,
+            }
+
+            report_path = Path(args.record_path).with_suffix(".json")
+            report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+            logger.info(f"Call report written to {report_path}")
 
         return 0
     else:
@@ -286,8 +330,17 @@ def main() -> int:
     Returns:
         Exit code: 0 on success, 1 on failure.
     """
-    _print_banner()
+
     args = parse_args()
+    if args.verbose:
+        os.environ.setdefault("LOGURU_LEVEL", "DEBUG")
+        configure_logging()
+    else:
+        os.environ.setdefault("LOGURU_LEVEL", "INFO")
+        configure_logging()
+
+    _print_banner()
+
     if args.command == "call":
         return cmd_call(args)
     return 1

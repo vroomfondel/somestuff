@@ -1,5 +1,5 @@
-import os
 import json
+import os
 import sys
 from pprint import pprint
 
@@ -19,7 +19,7 @@ def install_and_import(packagename: str, pipname: str) -> None:
 
 install_and_import(packagename="github", pipname="pygithub")
 
-from github import Github, InputFileContent, Clones, Auth, RateLimitOverview
+from github import Auth, Clones, Github, InputFileContent, RateLimitOverview
 from github.Rate import Rate
 
 

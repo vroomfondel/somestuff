@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from sipstuff.sip_caller import SipCallError, SipCaller, WavInfo
+from sipstuff.sip_caller import SipCaller, SipCallError, WavInfo
 from sipstuff.sipconfig import CallConfig, NatConfig, SipCallerConfig, SipConfig, load_config
 
 # ─── Config model tests ──────────────────────────────────────────────────────
