@@ -118,6 +118,22 @@ def parse_args() -> argparse.Namespace:
     )
     call_parser.add_argument("--repeat", type=int, help="Number of times to play the WAV (default: 1)")
     call_parser.add_argument("--record", dest="record_path", help="Record remote party audio to this WAV file path")
+    call_parser.add_argument(
+        "--stt-data-dir",
+        dest="stt_data_dir",
+        help="Directory for Whisper STT models (default: ~/.local/share/faster-whisper-models)",
+    )
+    call_parser.add_argument(
+        "--stt-model",
+        dest="stt_model",
+        help="Whisper model size for transcription (default: medium, options: tiny/base/small/medium/large-v3)",
+    )
+    call_parser.add_argument(
+        "--stt-language",
+        dest="stt_language",
+        default="de",
+        help="Language code for STT transcription (default: de)",
+    )
 
     # NAT traversal
     nat_group = call_parser.add_argument_group("NAT traversal")
@@ -242,6 +258,22 @@ def cmd_call(args: argparse.Namespace) -> int:
 
     if success:
         logger.info("Call completed successfully")
+
+        # Transcribe recording if a record path was given
+        if args.record_path and os.path.isfile(args.record_path):
+            from sipstuff.stt import SttError, transcribe_wav
+
+            try:
+                transcript = transcribe_wav(
+                    args.record_path,
+                    model=args.stt_model,
+                    language=args.stt_language,
+                    data_dir=args.stt_data_dir,
+                )
+                logger.info(f"Transcript: {transcript}")
+            except SttError as exc:
+                logger.error(f"STT transcription failed: {exc}")
+
         return 0
     else:
         logger.warning("Call was not answered or failed")
