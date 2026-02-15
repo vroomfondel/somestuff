@@ -53,6 +53,9 @@ class CallConfig(BaseModel):
         inter_delay: Seconds of silence between WAV repeats (only when
             ``repeat > 1``).
         repeat: Number of times to play the WAV file.
+        wait_for_silence: Seconds of continuous silence from the remote party
+            to wait for before starting playback (0 = disabled).  Applied
+            after ``pre_delay``.
     """
 
     timeout: int = Field(default=60, ge=1, le=600, description="Call timeout in seconds")
@@ -62,6 +65,12 @@ class CallConfig(BaseModel):
         default=0.0, ge=0.0, le=30.0, description="Seconds to wait between WAV repeats (only when repeat > 1)"
     )
     repeat: int = Field(default=1, ge=1, le=100, description="Number of times to play the WAV file")
+    wait_for_silence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=10.0,
+        description="Seconds of remote silence to wait for before playback (0 = disabled)",
+    )
 
 
 class TtsConfig(BaseModel):
@@ -173,7 +182,7 @@ class SipCallerConfig(BaseModel):
         sip_keys = {"server", "port", "user", "password", "transport", "srtp", "tls_verify_server", "local_port"}
         if sip_keys & set(data.keys()):
             sip_data = {k: data.pop(k) for k in list(data.keys()) if k in sip_keys}
-            call_keys = {"timeout", "pre_delay", "post_delay", "inter_delay", "repeat"}
+            call_keys = {"timeout", "pre_delay", "post_delay", "inter_delay", "repeat", "wait_for_silence"}
             call_data = {k: data.pop(k) for k in list(data.keys()) if k in call_keys}
             tts_data: dict[str, Any] = {}
             for k in list(data.keys()):
@@ -255,6 +264,7 @@ def load_config(
         "SIP_POST_DELAY": ("call", "post_delay"),
         "SIP_INTER_DELAY": ("call", "inter_delay"),
         "SIP_REPEAT": ("call", "repeat"),
+        "SIP_WAIT_FOR_SILENCE": ("call", "wait_for_silence"),
         "SIP_TTS_MODEL": ("tts", "model"),
         "SIP_TTS_SAMPLE_RATE": ("tts", "sample_rate"),
         "SIP_STUN_SERVERS": ("nat", "stun_servers"),
@@ -295,7 +305,7 @@ def load_config(
                 continue
             if key in ("server", "port", "user", "password", "transport", "srtp", "tls_verify_server", "local_port"):
                 data.setdefault("sip", {})[key] = val
-            elif key in ("timeout", "pre_delay", "post_delay", "inter_delay", "repeat"):
+            elif key in ("timeout", "pre_delay", "post_delay", "inter_delay", "repeat", "wait_for_silence"):
                 data.setdefault("call", {})[key] = val
             elif key == "tts_model":
                 data.setdefault("tts", {})["model"] = val

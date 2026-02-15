@@ -22,7 +22,9 @@ PJSIP Log Routing:
     suppress native console output and rely solely on the loguru writer.
 """
 
+import array
 import dataclasses
+import math
 import os
 import socket
 import threading
@@ -152,6 +154,57 @@ def _require_pjsua2() -> None:
             "pjsua2 Python bindings not available. "
             "Install PJSIP with Python bindings — see sipstuff/install_pjsip.sh"
         )
+
+
+class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
+    """PJSUA2 audio port that monitors incoming RMS energy and signals when
+    continuous silence exceeds a configurable duration.
+
+    Attach to the call's audio media via ``startTransmit`` to receive remote-
+    party audio frames.  The ``silence_event`` is set once the incoming RMS
+    stays below ``threshold`` for ``duration`` seconds.
+
+    Args:
+        duration: Required seconds of continuous silence (default: 1.0).
+        threshold: RMS threshold below which audio is considered silence
+            (16-bit PCM scale, default: 200).
+    """
+
+    def __init__(self, duration: float = 1.0, threshold: int = 200) -> None:
+        super().__init__()
+        self._duration = duration
+        self._threshold = threshold
+        self._silence_start: float | None = None
+        self._last_log: float = 0.0
+        self.silence_event = threading.Event()
+        self._log = logger.bind(classname="SilenceDetector")
+
+    def onFrameReceived(self, frame: "pj.MediaFrame") -> None:  # noqa: N802
+        """Called by PJSUA2 for every incoming audio frame (~20 ms)."""
+        if self.silence_event.is_set():
+            return
+
+        try:
+            samples = array.array("h")
+            samples.frombytes(frame.buf)
+            if len(samples) == 0:
+                return
+            rms = math.isqrt(sum(s * s for s in samples) // len(samples))
+        except Exception:
+            return
+
+        now = time.monotonic()
+        if rms < self._threshold:
+            if self._silence_start is None:
+                self._silence_start = now
+            elif now - self._silence_start >= self._duration:
+                self._log.info(f"Silence detected ({self._duration}s, rms={rms})")
+                self.silence_event.set()
+        else:
+            if now - self._last_log >= 0.1:
+                self._log.debug(f"Non-silence detected (rms={rms})")
+                self._last_log = now
+            self._silence_start = None
 
 
 class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
@@ -618,6 +671,7 @@ class SipCaller:
         inter_delay: float | None = None,
         repeat: int | None = None,
         record_path: str | Path | None = None,
+        wait_for_silence: float | None = None,
     ) -> bool:
         """Place a SIP call, play a WAV file on answer, and hang up after playback.
 
@@ -641,6 +695,10 @@ class SipCaller:
                 ``None`` uses the config value.
             record_path: Path to a WAV file for recording remote-party audio.
                 ``None`` disables recording.
+            wait_for_silence: Seconds of continuous silence from the remote
+                party to wait for before starting playback (e.g. wait for
+                "Hello?" to finish).  ``None`` or ``0`` disables silence
+                detection.  Applied after ``pre_delay``.
 
         Returns:
             ``True`` if the call was answered and the WAV played (at least
@@ -661,6 +719,7 @@ class SipCaller:
         post_delay = post_delay if post_delay is not None else self.config.call.post_delay
         inter_delay = inter_delay if inter_delay is not None else self.config.call.inter_delay
         repeat = repeat if repeat is not None else self.config.call.repeat
+        wait_for_silence = wait_for_silence if wait_for_silence is not None else self.config.call.wait_for_silence
 
         # Validate WAV
         wav_info = WavInfo(wav_file)
@@ -752,6 +811,45 @@ class SipCaller:
             self._log.info(f"Pre-delay: {pre_delay}s")
             if call.disconnected_event.wait(timeout=pre_delay):
                 self._log.info("Remote party hung up during pre-delay")
+                call_end = time.time()
+                self.last_call_result = CallResult(
+                    success=True,
+                    call_start=call_start,
+                    call_end=call_end,
+                    call_duration=call_end - call_start,
+                    answered=True,
+                    disconnect_reason=call._disconnect_reason,
+                )
+                return True
+
+        # Wait for silence from remote party before playback (e.g. wait
+        # for callee's "Hello?" to finish).
+        if wait_for_silence and wait_for_silence > 0 and call._audio_media is not None:
+            silence_timeout = min(wait_for_silence + 10.0, timeout)
+            self._log.info(f"Waiting for {wait_for_silence}s of silence (timeout: {silence_timeout}s)")
+            detector = SilenceDetector(duration=wait_for_silence)
+            try:
+                fmt = pj.MediaFormatAudio()
+                fmt.clockRate = 16000
+                fmt.channelCount = 1
+                fmt.bitsPerSample = 16
+                fmt.frameTimeUsec = 20000
+                detector.createPort("silence_det", fmt)
+                call._audio_media.startTransmit(detector)
+                # Wait for silence or disconnect, whichever comes first
+                start_wait = time.monotonic()
+                while not detector.silence_event.is_set() and not call.disconnected_event.is_set():
+                    remaining = silence_timeout - (time.monotonic() - start_wait)
+                    if remaining <= 0:
+                        self._log.warning("Silence wait timed out — proceeding with playback")
+                        break
+                    detector.silence_event.wait(timeout=min(remaining, 0.25))
+                call._audio_media.stopTransmit(detector)
+            except Exception as exc:
+                self._log.warning(f"Silence detection failed ({exc}) — proceeding with playback")
+
+            if call.disconnected_event.is_set():
+                self._log.info("Remote party hung up while waiting for silence")
                 call_end = time.time()
                 self.last_call_result = CallResult(
                     success=True,

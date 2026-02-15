@@ -54,6 +54,7 @@ def transcribe_wav(
     device: str | None = None,
     compute_type: str | None = None,
     data_dir: str | Path | None = None,
+    vad_filter: bool = True,
 ) -> tuple[str, dict[str, Any]]:
     """Transcribe a WAV file to text using faster-whisper.
 
@@ -70,11 +71,14 @@ def transcribe_wav(
         data_dir: Directory for model cache.
             ``None`` uses ``WHISPER_DATA_DIR`` env var or
             ``~/.local/share/faster-whisper-models``.
+        vad_filter: Use Silero VAD to split audio into speech segments
+            before transcription.  Strongly recommended for phone
+            recordings with silences or ringing tones (default: ``True``).
 
     Returns:
         A tuple of ``(text, metadata)`` where *text* is the transcribed
         string and *metadata* is a dict with keys ``audio_duration``,
-        ``language``, and ``language_probability``.
+        ``language``, ``language_probability``, and ``segments``.
 
     Raises:
         SttError: If faster-whisper is not installed, the WAV file
@@ -94,21 +98,31 @@ def transcribe_wav(
     model_dir.mkdir(parents=True, exist_ok=True)
 
     log = logger.bind(classname="STT")
-    log.info(f"Transcribing {wav_path.name} (model={model}, lang={language}, device={device}, compute={compute_type})")
+    log.info(
+        f"Transcribing {wav_path.name} (model={model}, lang={language}, device={device}, "
+        f"compute={compute_type}, vad={vad_filter})"
+    )
 
     try:
         whisper = WhisperModel(model, device=device, compute_type=compute_type, download_root=str(model_dir))
-        segments, info = whisper.transcribe(str(wav_path), language=language)
-        text = " ".join(segment.text.strip() for segment in segments if segment.text.strip())
+        segments_iter, info = whisper.transcribe(str(wav_path), language=language, vad_filter=vad_filter)
+        segment_list = []
+        for segment in segments_iter:
+            stripped = segment.text.strip()
+            if stripped:
+                segment_list.append({"start": round(segment.start, 2), "end": round(segment.end, 2), "text": stripped})
+        text = " ".join(s["text"] for s in segment_list)
     except Exception as exc:
         raise SttError(f"Transcription failed: {exc}") from exc
 
     log.info(
-        f"Transcribed {info.duration:.1f}s audio ({language}, p={info.language_probability:.2f}): {len(text)} chars"
+        f"Transcribed {info.duration:.1f}s audio ({language}, p={info.language_probability:.2f}): "
+        f"{len(segment_list)} segments, {len(text)} chars"
     )
     stt_meta: dict[str, Any] = {
         "audio_duration": info.duration,
         "language": language,
         "language_probability": info.language_probability,
+        "segments": segment_list,
     }
     return text, stt_meta

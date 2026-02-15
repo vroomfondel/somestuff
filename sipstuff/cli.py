@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""CLI entry point for making SIP calls with WAV playback or TTS.
+"""CLI entry point for sipstuff: SIP calls, TTS, and STT.
 
-Provides the ``python -m sipstuff.cli`` command which registers with a SIP
-server, dials a destination, plays a WAV file or piper-TTS-generated speech,
-and hangs up.
+Provides the ``python -m sipstuff.cli`` command with three subcommands:
+
+- **tts**: Generate a WAV file from text using piper TTS.
+- **stt**: Transcribe a WAV file to text using faster-whisper.
+- **call**: Register with a SIP server, dial a destination, play a WAV file
+  or piper-TTS-generated speech, and hang up.
 
 Examples:
+    $ python -m sipstuff.cli tts "Hallo Welt" -o hello.wav
+    $ python -m sipstuff.cli tts "Hello World" -o hello.wav --model en_US-lessac-high --sample-rate 8000
+    $ python -m sipstuff.cli stt recording.wav
+    $ python -m sipstuff.cli stt recording.wav --language en --model small --json
     $ python -m sipstuff.cli call --dest +491234567890 --wav alert.wav
     $ python -m sipstuff.cli call --dest +491234567890 --text "Achtung!"
     $ python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
@@ -65,10 +72,48 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="sipstuff",
-        description="SIP caller — place a call and play a WAV file or TTS message",
+        description="sipstuff — SIP calls, text-to-speech, and speech-to-text",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # ── tts subcommand ──────────────────────────────────────────────
+    tts_parser = sub.add_parser("tts", help="Generate a WAV file from text using piper TTS")
+    tts_parser.add_argument("text", help="Text to synthesize")
+    tts_parser.add_argument("--output", "-o", required=True, help="Output WAV file path")
+    tts_parser.add_argument(
+        "--model", "-m", default="de_DE-thorsten-high", help="Piper voice model (default: de_DE-thorsten-high)"
+    )
+    tts_parser.add_argument(
+        "--sample-rate", dest="sample_rate", type=int, default=0, help="Resample output to this rate in Hz (0 = native)"
+    )
+    tts_parser.add_argument(
+        "--data-dir", dest="data_dir", help="Directory for piper voice models (default: ~/.local/share/piper-voices)"
+    )
+    tts_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging (DEBUG level)")
+
+    # ── stt subcommand ──────────────────────────────────────────────
+    stt_parser = sub.add_parser("stt", help="Transcribe a WAV file to text using faster-whisper")
+    stt_parser.add_argument("wav", help="Path to WAV file to transcribe")
+    stt_parser.add_argument(
+        "--model", "-m", help="Whisper model size (default: medium, options: tiny/base/small/medium/large-v3)"
+    )
+    stt_parser.add_argument("--language", "-l", default="de", help="Language code for transcription (default: de)")
+    stt_parser.add_argument("--device", choices=["cpu", "cuda"], help="Compute device (default: cpu)")
+    stt_parser.add_argument("--compute-type", dest="compute_type", help="Quantization type (int8/float16/float32)")
+    stt_parser.add_argument(
+        "--data-dir",
+        dest="data_dir",
+        help="Directory for Whisper models (default: ~/.local/share/faster-whisper-models)",
+    )
+    stt_parser.add_argument(
+        "--json", dest="json_output", action="store_true", help="Output result as JSON (includes metadata)"
+    )
+    stt_parser.add_argument(
+        "--no-vad", dest="no_vad", action="store_true", help="Disable Silero VAD pre-filtering (VAD is on by default)"
+    )
+    stt_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging (DEBUG level)")
+
+    # ── call subcommand ─────────────────────────────────────────────
     call_parser = sub.add_parser("call", help="Place a SIP call")
 
     # Config source
@@ -120,6 +165,12 @@ def parse_args() -> argparse.Namespace:
         "--inter-delay", dest="inter_delay", type=float, help="Seconds to wait between WAV repeats (default: 0)"
     )
     call_parser.add_argument("--repeat", type=int, help="Number of times to play the WAV (default: 1)")
+    call_parser.add_argument(
+        "--wait-for-silence",
+        dest="wait_for_silence",
+        type=float,
+        help="Wait for N seconds of remote silence before playback (e.g. 1.0 to let callee finish 'Hello?')",
+    )
     call_parser.add_argument("--record", dest="record_path", help="Record remote party audio to this WAV file path")
     call_parser.add_argument(
         "--stt-data-dir",
@@ -167,6 +218,70 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def cmd_tts(args: argparse.Namespace) -> int:
+    """Execute the ``tts`` subcommand.
+
+    Generates a WAV file from text using piper TTS.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code: 0 on success, 1 on failure.
+    """
+    from sipstuff.tts import TtsError, generate_wav
+
+    try:
+        result_path = generate_wav(
+            text=args.text,
+            model=args.model,
+            output_path=args.output,
+            sample_rate=args.sample_rate,
+            data_dir=args.data_dir,
+        )
+        logger.info(f"WAV written to {result_path}")
+        return 0
+    except TtsError as exc:
+        logger.error(f"TTS failed: {exc}")
+        return 1
+
+
+def cmd_stt(args: argparse.Namespace) -> int:
+    """Execute the ``stt`` subcommand.
+
+    Transcribes a WAV file to text using faster-whisper.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        Exit code: 0 on success, 1 on failure.
+    """
+    from sipstuff.stt import SttError, transcribe_wav
+
+    try:
+        text, meta = transcribe_wav(
+            wav_path=args.wav,
+            model=args.model,
+            language=args.language,
+            device=args.device,
+            compute_type=args.compute_type,
+            data_dir=args.data_dir,
+            vad_filter=not args.no_vad,
+        )
+    except SttError as exc:
+        logger.error(f"STT failed: {exc}")
+        return 1
+
+    if args.json_output:
+        output = {"text": text, **meta}
+        print(json.dumps(output, indent=2, ensure_ascii=False))
+    else:
+        print(text)
+
+    return 0
+
+
 def cmd_call(args: argparse.Namespace) -> int:
     """Execute the ``call`` subcommand.
 
@@ -195,6 +310,7 @@ def cmd_call(args: argparse.Namespace) -> int:
         "post_delay",
         "inter_delay",
         "repeat",
+        "wait_for_silence",
         "tts_model",
         "tts_sample_rate",
         "ice_enabled",
@@ -252,7 +368,12 @@ def cmd_call(args: argparse.Namespace) -> int:
     pjsip_logs: list[str] = []
     try:
         with SipCaller(config) as caller:
-            success = caller.make_call(args.dest, wav_path, record_path=args.record_path)
+            success = caller.make_call(
+                args.dest,
+                wav_path,
+                record_path=args.record_path,
+                wait_for_silence=config.call.wait_for_silence or None,
+            )
             call_result = caller.last_call_result
             pjsip_logs = caller.get_pjsip_logs()
     except SipCallError as exc:
@@ -314,9 +435,15 @@ def cmd_call(args: argparse.Namespace) -> int:
                 "pjsip_log": pjsip_logs,
             }
 
+            report_json = json.dumps(report, indent=2, ensure_ascii=False)
             report_path = Path(args.record_path).with_suffix(".json")
-            report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+            report_path.write_text(report_json)
             logger.info(f"Call report written to {report_path}")
+            logger.opt(raw=True).info(
+                "\n{border}\n***** CALL REPORT *****\n{border}\n{report}\n{border}\n",
+                border="*" * 60,
+                report=report_json,
+            )
 
         return 0
     else:
@@ -343,6 +470,10 @@ def main() -> int:
 
     if args.command == "call":
         return cmd_call(args)
+    elif args.command == "tts":
+        return cmd_tts(args)
+    elif args.command == "stt":
+        return cmd_stt(args)
     return 1
 
 
