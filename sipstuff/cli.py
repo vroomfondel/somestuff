@@ -9,14 +9,20 @@ Provides the ``python -m sipstuff.cli`` command with three subcommands:
   or piper-TTS-generated speech, and hang up.
 
 Examples:
+    # TTS: generate a WAV file from text
     $ python -m sipstuff.cli tts "Hallo Welt" -o hello.wav
     $ python -m sipstuff.cli tts "Hello World" -o hello.wav --model en_US-lessac-high --sample-rate 8000
+
+    # STT: transcribe a WAV file to text
     $ python -m sipstuff.cli stt recording.wav
     $ python -m sipstuff.cli stt recording.wav --language en --model small --json
+    $ python -m sipstuff.cli stt recording.wav --no-vad  # disable Silero VAD pre-filtering
+
+    # Call: place a SIP call
     $ python -m sipstuff.cli call --dest +491234567890 --wav alert.wav
     $ python -m sipstuff.cli call --dest +491234567890 --text "Achtung!"
-    $ python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
-    $ python -m sipstuff.cli call --dest +491234567890 --wav alert.wav --record /tmp/recording.wav
+    $ python -m sipstuff.cli call --dest +491234567890 --wav alert.wav \
+        --wait-for-silence 1.0 --record /tmp/recording.wav --transcribe
     $ python -m sipstuff.cli call --server 192.168.123.123 --port 5060 \
         --transport udp --srtp disabled --user sipuser --password sippasword \
         --dest +491234567890 --text "Houston, wir haben ein Problem." \

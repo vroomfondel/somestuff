@@ -30,6 +30,80 @@ For STT support: `pip install faster-whisper` (optional, only needed for transcr
 
 ## CLI Usage
 
+The CLI provides three subcommands: `call`, `tts`, and `stt`.
+
+### `tts` — Text-to-Speech
+
+Generate a WAV file from text using piper TTS (no SIP server needed):
+
+```bash
+# Basic German TTS
+python -m sipstuff.cli tts "Hallo Welt" -o hello.wav
+
+# English voice, resampled to 8 kHz for narrowband SIP
+python -m sipstuff.cli tts "Hello World" -o hello.wav \
+    --model en_US-lessac-high --sample-rate 8000
+
+# Custom model directory
+python -m sipstuff.cli tts "Achtung!" -o alert.wav --data-dir /opt/piper-voices
+```
+
+| Flag | Description |
+|------|-------------|
+| `text` (positional) | Text to synthesize |
+| `--output`, `-o` | Output WAV file path (required) |
+| `--model`, `-m` | Piper voice model (default: `de_DE-thorsten-high`) |
+| `--sample-rate` | Resample to this rate in Hz (0 = native) |
+| `--data-dir` | Directory for piper voice models (default: `~/.local/share/piper-voices`) |
+| `--verbose`, `-v` | Debug logging |
+
+### `stt` — Speech-to-Text
+
+Transcribe a WAV file using faster-whisper (no SIP server needed):
+
+```bash
+# Basic transcription (German, medium model)
+python -m sipstuff.cli stt recording.wav
+
+# English, smaller model, JSON output with metadata
+python -m sipstuff.cli stt recording.wav --language en --model small --json
+
+# Disable Silero VAD pre-filtering (VAD is on by default)
+python -m sipstuff.cli stt recording.wav --no-vad
+
+# CUDA acceleration with large model
+python -m sipstuff.cli stt recording.wav --device cuda --model large-v3
+```
+
+The `--json` flag outputs structured JSON including segment timestamps, audio duration, and language probability:
+
+```json
+{
+  "text": "Ja, mach schon, jetzt ist es auch wurscht.",
+  "audio_duration": 17.4,
+  "language": "de",
+  "language_probability": 1.0,
+  "segments": [
+    {"start": 0.0, "end": 1.52, "text": "Ja, mach schon,"},
+    {"start": 1.52, "end": 3.84, "text": "jetzt ist es auch wurscht."}
+  ]
+}
+```
+
+| Flag | Description |
+|------|-------------|
+| `wav` (positional) | Path to WAV file to transcribe |
+| `--model`, `-m` | Whisper model size (default: `medium`, options: `tiny`/`base`/`small`/`medium`/`large-v3`) |
+| `--language`, `-l` | Language code (default: `de`) |
+| `--device` | Compute device: `cpu` or `cuda` (default: `cpu`) |
+| `--compute-type` | Quantization: `int8`, `float16`, `float32` (auto-selected by default) |
+| `--data-dir` | Directory for Whisper models (default: `~/.local/share/faster-whisper-models`) |
+| `--json` | Output result as JSON with metadata and segment timestamps |
+| `--no-vad` | Disable Silero VAD pre-filtering (VAD is on by default, recommended for phone recordings) |
+| `--verbose`, `-v` | Debug logging |
+
+### `call` — Place a SIP Call
+
 ```bash
 # Minimal — using a config file with a WAV file
 python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
@@ -50,6 +124,19 @@ python -m sipstuff.cli call \
     --text "Achtung! Wasserstand kritisch!" \
     --tts-model de_DE-thorsten-high --tts-sample-rate 8000
 
+# Wait for callee to finish speaking before playback
+python -m sipstuff.cli call \
+    --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --wav alert.wav \
+    --wait-for-silence 1.0
+
+# Record, transcribe, and write JSON call report
+python -m sipstuff.cli call \
+    --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --wav alert.wav \
+    --record /tmp/recording.wav --transcribe \
+    --wait-for-silence 1.0
+
 # TTS with a custom model directory
 python -m sipstuff.cli call \
     --config sip_config.yaml --dest +491234567890 \
@@ -69,16 +156,10 @@ python -m sipstuff.cli call \
     --pre-delay 1.5 --post-delay 2.0 --inter-delay 1.0 --repeat 3 \
     --timeout 30 -v
 
-# Record remote-party audio and auto-transcribe (STT)
-python -m sipstuff.cli call \
-    --server pbx.local --user 1000 --password secret \
-    --dest +491234567890 --wav alert.wav \
-    --record /tmp/recording.wav
-
 # Record with explicit STT options
 python -m sipstuff.cli call \
     --config sip_config.yaml --dest +491234567890 --wav alert.wav \
-    --record /tmp/recording.wav \
+    --record /tmp/recording.wav --transcribe \
     --stt-model small --stt-language en \
     --stt-data-dir /opt/whisper-models
 
@@ -90,7 +171,9 @@ python -m sipstuff.cli call \
     --dest +491234567890 --wav alert.wav -v
 ```
 
-### CLI Flags
+When `--transcribe` is used with `--record`, a JSON call report is written next to the recording (e.g. `/tmp/recording.json`) and also emitted to stdout/loguru for K8s log collection.
+
+### `call` CLI Flags
 
 | Flag | Description |
 |------|-------------|
@@ -113,7 +196,9 @@ python -m sipstuff.cli call \
 | `--post-delay` | Seconds to wait after playback before hangup (default: 0) |
 | `--inter-delay` | Seconds to wait between WAV repeats (default: 0) |
 | `--repeat` | Number of times to play the WAV (default: 1) |
+| `--wait-for-silence` | Wait for N seconds of remote silence before playback (e.g. `1.0` to let callee finish "Hello?"). Uses `SilenceDetector` on the incoming audio RMS. Applied after `--pre-delay`. |
 | `--record` | Record remote-party audio to this WAV file path (parent dirs created automatically) |
+| `--transcribe` | Transcribe recorded audio via STT and write a JSON call report (requires `--record`) |
 | `--stt-data-dir` | Directory for Whisper STT models (default: `~/.local/share/faster-whisper-models`) |
 | `--stt-model` | Whisper model size for transcription (default: `medium`, options: `tiny`/`base`/`small`/`medium`/`large-v3`) |
 | `--stt-language` | Language code for STT transcription (default: `de`) |
@@ -294,23 +379,28 @@ wav_path = generate_wav(
 from sipstuff import transcribe_wav, SttError
 
 # Transcribe a recorded call (auto-downloads model on first use)
+# VAD (Silero Voice Activity Detection) is enabled by default —
+# recommended for phone recordings with silences/ringing tones.
 try:
-    text = transcribe_wav("/tmp/recording.wav")  # default: medium model, German
+    text, meta = transcribe_wav("/tmp/recording.wav")  # default: medium model, German, vad=True
     print(f"Transcription: {text}")
+    print(f"Duration: {meta['audio_duration']:.1f}s, segments: {len(meta['segments'])}")
+    for seg in meta["segments"]:
+        print(f"  [{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text']}")
 except SttError as exc:
     print(f"STT failed: {exc}")
 
-# English transcription with a different model
-text = transcribe_wav("/tmp/recording.wav", language="en", model="large-v3")
+# English transcription with a different model, VAD disabled
+text, meta = transcribe_wav("/tmp/recording.wav", language="en", model="large-v3", vad_filter=False)
 
 # Custom model cache directory (useful for Docker volumes)
-text = transcribe_wav(
+text, meta = transcribe_wav(
     "/tmp/recording.wav",
     data_dir="/opt/whisper-models",
 )
 ```
 
-### Call with Recording and Transcription
+### Call with Recording, Silence Detection, and Transcription
 
 ```python
 from sipstuff import SipCaller, load_config, transcribe_wav
@@ -318,11 +408,15 @@ from sipstuff import SipCaller, load_config, transcribe_wav
 config = load_config(config_path="sip_config.yaml")
 with SipCaller(config) as caller:
     success = caller.make_call(
-        "+491234567890", "alert.wav", record_path="/tmp/recording.wav"
+        "+491234567890",
+        "alert.wav",
+        record_path="/tmp/recording.wav",
+        wait_for_silence=1.0,  # wait for callee to finish "Hello?" before playback
     )
     if success:
-        text = transcribe_wav("/tmp/recording.wav")
+        text, meta = transcribe_wav("/tmp/recording.wav")
         print(f"Remote party said: {text}")
+        print(f"Segments: {meta['segments']}")
 ```
 
 ### Error Handling
@@ -373,6 +467,7 @@ call:
   post_delay: 0.0
   inter_delay: 0.0
   repeat: 1
+  wait_for_silence: 0.0    # seconds of remote silence before playback (0 = disabled)
 
 tts:
   model: "de_DE-thorsten-high"  # piper voice model (auto-downloaded on first use)
@@ -443,6 +538,7 @@ All settings can be set via `SIP_` prefixed environment variables:
 | `SIP_POST_DELAY` | `call.post_delay` |
 | `SIP_INTER_DELAY` | `call.inter_delay` |
 | `SIP_REPEAT` | `call.repeat` |
+| `SIP_WAIT_FOR_SILENCE` | `call.wait_for_silence` |
 | `SIP_TTS_MODEL` | `tts.model` |
 | `SIP_TTS_SAMPLE_RATE` | `tts.sample_rate` |
 | `SIP_STUN_SERVERS` | `nat.stun_servers` (comma-separated) |
@@ -523,11 +619,11 @@ Non-standard formats (stereo, different bit depths/rates) will produce warnings 
 | File | Purpose |
 |------|---------|
 | `__init__.py` | Public API: `make_sip_call`, `SipCaller`, `SipCallError`, `SipCallerConfig`, `TtsError`, `generate_wav`, `SttError`, `transcribe_wav`, `load_config` |
-| `sip_caller.py` | Core calling logic: `SipCaller` (context manager), `SipCall` (PJSUA2 callbacks), `WavInfo` |
+| `sip_caller.py` | Core calling logic: `SipCaller` (context manager), `SipCall` (PJSUA2 callbacks), `SilenceDetector` (RMS-based silence detection via `AudioMediaPort`), `WavInfo` |
 | `sipconfig.py` | Pydantic config models with YAML / env / override loading |
 | `tts.py` | Piper TTS integration: text-to-WAV generation with optional resampling (uses `/opt/piper-venv`) |
-| `stt.py` | Speech-to-text via faster-whisper: WAV transcription with configurable model and language |
-| `cli.py` | CLI entry point (`python -m sipstuff.cli call ...`) |
+| `stt.py` | Speech-to-text via faster-whisper: WAV transcription with Silero VAD pre-filtering and segment timestamps |
+| `cli.py` | CLI entry point with three subcommands: `call`, `tts`, `stt` (`python -m sipstuff.cli {call,tts,stt} ...`) |
 | `install_pjsip.sh` | Build script for PJSIP with Python bindings (default: 2.16) |
 | `example_config.yaml` | Sample configuration file |
 
