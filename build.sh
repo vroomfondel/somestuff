@@ -14,7 +14,7 @@ readonly DOCKER_IMAGE_LATEST="${DOCKER_IMAGE%:*}:latest"
 readonly PLATFORMS=("linux/amd64" "linux/arm64")
 readonly DOCKERFILE=Dockerfile
 readonly BUILDER_NAME=mbuilder
-readonly ENABLE_PARALLEL_BUILDS=0
+readonly ENABLE_PARALLEL_BUILDS=1
 REMOTE_ARM64_CONNECTION="${REMOTE_ARM64_CONNECTION:-}"  # e.g. "user@rock5b"; made readonly after sourcing include.sh
 # Podman's Go SSH client cannot use the SSH agent or encrypted keys.
 # Use a dedicated unencrypted key (generate with: ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N "")
