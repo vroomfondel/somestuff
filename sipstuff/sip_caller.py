@@ -165,6 +165,12 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
     party audio frames.  The ``silence_event`` is set once the incoming RMS
     stays below ``threshold`` for ``duration`` seconds.
 
+    Note:
+        PJSUA2 SWIG bindings expose ``MediaFrame.buf`` as a ``pj.ByteVector``
+        (C++ ``std::vector<unsigned char>``), **not** Python ``bytes``.
+        ``array.frombytes()`` requires a bytes-like object, so an explicit
+        ``bytes()`` conversion is needed.
+
     Args:
         duration: Required seconds of continuous silence (default: 1.0).
         threshold: RMS threshold below which audio is considered silence
@@ -204,7 +210,7 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
             return
 
         try:
-            buf = frame.buf
+            buf: Any = frame.buf  # pj.ByteVector (SWIG std::vector<unsigned char>), not bytes
             if not hasattr(self, "_frame_buf_logged"):
                 self._frame_buf_logged = True
                 self._log.info(
@@ -213,7 +219,7 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
                     f"repr={repr(buf)[:120]}"
                 )
             samples = array.array("h")
-            samples.frombytes(buf)
+            samples.frombytes(bytes(buf))  # ByteVector -> bytes for array.frombytes()
             if len(samples) == 0:
                 return
             rms = math.isqrt(sum(s * s for s in samples) // len(samples))
