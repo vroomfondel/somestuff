@@ -1,8 +1,22 @@
-"""Text-to-speech using piper CLI (subprocess).
+"""Text-to-speech WAV generation using the piper CLI via subprocess.
 
-Generates WAV files from text, suitable for SIP playback.
-Uses piper-tts installed in a Python 3.12 virtualenv at /opt/piper-venv
-(piper-phonemize has no Python 3.14 wheels).
+Generates WAV files from text suitable for SIP playback.  Uses piper-tts
+installed in a Python 3.12 virtualenv at ``/opt/piper-venv`` because
+``piper-phonemize`` has no Python 3.14 wheels.
+
+Voice models are auto-downloaded on first use into a persistent cache
+directory (default: ``~/.local/share/piper-voices``, override with the
+``PIPER_DATA_DIR`` environment variable).  Optional ffmpeg-based resampling
+converts the native piper output (22 050 Hz) to SIP-friendly rates
+(8 000 Hz narrowband or 16 000 Hz wideband).
+
+Environment Variables:
+    PIPER_BIN: Path to the piper CLI binary
+        (default: ``/opt/piper-venv/bin/piper``).
+    PIPER_PYTHON: Python interpreter inside the piper venv
+        (default: ``/opt/piper-venv/bin/python``).
+    PIPER_DATA_DIR: Directory for downloaded voice models
+        (default: ``~/.local/share/piper-voices``).
 """
 
 import os
@@ -26,10 +40,16 @@ class TtsError(Exception):
 
 
 def _find_piper() -> tuple[str, str]:
-    """Find the piper CLI binary and its venv Python.
+    """Locate the piper CLI binary and its venv Python interpreter.
+
+    Checks the configured venv paths first (``PIPER_BIN`` / ``PIPER_PYTHON``),
+    then falls back to ``PATH`` lookup.
 
     Returns:
-        (piper_bin, piper_python) paths.
+        A ``(piper_bin, piper_python)`` tuple of absolute path strings.
+
+    Raises:
+        TtsError: If either binary cannot be found.
     """
     piper_bin: str | None = None
     if _PIPER_VENV_BIN.is_file():
@@ -53,9 +73,19 @@ def _find_piper() -> tuple[str, str]:
 
 
 def _ensure_model(model: str, data_dir: Path, piper_python: str) -> None:
-    """Download voice model if not already present.
+    """Download a piper voice model if not already present in ``data_dir``.
 
-    Uses piper.download_voices via the Python 3.12 venv.
+    Invokes ``piper.download_voices.download_voice`` via the Python 3.12
+    venv interpreter to fetch the model's ``.onnx`` and ``.json`` files.
+
+    Args:
+        model: Piper model name (e.g. ``"de_DE-thorsten-high"``).
+        data_dir: Directory to store downloaded model files.
+        piper_python: Path to the Python interpreter inside the piper venv.
+
+    Raises:
+        TtsError: If the download times out, returns a non-zero exit code,
+            or the expected ``.onnx`` file is missing after download.
     """
     model_path = data_dir / f"{model}.onnx"
     if model_path.exists():
@@ -160,7 +190,18 @@ def generate_wav(
 
 
 def _resample_wav(wav_path: Path, target_rate: int) -> None:
-    """Resample a WAV file in-place using ffmpeg."""
+    """Resample a WAV file in-place to ``target_rate`` Hz using ffmpeg.
+
+    Converts to mono 16-bit PCM via a temporary file, then atomically
+    replaces the original.
+
+    Args:
+        wav_path: Path to the WAV file to resample (modified in-place).
+        target_rate: Target sample rate in Hz (e.g. 8000, 16000).
+
+    Raises:
+        TtsError: If ffmpeg is not found or the conversion fails.
+    """
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
         raise TtsError("ffmpeg not found — required for resampling TTS output")

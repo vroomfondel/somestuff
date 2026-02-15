@@ -1,4 +1,24 @@
-"""SIP caller module — make phone calls and play WAV files or TTS via PJSUA2."""
+"""SIP caller package — place phone calls and play WAV files or TTS via PJSUA2.
+
+Provides a high-level convenience function (``make_sip_call``) for one-shot
+calls and a context-manager class (``SipCaller``) for placing multiple calls
+on a single SIP registration.  Text-to-speech is handled by piper TTS
+(``generate_wav``).
+
+Typical usage::
+
+    from sipstuff import make_sip_call
+
+    make_sip_call(
+        server="pbx.local",
+        user="1000",
+        password="secret",
+        destination="+491234567890",
+        wav_file="alert.wav",
+    )
+
+See ``sipstuff/README.md`` for full CLI, library, and Docker usage examples.
+"""
 
 import os
 from pathlib import Path
@@ -37,33 +57,40 @@ def make_sip_call(
     repeat: int = 1,
     tts_model: str = "de_DE-thorsten-high",
 ) -> bool:
-    """Convenience function: register, call, play WAV or TTS, hang up.
+    """Convenience function: register, call, play WAV or TTS, and hang up.
 
-    Provide either wav_file or text (not both).
+    One-shot wrapper around ``SipCaller`` that handles endpoint lifecycle
+    and TTS temp-file cleanup automatically.  Provide exactly one of
+    ``wav_file`` or ``text`` (not both, not neither).
 
     Args:
-        server: PBX hostname or IP.
+        server: PBX hostname or IP address.
         user: SIP extension / username.
-        password: SIP password.
-        destination: Phone number or SIP URI.
-        wav_file: Path to WAV file to play on answer.
-        text: Text to synthesize via piper TTS.
-        port: SIP server port.
-        timeout: Seconds to wait for answer.
-        transport: "udp", "tcp", or "tls".
-        pre_delay: Seconds to wait after answer before playback.
-        post_delay: Seconds to wait after playback before hangup.
-        inter_delay: Seconds to wait between WAV repeats.
-        repeat: Number of times to play the WAV.
-        tts_model: Piper voice model for TTS.
+        password: SIP authentication password.
+        destination: Phone number or full SIP URI to call.
+        wav_file: Path to the WAV file to play on answer.
+            Mutually exclusive with ``text``.
+        text: Text to synthesize via piper TTS and play on answer.
+            Mutually exclusive with ``wav_file``.
+        port: SIP server port (default: 5060).
+        timeout: Maximum seconds to wait for the remote party to answer.
+        transport: SIP transport protocol (``"udp"``, ``"tcp"``, or ``"tls"``).
+        pre_delay: Seconds to wait after answer before starting playback.
+        post_delay: Seconds to wait after playback completes before hanging up.
+        inter_delay: Seconds of silence between WAV repeats.
+        repeat: Number of times to play the WAV file.
+        tts_model: Piper voice model name for TTS (auto-downloaded on
+            first use).
 
     Returns:
-        True if call was answered and WAV played (at least partially).
+        ``True`` if the call was answered and the WAV played (at least
+        partially).  ``False`` if the call was not answered or timed out.
 
     Raises:
-        SipCallError: On registration, transport, or WAV issues.
-        TtsError: If TTS generation fails.
-        ValueError: If neither wav_file nor text is provided.
+        SipCallError: On SIP registration, transport, or WAV playback errors.
+        TtsError: If piper TTS generation fails.
+        ValueError: If neither ``wav_file`` nor ``text`` is provided,
+            or if both are provided.
     """
     if wav_file is None and text is None:
         raise ValueError("Provide either wav_file or text")
