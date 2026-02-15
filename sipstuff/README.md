@@ -406,6 +406,17 @@ TTS runtime environment variables (for overriding piper binary paths):
 | `PIPER_PYTHON` | `/opt/piper-venv/bin/python` | Python interpreter for piper venv |
 | `PIPER_DATA_DIR` | `~/.local/share/piper-voices` | Directory for downloaded voice models |
 
+PJSIP native log routing:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PJSIP_LOG_LEVEL` | `3` | PJSIP log verbosity routed through loguru (0 = none … 6 = trace) |
+| `PJSIP_CONSOLE_LEVEL` | `4` | PJSIP native console output printed directly to stdout (4 = PJSIP default, 0 = suppressed) |
+
+All PJSIP native output is captured by a `pj.LogWriter` subclass and forwarded to loguru (`classname="pjsip"`). `PJSIP_LOG_LEVEL` controls what the writer receives; `PJSIP_CONSOLE_LEVEL` controls what PJSIP additionally prints to stdout on its own. Set `PJSIP_CONSOLE_LEVEL=0` to suppress native output and rely solely on loguru.
+
+Both values can also be passed directly to the `SipCaller` constructor (`pjsip_log_level=`, `pjsip_console_level=`), which takes highest priority over env vars and class defaults.
+
 ## Troubleshooting
 
 ### One-way audio on multi-homed hosts
