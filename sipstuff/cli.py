@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""CLI for making SIP calls with WAV playback or TTS.
+"""CLI entry point for making SIP calls with WAV playback or TTS.
 
-Usage:
-    python -m sipstuff.cli call --dest +491234567890 --wav alert.wav
-    python -m sipstuff.cli call --dest +491234567890 --text "Achtung! Wasserstand kritisch!"
-    python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
+Provides the ``python -m sipstuff.cli`` command which registers with a SIP
+server, dials a destination, plays a WAV file or piper-TTS-generated speech,
+and hangs up.
+
+Example:
+    .. code-block:: bash
+
+        python -m sipstuff.cli call --dest +491234567890 --wav alert.wav
+        python -m sipstuff.cli call --dest +491234567890 --text "Achtung!"
+        python -m sipstuff.cli call --config sip_config.yaml --dest +491234567890 --wav alert.wav
+        python -m sipstuff.cli call --server 192.168.123.123 --port 5060 --transport udp --srtp disabled --user sipuser --password sippasword --dest +491234567890 --text "Houston, wir haben ein Problem." --pre-delay 3.0 --post-delay 1.0 --inter-delay 2.1 --repeat 3 -v
 """
 
 import argparse
@@ -20,6 +27,11 @@ from sipstuff.sipconfig import load_config
 
 
 def _print_banner() -> None:
+    """Log a startup banner with version, build time, and project URLs.
+
+    Renders a ``tabulate`` mixed-grid table with a Unicode box-drawing
+    title row and emits it via loguru in raw mode.
+    """
     startup_rows = [
         ["version", __version__],
         ["buildtime", os.environ.get("BUILDTIME", "n/a")],
@@ -40,6 +52,12 @@ def _print_banner() -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the sipstuff CLI.
+
+    Returns:
+        Parsed argument namespace.  The ``command`` attribute identifies
+        the subcommand (currently only ``"call"``).
+    """
     parser = argparse.ArgumentParser(
         prog="sipstuff",
         description="SIP caller — place a call and play a WAV file or TTS message",
@@ -122,6 +140,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def cmd_call(args: argparse.Namespace) -> int:
+    """Execute the ``call`` subcommand.
+
+    Loads configuration (YAML / env / CLI overrides), optionally generates
+    a TTS WAV file, places the SIP call, and cleans up temporary files.
+
+    Args:
+        args: Parsed CLI arguments from ``parse_args``.
+
+    Returns:
+        Exit code: 0 on success, 1 on failure (config error, TTS error,
+        SIP error, or unanswered call).
+    """
     if args.verbose:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
@@ -216,6 +246,11 @@ def cmd_call(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """CLI entry point: print the startup banner, parse args, and dispatch.
+
+    Returns:
+        Exit code: 0 on success, 1 on failure.
+    """
     _print_banner()
     args = parse_args()
     if args.command == "call":

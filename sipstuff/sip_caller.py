@@ -48,7 +48,25 @@ class SipCallError(Exception):
 
 
 class WavInfo:
-    """WAV file metadata extracted via the wave module."""
+    """WAV file metadata extracted via the ``wave`` module.
+
+    Reads channel count, sample width, framerate, frame count, and
+    computed duration on construction.
+
+    Args:
+        path: Path to the WAV file.
+
+    Raises:
+        SipCallError: If the file does not exist or cannot be parsed.
+
+    Attributes:
+        path: Resolved absolute path to the WAV file.
+        channels: Number of audio channels.
+        sample_width: Sample width in bytes (2 = 16-bit).
+        framerate: Sample rate in Hz.
+        n_frames: Total number of audio frames.
+        duration: Duration in seconds.
+    """
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).resolve()
@@ -66,7 +84,11 @@ class WavInfo:
             raise SipCallError(f"Cannot read WAV file {self.path}: {exc}") from exc
 
     def validate(self) -> None:
-        """Warn about non-standard formats but don't block playback."""
+        """Log warnings for non-standard WAV formats without blocking playback.
+
+        Warns on non-16-bit samples, stereo, or unusual sample rates.
+        Always logs a summary line with file name, duration, and format.
+        """
         if self.sample_width != 2:
             logger.warning(f"WAV sample width is {self.sample_width * 8}-bit, expected 16-bit PCM")
         if self.channels != 1:
@@ -91,6 +113,7 @@ def _local_address_for(remote_host: str, remote_port: int = 5060) -> str:
 
 
 def _require_pjsua2() -> None:
+    """Raise ``SipCallError`` if the pjsua2 Python bindings are not installed."""
     if not PJSUA2_AVAILABLE:
         raise SipCallError(
             "pjsua2 Python bindings not available. "
@@ -99,7 +122,22 @@ def _require_pjsua2() -> None:
 
 
 class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
-    """PJSUA2 Call with callbacks for state changes and media."""
+    """PJSUA2 Call subclass with callbacks for state changes and media.
+
+    Exposes threading events so the caller can synchronously wait for
+    connection, media readiness, or disconnection.
+
+    Args:
+        account: The PJSUA2 account that owns this call.
+        call_id: Existing PJSUA2 call ID, or ``PJSUA_INVALID_ID`` for a new
+            outgoing call.
+
+    Attributes:
+        connected_event: Set when the call enters CONFIRMED state.
+        disconnected_event: Set when the call enters DISCONNECTED state.
+        media_ready_event: Set when an active audio media channel is available.
+        wav_player: The active ``AudioMediaPlayer``, or ``None``.
+    """
 
     def __init__(self, account: "pj.Account", call_id: int = pj.PJSUA_INVALID_ID if PJSUA2_AVAILABLE else -1) -> None:
         if PJSUA2_AVAILABLE:
@@ -115,10 +153,27 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
         self._autoplay: bool = True
 
     def set_wav_path(self, wav_path: str | None, autoplay: bool = True) -> None:
+        """Configure the WAV file to play and whether to start on media ready.
+
+        Args:
+            wav_path: Path to the WAV file, or ``None`` to disable playback.
+            autoplay: If ``True``, playback starts automatically when the
+                media channel becomes active.  Set to ``False`` when
+                ``SipCaller.make_call`` manages playback timing.
+        """
         self._wav_path = wav_path
         self._autoplay = autoplay
 
     def onCallState(self, prm: "pj.OnCallStateParam") -> None:  # noqa: N802
+        """PJSUA2 callback invoked on call state changes.
+
+        Sets ``connected_event`` on CONFIRMED and ``disconnected_event``
+        on DISCONNECTED.  On disconnect, ``connected_event`` is also set
+        to unblock any thread waiting for an answer.
+
+        Args:
+            prm: PJSUA2 call-state callback parameter (unused directly).
+        """
         ci = self.getInfo()
         logger.info(f"Call state: {ci.stateText} (last code: {ci.lastStatusCode})")
 
@@ -130,6 +185,15 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
             self.connected_event.set()  # unblock waiters
 
     def onCallMediaState(self, prm: "pj.OnCallMediaStateParam") -> None:  # noqa: N802
+        """PJSUA2 callback invoked when media state changes.
+
+        Finds the first active audio media channel, stores it, sets
+        ``media_ready_event``, and optionally starts WAV playback if
+        ``autoplay`` is enabled.
+
+        Args:
+            prm: PJSUA2 media-state callback parameter (unused directly).
+        """
         ci = self.getInfo()
         for mi in ci.media:
             if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
@@ -140,11 +204,15 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
                 break
 
     def play_wav(self) -> bool:
-        """Start playing the configured WAV file (loop mode).
+        """Start playing the configured WAV file in loop mode.
 
         The player is created once and loops continuously.  Repeat
-        count and timing are managed by make_call(); the loop keeps
-        the conference port alive for clean stopTransmit() teardown.
+        count and timing are managed by ``SipCaller.make_call``; the loop
+        keeps the conference port alive for clean ``stopTransmit`` teardown.
+
+        Returns:
+            ``True`` if playback started successfully, ``False`` if no WAV
+            path or audio media is configured, or if an error occurred.
         """
         if not self._wav_path or not self._audio_media:
             return False
@@ -160,14 +228,18 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
             return False
 
     def stop_wav(self, _orphan_store: list[Any] | None = None) -> None:
-        """Stop current WAV playback and disconnect from conference bridge.
+        """Stop current WAV playback and disconnect from the conference bridge.
 
-        If *_orphan_store* is provided the player object is kept alive
-        there instead of being destroyed immediately — this avoids the
-        PJSIP "Remove port failed" warning that occurs when CPython's
-        ref-counting triggers the C++ destructor while the conference
-        bridge is still active.  The caller (SipCaller) clears the
-        store during endpoint shutdown when cleanup is safe.
+        If ``_orphan_store`` is provided the player object is moved there
+        instead of being destroyed immediately -- this avoids the PJSIP
+        "Remove port failed" warning that occurs when CPython's ref-counting
+        triggers the C++ destructor while the conference bridge is still
+        active.  ``SipCaller.stop`` clears the store before ``libDestroy``
+        when cleanup is safe.
+
+        Args:
+            _orphan_store: Optional list to receive the detached player
+                reference for deferred destruction.
         """
         if self.wav_player is not None:
             if self._audio_media is not None:
@@ -181,7 +253,11 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
 
 
 class _PjLogWriter(pj.LogWriter if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
-    """Route PJSIP native log output through loguru."""
+    """PJSUA2 ``LogWriter`` subclass that routes native PJSIP log output through loguru.
+
+    Maps PJSIP log levels (1 = error … 6 = trace) to loguru level names
+    and emits each message via a loguru logger bound to ``classname="pjsip"``.
+    """
 
     _PJ_TO_LOGURU = {1: "ERROR", 2: "WARNING", 3: "INFO", 4: "DEBUG", 5: "TRACE", 6: "TRACE"}
 
@@ -191,6 +267,11 @@ class _PjLogWriter(pj.LogWriter if PJSUA2_AVAILABLE else object):  # type: ignor
         self._log = logger.bind(classname="pjsip")
 
     def write(self, entry: "pj.LogEntry") -> None:
+        """Forward a single PJSIP log entry to loguru.
+
+        Args:
+            entry: PJSIP log entry containing ``level`` (int) and ``msg`` (str).
+        """
         level = self._PJ_TO_LOGURU.get(entry.level, "DEBUG")
         msg = entry.msg.rstrip("\n")
         if msg:
@@ -257,14 +338,25 @@ class SipCaller:
         self._log = logger.bind(classname="SipCaller")
 
     def __enter__(self) -> "SipCaller":
+        """Start the PJSUA2 endpoint and return ``self`` for use as a context manager."""
         self.start()
         return self
 
     def __exit__(self, *exc: Any) -> None:
+        """Shut down the PJSUA2 endpoint on context-manager exit."""
         self.stop()
 
     def start(self) -> None:
-        """Initialize PJSUA2 endpoint, transport, and account."""
+        """Initialize the PJSUA2 endpoint, create a SIP transport, and register an account.
+
+        Performs local-IP detection via ``_local_address_for`` and binds both
+        SIP signaling and RTP media transports to that address.  Configures
+        STUN/ICE/TURN/keepalive per ``self.config.nat`` and SRTP per
+        ``self.config.sip.srtp``.
+
+        Raises:
+            SipCallError: If pjsua2 is unavailable or account registration fails.
+        """
         _require_pjsua2()
 
         self._ep = pj.Endpoint()
@@ -389,7 +481,12 @@ class SipCaller:
         self._log.info(f"SIP account registered: {acfg.idUri}")
 
     def stop(self) -> None:
-        """Shutdown PJSUA2 endpoint and cleanup."""
+        """Shut down the PJSUA2 endpoint and release all resources.
+
+        Shuts down the SIP account, destroys orphaned WAV players while
+        the conference bridge is still alive, calls ``libDestroy``, and
+        releases the log writer.  Safe to call multiple times.
+        """
         if self._account is not None:
             try:
                 self._account.shutdown()
@@ -423,19 +520,34 @@ class SipCaller:
         inter_delay: float | None = None,
         repeat: int | None = None,
     ) -> bool:
-        """Place a SIP call, play WAV on answer, hang up after playback.
+        """Place a SIP call, play a WAV file on answer, and hang up after playback.
+
+        Builds a SIP URI from ``destination`` and the configured server,
+        initiates the call, waits for an answer (up to ``timeout``), then
+        plays the WAV file ``repeat`` times with optional pre/inter/post
+        delays.  During inter-delays the WAV transmission is paused so the
+        remote side hears silence.
 
         Args:
             destination: Phone number or SIP URI to call.
-            wav_file: Path to WAV file to play.
-            timeout: Override call timeout (seconds). None = use config value.
-            pre_delay: Seconds to wait after answer before playback. None = use config value.
-            post_delay: Seconds to wait after playback before hangup. None = use config value.
-            inter_delay: Seconds to wait between WAV repeats. None = use config value.
-            repeat: Number of times to play the WAV. None = use config value.
+            wav_file: Path to the WAV file to play.
+            timeout: Call timeout in seconds.  ``None`` uses the config value.
+            pre_delay: Seconds to wait after answer before playback.
+                ``None`` uses the config value.
+            post_delay: Seconds to wait after playback before hangup.
+                ``None`` uses the config value.
+            inter_delay: Seconds of silence between WAV repeats.
+                ``None`` uses the config value.
+            repeat: Number of times to play the WAV.
+                ``None`` uses the config value.
 
         Returns:
-            True if call was answered and WAV played (at least partially).
+            ``True`` if the call was answered and the WAV played (at least
+            partially).  ``False`` if the call was not answered or timed out.
+
+        Raises:
+            SipCallError: If the caller is not started or the call cannot
+                be initiated.
         """
         if self._account is None:
             raise SipCallError("SipCaller not started — call start() or use context manager")

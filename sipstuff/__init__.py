@@ -10,6 +10,7 @@ from sipstuff.sipconfig import SipCallerConfig, load_config
 from sipstuff.tts import TtsError, generate_wav
 
 __all__ = [
+    "__version__",
     "make_sip_call",
     "SipCallError",
     "SipCaller",
