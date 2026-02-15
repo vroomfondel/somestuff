@@ -178,6 +178,8 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
         self._silence_start: float | None = None
         self._last_log: float = 0.0
         self._rms_buf: list[int] = []
+        self._frames_received: int = 0
+        self._frames_processed: int = 0
         self.silence_event = threading.Event()
         self._log = logger.bind(classname="SilenceDetector")
 
@@ -194,6 +196,7 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
 
     def onFrameReceived(self, frame: "pj.MediaFrame") -> None:  # noqa: N802
         """Called by PJSUA2 for every incoming audio frame (~20 ms)."""
+        self._frames_received += 1
         if not hasattr(self, "_frame_received_logged"):
             self._frame_received_logged = True
             self._log.info("onFrameReceived: first frame arrived")
@@ -201,14 +204,26 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
             return
 
         try:
+            buf = frame.buf
+            if not hasattr(self, "_frame_buf_logged"):
+                self._frame_buf_logged = True
+                self._log.info(
+                    f"onFrameReceived: frame.buf type={type(buf).__name__}, "
+                    f"len={len(buf) if hasattr(buf, '__len__') else 'N/A'}, "
+                    f"repr={repr(buf)[:120]}"
+                )
             samples = array.array("h")
-            samples.frombytes(frame.buf)
+            samples.frombytes(buf)
             if len(samples) == 0:
                 return
             rms = math.isqrt(sum(s * s for s in samples) // len(samples))
-        except Exception:
+        except Exception as exc:
+            if not hasattr(self, "_frame_exc_logged"):
+                self._frame_exc_logged = True
+                self._log.warning(f"onFrameReceived: frame processing failed: {type(exc).__name__}: {exc}")
             return
 
+        self._frames_processed += 1
         now = time.monotonic()
         self._rms_buf.append(rms)
         if rms < self._threshold:
@@ -873,6 +888,11 @@ class SipCaller:
                         detector.silence_event.wait(timeout=min(remaining, 0.25))
                     call._audio_media.stopTransmit(detector)
                     detector.stopTransmit(call._audio_media)  # diagnostic: stop reverse direction
+                    self._log.info(
+                        f"SilenceDetector summary: received={detector._frames_received}, "
+                        f"processed={detector._frames_processed}, "
+                        f"silence_event={'SET' if detector.silence_event.is_set() else 'NOT SET'}"
+                    )
                 except Exception as exc:
                     self._log.warning(f"Silence detection failed ({exc}) — proceeding with playback")
 
