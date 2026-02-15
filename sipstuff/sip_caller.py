@@ -846,10 +846,7 @@ class SipCaller:
             detector = SilenceDetector(duration=wait_for_silence)
             try:
                 fmt = pj.MediaFormatAudio()
-                fmt.clockRate = 16000
-                fmt.channelCount = 1
-                fmt.bitsPerSample = 16
-                fmt.frameTimeUsec = 20000
+                fmt.init(pj.PJMEDIA_FORMAT_PCM, 16000, 1, 20000, 16)
                 detector.createPort("silence_det", fmt)
                 call._audio_media.startTransmit(detector)
                 # Wait for silence or disconnect, whichever comes first

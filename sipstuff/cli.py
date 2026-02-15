@@ -433,11 +433,7 @@ def cmd_call(args: argparse.Namespace) -> int:
                 },
                 "recording_duration": stt_meta.get("audio_duration"),
                 "transcript": transcript_text,
-                "stt": {
-                    "model": args.stt_model or "medium",
-                    "language": args.stt_language,
-                    "language_probability": stt_meta.get("language_probability"),
-                },
+                "stt": {"model": args.stt_model or "medium", **stt_meta},
                 "pjsip_log": pjsip_logs,
             }
 
