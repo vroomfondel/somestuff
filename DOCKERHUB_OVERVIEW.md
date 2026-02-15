@@ -23,7 +23,7 @@ Contents overview (Python packages/modules):
 - `mqttstuff`: tiny MQTT wrapper utility
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `sipstuff`: SIP caller — phone calls with WAV playback or piper TTS via PJSUA2
+- `sipstuff`: SIP caller — phone calls with WAV playback or piper TTS via PJSUA2, with silence detection, call recording, and speech-to-text transcription via faster-whisper
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -182,6 +182,8 @@ Features:
 - **Transports**: UDP, TCP, TLS (with optional server certificate verification).
 - **SRTP**: disabled, optional, or mandatory media encryption.
 - **TTS**: piper text‑to‑speech via a bundled Python 3.12 venv (piper‑phonemize lacks 3.14 wheels). Automatic voice model download; default model `de_DE-thorsten-high`. Optional ffmpeg resampling to SIP‑friendly rates (8000/16000 Hz).
+- **Recording & STT**: record remote‑party audio (`--record`), transcribe via faster‑whisper (`--transcribe`) with Silero VAD pre‑filtering. Outputs a JSON call report with segment timestamps, audio duration, and language probability.
+- **Silence detection**: `--wait-for-silence` delays playback until the callee finishes speaking (RMS‑based `SilenceDetector` on the incoming audio stream).
 - **NAT traversal**: STUN servers, ICE, TURN relay (with auth, UDP/TCP/TLS transport), UDP keepalive interval, and static `--public-address` for K3s/SNAT scenarios where auto‑detection returns an unreachable IP.
 - **Playback controls**: `--repeat`, `--pre-delay`, `--post-delay`, `--inter-delay`.
 - **Multi‑homed host support**: auto‑detects the correct local IP and binds SIP + RTP transports to it, avoiding one‑way audio.
@@ -196,6 +198,11 @@ python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
 python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
     --dest +491234567890 --text "Achtung! Wasserstand kritisch!"
 
+# Record, transcribe, and wait for callee to finish speaking
+python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
+    --dest +491234567890 --wav alert.wav \
+    --record /tmp/recording.wav --transcribe --wait-for-silence 1.0
+
 # With NAT traversal and TLS transport
 python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
     --dest +491234567890 --wav alert.wav \
@@ -203,7 +210,7 @@ python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
     --stun-servers stun.l.google.com:19302 --ice
 ```
 - Config: YAML file, `SIP_*` environment variables, or direct CLI arguments. Priority: CLI overrides > env > YAML.
-- Library API: `make_sip_call()` for one‑off calls, `SipCaller` context manager for multiple calls, `generate_wav()` for standalone TTS.
+- Library API: `make_sip_call()` for one‑off calls, `SipCaller` context manager for multiple calls, `generate_wav()` for standalone TTS, `transcribe_wav()` for standalone STT.
 - Dependencies: `pjsua2` (PJSIP Python bindings, built from source in Docker), `pydantic`, `ruamel.yaml`, `loguru`.
 - Docker: PJSIP is compiled in a multi‑stage build (stage 1), piper‑tts is installed in a Python 3.12 venv (stage 2), and both are copied into the final image (stage 3).
 - Usefulness: automated alert/notification calls from scripts, cron jobs, or monitoring systems.

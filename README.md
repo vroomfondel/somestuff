@@ -23,7 +23,7 @@ Contents overview (Python packages/modules):
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `sipstuff`: SIP caller — place phone calls and play WAV files via PJSUA2
+- `sipstuff`: SIP caller — place phone calls with WAV playback or piper TTS via PJSUA2, with silence detection, call recording, and speech-to-text transcription via faster-whisper (see [`sipstuff/README.md`](sipstuff/README.md))
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
