@@ -45,7 +45,7 @@ tests: venv
 
 lint: venv
 	@$(venv_activated)
-	black -l 120 --extend-exclude nfs-subdir-external-provisioner $(ARGS) .
+	black --extend-exclude nfs-subdir-external-provisioner $(ARGS) .
 
 dstart:
 	# map config.local.yaml, gcal credentials, kubeconfig, and ssh keys into container
