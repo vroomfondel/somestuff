@@ -1,8 +1,28 @@
 """Core SIP calling logic using PJSUA2.
 
 Provides SipCaller (high-level, context-manager) and SipCall (PJSUA2 callback handler).
+
+PJSIP Log Routing:
+    Native PJSIP log output is captured by a ``pj.LogWriter`` subclass and
+    forwarded to loguru (``classname="pjsip"``).  Two levels control verbosity:
+
+    * **pjsip_log_level** -- verbosity passed to the loguru writer
+      (0 = none … 6 = trace, default: 3).
+    * **pjsip_console_level** -- native PJSIP console output that goes
+      directly to stdout in addition to the writer (default: 4, matching
+      PJSIP's own default).
+
+    Resolution order (highest priority first):
+        1. Constructor argument (``pjsip_log_level=…``, ``pjsip_console_level=…``)
+        2. Environment variable (``PJSIP_LOG_LEVEL``, ``PJSIP_CONSOLE_LEVEL``)
+        3. Class default (``SipCaller.DEFAULT_PJSIP_LOG_LEVEL``,
+           ``SipCaller.DEFAULT_PJSIP_CONSOLE_LEVEL``)
+
+    Set ``PJSIP_CONSOLE_LEVEL=0`` (or pass ``pjsip_console_level=0``) to
+    suppress native console output and rely solely on the loguru writer.
 """
 
+import os
 import socket
 import threading
 import time
@@ -160,21 +180,80 @@ class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
             self.wav_player = None
 
 
+class _PjLogWriter(pj.LogWriter if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
+    """Route PJSIP native log output through loguru."""
+
+    _PJ_TO_LOGURU = {1: "ERROR", 2: "WARNING", 3: "INFO", 4: "DEBUG", 5: "TRACE", 6: "TRACE"}
+
+    def __init__(self) -> None:
+        if PJSUA2_AVAILABLE:
+            pj.LogWriter.__init__(self)
+        self._log = logger.bind(classname="pjsip")
+
+    def write(self, entry: "pj.LogEntry") -> None:
+        level = self._PJ_TO_LOGURU.get(entry.level, "DEBUG")
+        msg = entry.msg.rstrip("\n")
+        if msg:
+            self._log.log(level, "{}", msg)
+
+
 class SipCaller:
     """High-level SIP caller with context-manager support.
 
-    Usage:
+    Wraps PJSUA2 endpoint creation, account registration, call placement,
+    and WAV playback into a single context manager.
+
+    Args:
+        config: SIP caller configuration (from ``load_config``).
+        pjsip_log_level: PJSIP log verbosity routed through loguru
+            (0 = none … 6 = trace).  Falls back to the ``PJSIP_LOG_LEVEL``
+            env var, then ``DEFAULT_PJSIP_LOG_LEVEL`` (3).
+        pjsip_console_level: PJSIP native console output level that prints
+            directly to stdout in addition to the loguru writer.  Falls back
+            to the ``PJSIP_CONSOLE_LEVEL`` env var, then
+            ``DEFAULT_PJSIP_CONSOLE_LEVEL`` (4, matching PJSIP's own default).
+            Set to 0 to suppress native console output entirely.
+
+    Attributes:
+        DEFAULT_PJSIP_LOG_LEVEL: Class-level default for ``pjsip_log_level`` (3).
+        DEFAULT_PJSIP_CONSOLE_LEVEL: Class-level default for ``pjsip_console_level`` (4).
+
+    Usage::
+
         with SipCaller(config) as caller:
+            success = caller.make_call("+491234567890", "/path/to/alert.wav")
+
+        # Suppress native console output, bump writer verbosity
+        with SipCaller(config, pjsip_log_level=5, pjsip_console_level=0) as caller:
             success = caller.make_call("+491234567890", "/path/to/alert.wav")
     """
 
-    def __init__(self, config: SipCallerConfig) -> None:
+    DEFAULT_PJSIP_LOG_LEVEL: int = 3
+    DEFAULT_PJSIP_CONSOLE_LEVEL: int = 4
+
+    def __init__(
+        self,
+        config: SipCallerConfig,
+        pjsip_log_level: int | None = None,
+        pjsip_console_level: int | None = None,
+    ) -> None:
         _require_pjsua2()
         self.config = config
+        self.pjsip_log_level: int = (
+            pjsip_log_level
+            if pjsip_log_level is not None
+            else int(os.environ.get("PJSIP_LOG_LEVEL", str(self.DEFAULT_PJSIP_LOG_LEVEL)))
+        )
+        self.pjsip_console_level: int = (
+            pjsip_console_level
+            if pjsip_console_level is not None
+            else int(os.environ.get("PJSIP_CONSOLE_LEVEL", str(self.DEFAULT_PJSIP_CONSOLE_LEVEL)))
+        )
         self._ep: pj.Endpoint | None = None
         self._account: pj.Account | None = None
         self._transport: Any = None
         self._orphaned_players: list[Any] = []
+        self._pj_log_writer: _PjLogWriter | None = None
         self._log = logger.bind(classname="SipCaller")
 
     def __enter__(self) -> "SipCaller":
@@ -197,8 +276,11 @@ class SipCaller:
         self._log.info(f"Local address for SIP server: {local_ip}")
 
         ep_cfg = pj.EpConfig()
-        ep_cfg.logConfig.level = 3
-        ep_cfg.logConfig.consoleLevel = 3
+        ep_cfg.logConfig.level = self.pjsip_log_level
+        ep_cfg.logConfig.consoleLevel = self.pjsip_console_level
+        self._pj_log_writer = _PjLogWriter()
+        ep_cfg.logConfig.writer = self._pj_log_writer
+        ep_cfg.logConfig.decor = 0  # skip PJSIP's own timestamp/prefix — loguru adds its own
 
         # STUN servers (endpoint-level)
         if self.config.nat.stun_servers:
@@ -326,6 +408,9 @@ class SipCaller:
                 pass
             self._ep = None
 
+        # Release log writer after endpoint is gone
+        self._pj_log_writer = None
+
         self._log.info("PJSUA2 endpoint stopped")
 
     def make_call(
@@ -448,10 +533,22 @@ class SipCaller:
 
                 # Inter-delay between repeats (not after the last one)
                 if inter_delay > 0 and i < repeat - 1:
+                    # Pause transmission so the remote side hears silence
+                    if call.wav_player is not None and call._audio_media is not None:
+                        try:
+                            call.wav_player.stopTransmit(call._audio_media)
+                        except Exception:
+                            pass
                     self._log.info(f"Inter-delay: {inter_delay}s")
                     if call.disconnected_event.wait(timeout=inter_delay):
                         self._log.info("Remote party hung up during inter-delay")
                         return True
+                    # Resume transmission for the next repeat
+                    if call.wav_player is not None and call._audio_media is not None:
+                        try:
+                            call.wav_player.startTransmit(call._audio_media)
+                        except Exception:
+                            pass
         finally:
             call.stop_wav(_orphan_store=self._orphaned_players)
 

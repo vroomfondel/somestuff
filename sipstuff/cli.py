@@ -12,9 +12,31 @@ import os
 import sys
 
 from loguru import logger
+from tabulate import tabulate
 
+from sipstuff import __version__
 from sipstuff.sip_caller import SipCallError, SipCaller
 from sipstuff.sipconfig import load_config
+
+
+def _print_banner() -> None:
+    startup_rows = [
+        ["version", __version__],
+        ["buildtime", os.environ.get("BUILDTIME", "n/a")],
+        ["github", "https://github.com/vroomfondel/somestuff"],
+        ["Docker Hub", "https://hub.docker.com/r/xomoxcc/somestuff"],
+    ]
+    table_str = tabulate(startup_rows, tablefmt="mixed_grid")
+    lines = table_str.split("\n")
+    table_width = len(lines[0])
+    title = "sipstuff starting up"
+    title_border = "\u250d" + "\u2501" * (table_width - 2) + "\u2511"
+    title_row = "\u2502 " + title.center(table_width - 4) + " \u2502"
+    separator = lines[0].replace("\u250d", "\u251d").replace("\u2511", "\u2525").replace("\u252f", "\u253f")
+
+    logger.opt(raw=True).info(
+        "\n{}\n", title_border + "\n" + title_row + "\n" + separator + "\n" + "\n".join(lines[1:])
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -194,6 +216,7 @@ def cmd_call(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    _print_banner()
     args = parse_args()
     if args.command == "call":
         return cmd_call(args)

@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+__version__ = "0.1.0"
+
 from sipstuff.sip_caller import SipCallError, SipCaller
 from sipstuff.sipconfig import SipCallerConfig, load_config
 from sipstuff.tts import TtsError, generate_wav

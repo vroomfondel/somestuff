@@ -43,6 +43,8 @@ ruamel.yaml
 
 cachetools
 
+tabulate
+
 # piper-tts — installed in /opt/piper-venv via Python 3.12 (piper-phonemize lacks 3.14 wheels)
 pathvalidate
 
