@@ -469,6 +469,8 @@ def main() -> int:
         configure_logging()
 
     logger.info(f"LOGURU_LEVEL={os.getenv("LOGURU_LEVEL")}")
+    logger.info("INFO LOG TEST")
+    logger.debug("DEBUG LOG TEST")
 
     _print_banner()
 

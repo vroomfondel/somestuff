@@ -292,6 +292,16 @@ Notes:
 - The `ffmpeg` step in the WAV example ensures the file is in a SIP-friendly format (8 kHz, mono, 16-bit PCM).
 - The TTS example needs no host-side WAV file — piper generates speech inside the container. Use `--tts-sample-rate 8000` to resample for narrowband SIP.
 
+## Example Output
+
+TTS call with silence detection, recording, and transcription:
+
+![Call startup — TTS generation, SIP registration, silence detection, and WAV playback](Bildschirmfoto_2026-02-15_17-40-19_blurred.png)
+
+![Call completion — RTP stats, STT transcription, and JSON call report](Bildschirmfoto_2026-02-15_17-40-43_blurred.png)
+
+![JSON call report detail and follow-up call](Bildschirmfoto_2026-02-15_17-41-02_blurred.png)
+
 ## Library Usage
 
 ```python
