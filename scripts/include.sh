@@ -8,6 +8,10 @@ KUBECTL_CONTEXT="arley@local"
 
 # echo \$0 in include.sh: $0
 
+REMOTE_ARM64_CONNECTION=""
+REMOTE_ARM64_SSH_IDENTITY=""
+
+
 declare -a include_local_sh
 include_local_sh[0]="include.local.sh"
 include_local_sh[1]="scripts/include.local.sh"

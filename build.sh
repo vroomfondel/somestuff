@@ -15,7 +15,10 @@ readonly PLATFORMS=("linux/amd64" "linux/arm64")
 readonly DOCKERFILE=Dockerfile
 readonly BUILDER_NAME=mbuilder
 readonly ENABLE_PARALLEL_BUILDS=0
-readonly REMOTE_ARM64_CONNECTION="${REMOTE_ARM64_CONNECTION:-}"  # e.g. "user@rock5b"
+REMOTE_ARM64_CONNECTION="${REMOTE_ARM64_CONNECTION:-}"  # e.g. "user@rock5b"; made readonly after sourcing include.sh
+# Podman's Go SSH client cannot use the SSH agent or encrypted keys.
+# Use a dedicated unencrypted key (generate with: ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N "")
+REMOTE_ARM64_SSH_IDENTITY="${REMOTE_ARM64_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 readonly BUILDTIME="$(date +'%Y-%m-%d %H:%M:%S %Z')"
 
 readonly BUILD_BASE_ARGS=(
@@ -72,6 +75,9 @@ setup_environment() {
   export DOCKER_CONFIG
   export REGISTRY_AUTH_FILE="${DOCKER_CONFIG}/config.json"
 
+  # Lock REMOTE_ARM64_CONNECTION after include.sh (and include.local.sh) had a chance to set it
+  readonly REMOTE_ARM64_CONNECTION
+
   if is_podman; then
     DOCKER_IS_PODMAN=1
   fi
@@ -124,6 +130,13 @@ platform_needs_vm() {
 
 ensure_remote_arm64_connection() {
   local user_host="${REMOTE_ARM64_CONNECTION}"
+  # Podman's Go SSH client cannot use the SSH agent or encrypted keys.
+  # Use a dedicated unencrypted key (generate with: ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N "")
+  local ssh_identity="${REMOTE_ARM64_SSH_IDENTITY}"
+
+  if [[ ! -f "${ssh_identity}" ]]; then
+    die "SSH identity '${ssh_identity}' not found. Create it with: ssh-keygen -t ed25519 -f ${ssh_identity} -N \"\" && ssh-copy-id -i ${ssh_identity} ${user_host}"
+  fi
 
   # Check if connection already registered
   if podman system connection list --format "{{.Name}}" | grep -qxF "${user_host}"; then
@@ -133,8 +146,15 @@ ensure_remote_arm64_connection() {
     local remote_uid
     remote_uid="$(ssh "${user_host}" id -u)" \
       || die "SSH to '${user_host}' failed — check SSH key auth"
-    local sock_path="/run/user/${remote_uid}/podman/podman.sock"
+    local sock_path
+    if [[ "${remote_uid}" == "0" ]]; then
+      sock_path="/run/podman/podman.sock"
+    else
+      sock_path="/run/user/${remote_uid}/podman/podman.sock"
+    fi
+
     podman system connection add "${user_host}" "ssh://${user_host}${sock_path}" \
+      --identity "${ssh_identity}" \
       || die "Failed to register podman connection '${user_host}'"
   fi
 
