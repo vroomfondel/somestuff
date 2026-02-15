@@ -26,6 +26,7 @@ import array
 import dataclasses
 import math
 import os
+import statistics
 import socket
 import threading
 import time
@@ -176,8 +177,20 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
         self._threshold = threshold
         self._silence_start: float | None = None
         self._last_log: float = 0.0
+        self._rms_buf: list[int] = []
         self.silence_event = threading.Event()
         self._log = logger.bind(classname="SilenceDetector")
+
+    def _flush_rms_stats(self, now: float, label: str) -> None:
+        """Log buffered RMS stats (avg/median/stddev) and reset the buffer."""
+        if not self._rms_buf:
+            return
+        avg = statistics.mean(self._rms_buf)
+        med = statistics.median(self._rms_buf)
+        std = statistics.stdev(self._rms_buf) if len(self._rms_buf) > 1 else 0.0
+        self._log.debug(f"{label} (n={len(self._rms_buf)}, avg={avg:.0f}, med={med:.0f}, std={std:.0f})")
+        self._rms_buf.clear()
+        self._last_log = now
 
     def onFrameReceived(self, frame: "pj.MediaFrame") -> None:  # noqa: N802
         """Called by PJSUA2 for every incoming audio frame (~20 ms)."""
@@ -194,17 +207,20 @@ class SilenceDetector(pj.AudioMediaPort if PJSUA2_AVAILABLE else object):  # typ
             return
 
         now = time.monotonic()
+        self._rms_buf.append(rms)
         if rms < self._threshold:
             if self._silence_start is None:
                 self._silence_start = now
             elif now - self._silence_start >= self._duration:
-                self._log.info(f"Silence detected ({self._duration}s, rms={rms})")
+                self._flush_rms_stats(now, "Silence detected")
+                self._log.info(f"Silence threshold reached ({self._duration}s, last_rms={rms})")
                 self.silence_event.set()
         else:
-            if now - self._last_log >= 0.1:
-                self._log.debug(f"Non-silence detected (rms={rms})")
-                self._last_log = now
             self._silence_start = None
+
+        if now - self._last_log >= 0.5:
+            # log not more often than 0.5s
+            self._flush_rms_stats(now, "Audio activity")
 
 
 class SipCall(pj.Call if PJSUA2_AVAILABLE else object):  # type: ignore[misc]
