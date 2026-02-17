@@ -220,6 +220,14 @@ def parse_args() -> argparse.Namespace:
 
     # Logging
     call_parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging (DEBUG level)")
+    call_parser.add_argument(
+        "--pjsip-log-level",
+        dest="pjsip_log_level",
+        type=int,
+        choices=range(7),
+        metavar="0-6",
+        help="PJSIP log verbosity (0=none, 5=trace, 6=very verbose; default: 3)",
+    )
 
     return parser.parse_args()
 
@@ -373,7 +381,7 @@ def cmd_call(args: argparse.Namespace) -> int:
 
     pjsip_logs: list[str] = []
     try:
-        with SipCaller(config) as caller:
+        with SipCaller(config, pjsip_log_level=args.pjsip_log_level) as caller:
             success = caller.make_call(
                 args.dest,
                 wav_path,
