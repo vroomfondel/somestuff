@@ -4,20 +4,20 @@
 
 # Mosquitto 2.1 MQTT Broker
 
-This directory contains a custom, production-ready build of **Mosquitto 2.1.1**. It is specifically tailored for deployment on Ubuntu-based environments (Ubuntu 24.04) and includes support for modern MQTT features, enhanced security, and containerized orchestration via Kubernetes.
+This directory contains a custom, production-ready build of **Mosquitto 2.1.2**. It is specifically tailored for deployment on Ubuntu-based environments (Ubuntu 24.04) and includes support for modern MQTT features, enhanced security, and containerized orchestration via Kubernetes.
 
 ---
 
 ## 🚀 Features & Usefulness
 
-- **Mosquitto 2.1.1**: Built from source to leverage the latest features, including the new HTTP API.
+- **Mosquitto 2.1.2**: Built from source to leverage the latest features, including the new HTTP API.
 - **Dynamic Security**: Integrated `mosquitto_dynamic_security.so` plugin allows for real-time management of users, groups, and ACLs without broker restarts.
 - **SQLite Persistence**: Utilizes the `mosquitto_persist_sqlite.so` plugin for robust, high-performance persistent storage, superior to standard file-based persistence in containerized environments.
 - **WebSockets Support**: Native support enabled on port `9001`, allowing web-based clients to communicate via MQTT.
 - **HTTP API & Dashboard**: Includes a built-in HTTP management API and a web dashboard on port `9883`.
 - **Multi-Arch Docker Image**: Optimized for both `amd64` and `arm64` architectures, making it suitable for both cloud servers and edge devices (like Raspberry Pi).
 - **Proxy Protocol v2 Support**: Configured to work behind Load Balancers (like Traefik or HAProxy) while preserving client IP addresses.
-- **Enhanced IP Logging**: Mosquitto 2.1.1 natively logs client IP addresses and ports in all disconnect log messages. This makes it possible to use fail2ban based on IP addresses for MQTT authentication failures.
+- **Enhanced IP Logging**: Mosquitto 2.1.1+ natively logs client IP addresses and ports in all disconnect log messages. This makes it possible to use fail2ban based on IP addresses for MQTT authentication failures.
 
 ---
 

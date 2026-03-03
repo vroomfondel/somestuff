@@ -14,9 +14,9 @@ FROM ubuntu:24.04
 # docker run -it --rm --name haproxy --network=host -v $(pwd)/haproxy_test.cfg:/usr/local/etc/haproxy/haproxy.cfg  haproxy:latest
 
 
-# ORIG FILE from https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/2.1.1.tar.gz :: docker :: 2.1-ubuntu
+# ORIG FILE from https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/2.1.2.tar.gz :: docker :: 2.1-ubuntu
 
-ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/v2.1.1.tar.gz"
+ENV SRC="https://github.com/eclipse-mosquitto/mosquitto/archive/refs/tags/v2.1.2.tar.gz"
 
 # log-with-ip.patch no longer needed: v2.1.1 natively logs client IP+port in disconnect messages
 
@@ -81,6 +81,7 @@ RUN set -x && \
         ca-certificates \
         libargon2-1 \
         libcjson1 \
+        libedit2 \
         libmicrohttpd12 \
         libsqlite3-0 \
         tzdata && \
@@ -90,24 +91,7 @@ RUN set -x && \
     rm -rf /build
 
 
-COPY --chmod=0755 <<'EOF' /docker-entrypoint.sh
-#!/bin/sh
-set -e
-
-# Set permissions
-user="$(id -u)"
-if [ "$PUID" = "" ]; then
-	PUID="mosquitto"
-fi
-if [ "$PGID" = "" ]; then
-	PGID="mosquitto"
-fi
-if [ "$user" = '0' ]; then
-	[ -d "/mosquitto/data" ] && chown -R ${PUID}:${PGID} /mosquitto/data || true
-fi
-
-exec "$@"
-EOF
+COPY --chmod=0755 docker-entrypoint.sh /docker-entrypoint.sh
 
 ARG buildtime
 ENV BUILDTIME=$buildtime
@@ -137,54 +121,7 @@ COPY k3s_mosquitto_deployment.yml /k3s_mosquitto_deployment.yml
 
 RUN rm -vf /mosquitto/config/mosquitto.conf
 
-COPY --chown=mosquitto:mosquitto --chmod=0755 <<'EOF' /runmosquitto.sh
-#!/bin/bash
-
-confdir=${CONFDIR:-/mosquitto/config}
-datadir=${DATADIR:-/mosquitto/data}
-mkdir -p ${confdir}
-mkdir -p ${datadir}
-
-chown -R mosquitto:mosquitto ${datadir}
-
-echo
-if ! [ -e ${confdir}/mosquitto.passwd ] ; then
-  echo creating default user \"admin\" with password \"public\" at ${confdir}/mosquitto.passwd
-  /usr/bin/mosquitto_passwd -c -b ${confdir}/mosquitto.passwd admin public
-fi
-chown mosquitto:mosquitto ${confdir}/mosquitto.passwd
-chmod 0600 ${confdir}/mosquitto.passwd
-
-echo
-if ! [ -e ${datadir}/dynamic-security.json ] ; then
-  echo creating default initial dynamic-security \(by copying over default file\) at ${datadir}/dynamic-security.json for user \"admin\" with password \"public\"
-  echo /mosquitto_dynamic-security_test.json was created by calling:
-  echo -e \\t/usr/bin/mosquitto_ctrl dynsec init ${datadir}/dynamic-security.json admin public
-  cp -v /mosquitto_dynamic-security_test.json ${datadir}/dynamic-security.json
-fi
-chown mosquitto:mosquitto ${datadir}/dynamic-security.json
-chmod 0600 ${datadir}/dynamic-security.json
-
-echo
-if ! [ -e ${confdir}/mosquitto.acl ] ; then
-  echo creating \(by copying over default acl file\) default acl for user \"admin\" at ${confdir}/mosquitto.acl
-  cp -v /mosquitto_test.acl ${confdir}/mosquitto.acl
-fi
-chown mosquitto:mosquitto ${confdir}/mosquitto.acl
-chmod 0600 ${confdir}/mosquitto.acl
-
-echo
-if ! [ -e ${confdir}/mosquitto.conf ] ; then
-  echo creating \(by copying over default conf file\) ${confdir}/mosquitto.conf
-  cp -v /mosquitto_test.conf ${confdir}/mosquitto.conf
-fi
-chown mosquitto:mosquitto ${confdir}/mosquitto.conf
-chmod 0600 ${confdir}/mosquitto.conf
-
-echo
-/docker-entrypoint.sh /usr/sbin/mosquitto -c ${confdir}/mosquitto.conf
-
-EOF
+COPY --chown=mosquitto:mosquitto --chmod=0755 runmosquitto.sh /runmosquitto.sh
 
 
 ENV TZ=Europe/Berlin
