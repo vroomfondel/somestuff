@@ -23,7 +23,7 @@ Contents overview (Python packages/modules):
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `sipstuff`: SIP caller — place phone calls with WAV playback or piper TTS via PJSUA2, with silence detection, call recording, and speech-to-text transcription via faster-whisper (see [`sipstuff/README.md`](sipstuff/README.md))
+- `sipstuff`: **moved to standalone repo** — [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) (see [`sipstuff/README.md`](sipstuff/README.md))
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -183,29 +183,9 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
 
 
-### sipstuff
-SIP caller module using PJSUA2. Registers with a SIP/PBX server, dials a destination, plays a WAV file or TTS‑generated speech on answer, and hangs up. Designed for headless/container operation (null audio device, no sound card required). Supports UDP, TCP, and TLS transports with optional SRTP media encryption. Text‑to‑speech via [piper TTS](https://github.com/rhasspy/piper) — no pre‑recorded audio file needed.
-
-- CLI usage:
-```bash
-# WAV playback
-python -m sipstuff.cli call --server pbx.local --user 1000 --password secret --dest +491234567890 --wav alert.wav
-
-# TTS (auto‑downloads voice model on first use)
-python -m sipstuff.cli call --server pbx.local --user 1000 --password secret --dest +491234567890 \
-    --text "Achtung! Wasserstand kritisch!" --tts-data-dir /data/piper
-```
-- Library usage:
-```python
-from sipstuff import make_sip_call
-make_sip_call(server="pbx.local", user="1000", password="secret", destination="+49123", wav_file="alert.wav")
-make_sip_call(server="pbx.local", user="1000", password="secret", destination="+49123", text="Server offline!")
-```
-- Config: YAML file, `SIP_*` environment variables, or direct arguments. Priority: overrides > env > YAML.
-- Dependencies: `pjsua2` (PJSIP Python bindings, built from source in Docker), `pydantic`, `ruamel.yaml`, `loguru`.
-- Docker: PJSIP is compiled in a multi‑stage build (stage 1); piper‑tts runs in a separate Python 3.12 venv (stage 2, because `piper-phonemize` has no 3.14 wheels). Both are copied into the final image.
-- See `sipstuff/README.md` for full CLI flags, Docker examples, and library API.
-- Usefulness: automated alert/notification calls from scripts, cron jobs, or monitoring systems.
+### sipstuff (moved)
+The SIP caller module has been moved to its own standalone repository with significantly expanded features:
+**[github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff)** — Docker image: [`xomoxcc/sipstuff`](https://hub.docker.com/r/xomoxcc/sipstuff/tags)
 
 
 ### flickrdownloaderstuff (moved)
@@ -227,8 +207,7 @@ The Docker image is still available at [Docker Hub: xomoxcc/flickr-download](htt
 
 There is a single Docker image defined by the repo‑root `Dockerfile`. The image:
 - Uses `python:3.14-slim-trixie` base (commented alternatives exist for 3.13/ PyPy).
-- Multi‑stage build: stage 1 compiles PJSIP with Python bindings, stage 2 creates a Python 3.12 venv for piper‑tts (needed because `piper-phonemize` lacks 3.14 wheels), stage 3 assembles the final image.
-- Installs a few system tools (`htop`, `dnsutils`, `tini`, `ffmpeg`, etc.) and Python deps via `requirements.txt`.
+- Single‑stage build. Installs system tools (`htop`, `dnsutils`, `tini`, `ffmpeg`, etc.) and Python deps via `requirements.txt`.
 - Creates a non‑root user (`pythonuser`, configurable via build args `UID`, `GID`, `UNAME`).
 - Copies the packages into `/app` and sets `PYTHONPATH` accordingly.
 - Accepts build‑time metadata args and exports them as envs: `GITHUB_REF`, `GITHUB_SHA`, `BUILDTIME`.
