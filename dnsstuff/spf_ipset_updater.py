@@ -317,9 +317,10 @@ def ipset_exists(ipset_instance: IPSet, name: str) -> bool:
 
 def ipset_update_with_swap(
     srcname: str,
-    ipv4_addr_or_net: list[str],
+    ipv4_entries: list[tuple[str, str]],
     do_actual_swap: bool = True,
     create_srcname_defaulttype: str | None = "hash:net",
+    enable_comment: bool = True,
 ) -> None:
     """Updates an ipset atomically using a swap operation.
 
@@ -329,12 +330,15 @@ def ipset_update_with_swap(
 
     Args:
         srcname: Name of the ipset to be updated.
-        ipv4_addr_or_net: List of IPv4 addresses or networks (CIDR notation)
-            to be inserted into the ipset.
+        ipv4_entries: List of ``(ip_or_network, source_domain)`` tuples to be
+            inserted into the ipset. The source domain is stored as a comment
+            when ``enable_comment`` is ``True``.
         do_actual_swap: When ``True``, performs the actual swap. When ``False``,
             populates the temporary ipset but skips the swap (dry-run mode).
         create_srcname_defaulttype: Ipset type to use when the source ipset
             does not exist yet. Set to ``None`` to raise an error instead.
+        enable_comment: When ``True``, creates the ipset with comment support
+            and attaches the source domain as a comment to each entry.
     """
     ipset = IPSet()
 
@@ -375,11 +379,11 @@ def ipset_update_with_swap(
             temp_name = srcname
 
         # 3. Create the temporary ipset with the same type
-        ipset.create(temp_name, stype=stype)
+        ipset.create(temp_name, stype=stype, comment=enable_comment)
         if src_exists:
-            logger.info(f"Temporary ipset '{temp_name}' created")
+            logger.info(f"Temporary ipset '{temp_name}' created (comment={enable_comment})")
         else:
-            logger.info(f"ipset '{temp_name}' created")
+            logger.info(f"ipset '{temp_name}' created (comment={enable_comment})")
 
         # 4. Determine the etype based on the stype
         # For most hash:ip and hash:net sets we can use "net",
@@ -395,17 +399,20 @@ def ipset_update_with_swap(
         logger.info(f"Using etype: {etype}")
 
         # 5. Add all entries to the temporary ipset
-        for entry in ipv4_addr_or_net:
+        for entry, source_domain in ipv4_entries:
             if not ipset.test(temp_name, entry, etype=etype):
-                ipset.add(temp_name, entry, etype=etype)
-                logger.info(f"  → Added: {entry}")
+                add_kwargs: dict[str, str] = {}
+                if enable_comment:
+                    add_kwargs["comment"] = source_domain
+                ipset.add(temp_name, entry, etype=etype, **add_kwargs)
+                logger.info(f"  → Added: {entry} ({source_domain})")
             else:
-                logger.info(f"  → Skipped: {entry}")
+                logger.info(f"  → Skipped: {entry} ({source_domain})")
 
         if src_exists:
-            logger.info(f"Total of {len(ipv4_addr_or_net)} entries added to temporary ipset")
+            logger.info(f"Total of {len(ipv4_entries)} entries added to temporary ipset")
         else:
-            logger.info(f"Total of {len(ipv4_addr_or_net)} entries added to ipset")
+            logger.info(f"Total of {len(ipv4_entries)} entries added to ipset")
 
         if do_actual_swap:
             if src_exists:
@@ -477,8 +484,8 @@ def main() -> None:
 
     logger.info(f"Processing {len(domains)} domain(s): {', '.join(domains)}")
 
-    # Collect all IPv4 addresses for all domains
-    all_ipv4_combined: list[str] = []
+    # Collect all IPv4 entries (ip/net, source_domain) for all domains
+    all_ipv4_combined: list[tuple[str, str]] = []
 
     for domain in domains:
         logger.info(f"{'=' * 50}")
@@ -499,13 +506,13 @@ def main() -> None:
         for ip in domain_ipv4:
             logger.info(f"  - {ip}")
 
-        all_ipv4_combined.extend(domain_ipv4)
+        all_ipv4_combined.extend((ip, domain) for ip in domain_ipv4)
 
     logger.info(f"{'=' * 50}")
-    logger.info(f"Total IPv4 addresses found (all domains): {len(all_ipv4_combined)}")
+    logger.info(f"Total IPv4 entries found (all domains): {len(all_ipv4_combined)}")
     logger.info(f"{'=' * 50}")
-    for ip in all_ipv4_combined:
-        logger.info(f"  - {ip}")
+    for ip, src in all_ipv4_combined:
+        logger.info(f"  - {ip} ({src})")
 
     # Check if the user has root privileges
     if os.getuid() == 0:
