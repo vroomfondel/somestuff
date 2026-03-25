@@ -346,17 +346,21 @@ def ipset_update_with_swap(
 
     try:
         # 1. Determine the type of the existing ipset
-        msg_list = ipset.list(srcname)
-        stype = None
-
-        for msg in msg_list:
-            logger.debug(f"{type(msg)=} {msg=}")
-
-            # Get the set type from the attributes
-            type_attr = msg.get_attr("IPSET_ATTR_TYPENAME")
-            if type_attr:
-                stype = type_attr.decode("utf-8") if isinstance(type_attr, bytes) else type_attr
-                break
+        stype: str | None = None
+        try:
+            msg_list = ipset.list(srcname)
+            for msg in msg_list:
+                logger.debug(f"{type(msg)=} {msg=}")
+                type_attr = msg.get_attr("IPSET_ATTR_TYPENAME")
+                if type_attr:
+                    stype = type_attr.decode("utf-8") if isinstance(type_attr, bytes) else type_attr
+                    break
+        except Exception as list_err:
+            # errno 2 = "No such file or directory" → ipset does not exist yet
+            if getattr(list_err, "code", None) == 2:
+                logger.debug(f"ipset '{srcname}' does not exist yet")
+            else:
+                raise
 
         if not stype:
             if create_srcname_defaulttype is None:
@@ -462,7 +466,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ipset-type",
         default="hash:net",
-        help="Ipset type to use when creating a new ipset (default: hash:net)",
+        help="Ipset type to use when creating a new ipset (default: hash:net, with comment extension enabled)",
+    )
+    parser.add_argument(
+        "--no-comment",
+        action="store_true",
+        help="Disable the ipset comment extension (comments are enabled by default)",
     )
     parser.add_argument(
         "--dry-run",
@@ -521,6 +530,7 @@ def main() -> None:
             all_ipv4_combined,
             do_actual_swap=not args.dry_run,
             create_srcname_defaulttype=args.ipset_type,
+            enable_comment=not args.no_comment,
         )
     else:
         logger.warning(f"{'=' * 50}")
