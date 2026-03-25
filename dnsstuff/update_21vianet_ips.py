@@ -34,7 +34,7 @@ from tabulate import tabulate
 
 # -- Constants ---------------------------------------------------------------
 
-__version__: str = "0.1.0"
+__version__: str = "0.1.1"
 
 CLIENT_ID: str = str(uuid.uuid4())
 VERSION_URL: str = f"https://endpoints.office.com/version/China?clientrequestid={CLIENT_ID}"

@@ -28,7 +28,7 @@ from tabulate import tabulate
 
 # glogger.disable(__name__)
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 def _loguru_skiplog_filter(record: dict) -> bool:  # type: ignore[type-arg]
