@@ -85,16 +85,16 @@ python -m dinogame.dinogame
 This saves an animated GIF (via pillow) to your desktop by default; see code comments to tweak world size and frame count.
 
 
-### dnsstuff (pcbwaydnsstuff)
+### dnsstuff (spf_ipset_updater)
 Script to crawl SPF records (including nested `include:` chains) for one or more domains, resolve them to IPv4 ranges/addresses, then update an `ipset`. The ipset can be used by your MTA/firewall to allowlist specific SMTP sources. Originally motivated by receiving mails from pcbway.com while using country‑based IP blocks.
 
 - CLI usage:
 ```bash
-python -m dnsstuff.pcbwaydnsstuff pcbway.com mail-notify.pcbway.com
+python -m dnsstuff.spf_ipset_updater [--ipset-name NAME] [--ipset-type TYPE] [--dry-run] [domain ...]
 ```
 - Behavior:
-  - Prints resolved IPv4s to stdout for each domain and combined total.
-  - If running as root (`UID 0`), updates/swap‑refreshes an ipset named `smtpallowlist` (configurable in code) using `pyroute2.ipset`.
+  - Logs resolved IPv4s for each domain and combined total.
+  - If running as root (`UID 0`), updates/swap‑refreshes the target ipset (default: `smtpallowlist`) using `pyroute2.ipset`.
   - If not root, it only reports and skips the ipset update step.
 - Dependencies: `dnspython`, `pyroute2`.
 - Usefulness: automate building an SMTP allowlist from domains you trust, keeping it fresh even with complex SPF chains.
@@ -263,7 +263,7 @@ Run interactively (example):
 docker run --rm -it \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   xomoxcc/somestuff:python-3.14-slim-trixie \
-  python -m dnsstuff.pcbwaydnsstuff pcbway.com
+  python -m dnsstuff.spf_ipset_updater pcbway.com
 ```
 
 ### Local build and multi‑arch push via buildx

@@ -43,7 +43,7 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 | Module                       | Purpose                                                     |
 |------------------------------|-------------------------------------------------------------|
 | `dhcpstuff/dhcp_discover.py` | DHCP Discover sender with PXE/Proxy DHCP support            |
-| `dnsstuff/pcbwaydnsstuff.py` | SPF record crawler → ipset updater for SMTP allowlisting    |
+| `dnsstuff/spf_ipset_updater.py` | SPF record crawler → ipset updater for SMTP allowlisting |
 | `ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
 | `gcalstuff/gcal_event.py`   | Google Calendar event creation CLI (OAuth2)                 |
 | `hydromailstuff/hydromail.py`| Assembles status emails from MQTT/Netatmo data              |
