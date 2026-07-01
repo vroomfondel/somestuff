@@ -56,6 +56,8 @@ def runocr(imagefile: Path) -> str:
         raise Exception("Unexpectedly got an iterator")
 
     # logger.debug(response)
+    if response.response is None:
+        raise Exception("Got empty response from OCR model")
     return response.response
 
 
@@ -159,6 +161,8 @@ Return ONLY valid JSON:
         model="deepseek-r1:latest", prompt=prompt, format="json", stream=False  # oder ein anderes reasoning model
     )
 
+    if response.response is None:
+        raise Exception("Got empty response from LLM")
     return json.loads(response.response)
 
 
@@ -189,6 +193,8 @@ Return JSON:
 
     response = OLLAMA_CLIENT.generate(model="deepseek-r1:latest", prompt=prompt, format="json", stream=False)
 
+    if response.response is None:
+        raise Exception("Got empty response from LLM")
     return json.loads(response.response)
 
 
@@ -238,6 +244,8 @@ Return JSON with your analysis:
         stream=False,
     )
 
+    if response.response is None:
+        raise Exception("Got empty response from LLM")
     return json.loads(response.response)
 
 
