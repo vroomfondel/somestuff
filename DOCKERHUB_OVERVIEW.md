@@ -24,6 +24,7 @@ Contents overview (Python packages/modules):
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
 - `sipstuff`: SIP caller — phone calls with WAV playback or piper TTS via PJSUA2, with silence detection, call recording, and speech-to-text transcription via faster-whisper
+- `ucmstuff`: monitor and control a Grandstream UCM6204 IP‑PBX — real‑time call events over WebSocket plus request/response control via the HTTPS API
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
@@ -214,6 +215,29 @@ python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
 - Dependencies: `pjsua2` (PJSIP Python bindings, built from source in Docker), `pydantic`, `ruamel.yaml`, `loguru`.
 - Docker: PJSIP is compiled in a multi‑stage build (stage 1), piper‑tts is installed in a Python 3.12 venv (stage 2), and both are copied into the final image (stage 3).
 - Usefulness: automated alert/notification calls from scripts, cron jobs, or monitoring systems.
+
+
+### ucmstuff
+Monitor and control a **Grandstream UCM6204** IP‑PBX from Python. The UCM exposes two independent interfaces with different session models, and this module talks to both:
+
+- **WebSocket** (`/websockify`): the UCM *pushes* real‑time events (`ActiveCallStatus`, `ExtensionStatus`, `PbxStatus`, …). Handled by `UCMEventClient` (auto‑reconnect + heartbeat), authenticated with a **web** user.
+- **HTTPS API** (`/api`): request/response *control* and queries (`acceptCall`, `refuseCall`, `Hangup`, `dialExtension`, CDR, …). Handled by `UCM6204`, authenticated with an **API** user. `UCM6204Rest` adds a named, typed method for every HTTPS‑API action (trunks, routes, IVRs, queues, paging, accounts, users, dialing/transfer, …).
+
+To both monitor and control calls you run both clients together (the "coordinated" setup); `TrunkCallRouter` / `IncomingCall` route incoming calls on a trunk to a caller‑based branch.
+
+- Files: `ucmstuff/ucm6204_api.py` (core + Typer CLI + `/healthz` server for K8s probes), `ucm6204_api_rest.py` (full typed API), `example_router.py`.
+- CLI usage (repeatable `--trunk`; omit for monitor‑only):
+```bash
+python -m ucmstuff.ucm6204_api \
+  --host ucm.example.lan --port 8089 \
+  --web-user webuser --web-password '…' \
+  --api-user cdrapi   --api-password '…' \
+  --trunk MyTrunk
+```
+- Dependencies: `requests`, `typer`, `websocket-client`.
+- Deployment: `somestuff_ucm6204_deployment.yml` — one pod = events + control, **outbound‑only** to the UCM (no service/ingress), `/healthz` on port 8070 backs the liveness/readiness probes. Config with real credentials goes in `*.local.*` (gitignored); commit only the `.example` variants.
+- Note: both interfaces negotiate a weak Diffie‑Hellman group, so the clients lower the OpenSSL security level (`@SECLEVEL=1`) automatically. Real‑time events use the WebSocket model — the `url` report‑push parameter in Grandstream's older PDF guide is a dead legacy field on current firmware.
+- Usefulness: build call‑routing / screening / monitoring automation on top of a UCM6204 (e.g. auto‑accept known callers, refuse spam, react to PBX status).
 
 
 ### flickrdownloaderstuff (moved)

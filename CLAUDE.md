@@ -51,6 +51,7 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 | `llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
 | `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
 | `sipstuff/`                 | **Moved** to [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) |
+| `ucmstuff/`                  | Grandstream UCM6204 IP-PBX monitor/control: WebSocket events (`UCMEventClient`) + HTTPS-API control (`UCM6204`/`UCM6204Rest`), trunk call router, Typer CLI |
 | `dinogame/`                  | Grid pathfinding visualization (A* experiments)             |
 | `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
 

@@ -23,6 +23,7 @@ Contents overview (Python packages/modules):
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
+- `ucmstuff`: Grandstream UCM6204 IP‑PBX monitor + control — WebSocket call events and HTTPS‑API control (accept/refuse/route incoming calls)
 - `sipstuff`: **moved to standalone repo** — [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) (see [`sipstuff/README.md`](sipstuff/README.md))
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
