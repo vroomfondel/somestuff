@@ -154,6 +154,8 @@ jobs:
             buildtime=${{ steps.berlin_time.outputs.buildtime }}
             python_version=3.14
             debian_version=slim-trixie
+            gh_ref=${{ github.ref }}
+            gh_sha=${{ github.sha }}
           # tags: ${{ steps.<meta_id>.outputs.tags }}
           # labels: ${{ steps.<meta_id>.outputs.labels }}
 
@@ -229,6 +231,8 @@ jobs:
           build-args: |
             buildtime=${{ steps.berlin_time.outputs.buildtime }}
             debian_version=trixie-slim
+            gh_ref=${{ github.ref }}
+            gh_sha=${{ github.sha }}
 
   build-python314jit:
     needs: build-selector
@@ -305,6 +309,8 @@ jobs:
             debian_version=slim-trixie
             pandas_version=2.2.3
             python_version=3.14
+            gh_ref=${{ github.ref }}
+            gh_sha=${{ github.sha }}
 
 #      - name: Login to GHCR
 #        if: github.event_name != 'pull_request'
