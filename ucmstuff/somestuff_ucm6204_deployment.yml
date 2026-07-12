@@ -1,0 +1,90 @@
+---
+# Coordinated deployment: one process runs the WebSocket event monitor AND the
+# HTTPS-API control client together (main() of ucm6204_api.py). The pod only makes
+# OUTBOUND connections to the UCM — no inbound service/ingress needed. /healthz on
+# port 8070 is exposed only for the Kubernetes probes.
+#
+# Prerequisites:
+#   - namespace 'somestuff'
+#   - Secret 'somestuff-ucm6204-secret' (see somestuff-ucm6204-secret.example.yaml)
+#   - the image must contain: requests, typer, websocket-client
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: somestuff-ucm6204-deployment
+  namespace: somestuff
+  labels:
+    app: somestuff-ucm6204
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: somestuff-ucm6204
+  template:
+    metadata:
+      labels:
+        app: somestuff-ucm6204
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: somestuff-ucm6204
+          image: xomoxcc/somestuff:latest
+          # TRUNK is space-separated -> one --trunk flag per trunk (Typer idiom).
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              TRUNK_ARGS=""
+              for t in $TRUNK; do TRUNK_ARGS="$TRUNK_ARGS --trunk $t"; done
+              exec tini -- python3 ucmstuff/ucm6204_api.py \
+                --host "$UCM_HOST" --port "$UCM_PORT" \
+                --web-user "$UCM_WEB_USER" --web-password "$UCM_WEB_PASSWORD" \
+                --api-user "$UCM_API_USER" --api-password "$UCM_API_PASSWORD" \
+                --events "ActiveCallStatus,ExtensionStatus,PbxStatus" \
+                --health-host 0.0.0.0 --health-port 8070 \
+                $TRUNK_ARGS
+          env:
+            - name: UCM_HOST
+              value: "ucm.example.lan"
+            - name: UCM_PORT
+              value: "8089"
+            # Space-separated inbound trunk name(s); empty = monitor only.
+            - name: TRUNK
+              value: "MyTrunk"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TZ
+              value: "Europe/Berlin"
+          envFrom:
+            - secretRef:
+                name: somestuff-ucm6204-secret
+          ports:
+            - containerPort: 8070
+              name: health
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet: { path: /healthz, port: 8070 }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8070 }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8070 }
+            periodSeconds: 20
+            failureThreshold: 3
