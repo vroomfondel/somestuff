@@ -140,8 +140,14 @@ class MqttEventBridge:
         if enable_commands:
             if self._api is None:
                 raise ValueError("enable_commands=True requires api=UCM6204(...)")
-            self._mq.add_message_callback(f"{self._base}/cmd/#", self._on_command, rettype="json")
-            logger.info("MQTT command path enabled on %s/cmd/#", self._base)
+            cmd_topic = f"{self._base}/cmd/#"
+            # set_topics() records the filter in the client's userdata, so on_connect
+            # issues the actual SUBSCRIBE — on the first connect *and* on every paho
+            # auto-reconnect. add_message_callback() alone only registers client-side
+            # routing and would never make the broker deliver anything.
+            self._mq.set_topics([cmd_topic])
+            self._mq.add_message_callback(cmd_topic, self._on_command, rettype="json")
+            logger.info("MQTT command path enabled on %s", cmd_topic)
         self._mq.wait_for_connect_and_start_loop()
 
     def stop(self) -> None:
