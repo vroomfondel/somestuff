@@ -33,7 +33,28 @@ from ucmstuff.ucm6204_api import (
 
 
 def main() -> None:
-    """Connect both clients and route incoming trunk calls to ``on_incoming``."""
+    """Wire the event and control clients together and run the event loop.
+
+    Reads connection settings from environment variables (see
+    ``ucm.env.example``): ``UCM_HOST`` (required), ``UCM_PORT`` (defaults to
+    ``"8089"``), ``UCM_TRUNKS`` (whitespace-separated inbound trunk names; empty
+    means monitoring only, no call routing), ``UCM_API_USER``/``UCM_API_PASSWORD``
+    (HTTPS-API control credentials) and ``UCM_WEB_USER``/``UCM_WEB_PASSWORD``
+    (WebSocket event credentials).
+
+    Connects the :class:`~ucmstuff.ucm6204_api.UCM6204` control client, wires a
+    :class:`~ucmstuff.ucm6204_api.TrunkCallRouter` (if trunks are configured) to
+    ``on_incoming``, then runs the
+    :class:`~ucmstuff.ucm6204_api.UCMEventClient` event loop, blocking the calling
+    thread until interrupted (``events.run(block=True)`` only returns once the
+    loop is stopped).
+
+    Raises:
+        KeyError: If a required environment variable (``UCM_HOST``,
+            ``UCM_API_USER``, ``UCM_API_PASSWORD``, ``UCM_WEB_USER`` or
+            ``UCM_WEB_PASSWORD``) is not set.
+        ucmstuff.ucm6204_api.UCMAPIError: If the initial HTTPS-API login fails.
+    """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     host = os.environ["UCM_HOST"]
@@ -52,7 +73,17 @@ def main() -> None:
     )
 
     def on_incoming(call: IncomingCall) -> None:
-        """Branch by caller — replace the demo rules with your own logic."""
+        """Log the incoming call and branch by caller (demo placeholder).
+
+        Registered as the ``on_call`` callback of
+        :class:`~ucmstuff.ucm6204_api.TrunkCallRouter`; fires exactly once per new
+        incoming call on the configured trunk(s). Replace the commented-out rules
+        below with your own caller-based logic, e.g. auto-accepting allow-listed
+        numbers or auto-refusing based on the caller name.
+
+        Args:
+            call: The parsed incoming call (caller number/name, channel, trunk).
+        """
         logging.info("incoming %s call from %r <%s> on %s", call.trunk, call.name, call.number, call.channel)
         # --- your caller-based branching goes here, e.g.: ---
         # try:
