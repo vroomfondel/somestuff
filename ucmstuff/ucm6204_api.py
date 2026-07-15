@@ -48,8 +48,6 @@ Example:
         events.run(block=True)
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 import logging
@@ -1252,6 +1250,28 @@ def main(
     ),
     health_host: str = typer.Option("0.0.0.0", "--health-host", help="Health server bind address"),
     health_port: int = typer.Option(8070, "--health-port", help="Health server port"),
+    mqtt: bool = typer.Option(
+        False,
+        "--mqtt/--no-mqtt",
+        envvar="UCM_MQTT_ENABLE",
+        help="Publish events (and optionally accept commands) via MQTT. Default OFF; "
+        "override with --mqtt or UCM_MQTT_ENABLE=1.",
+    ),
+    mqtt_host: str = typer.Option(
+        "", "--mqtt-host", envvar="UCM_MQTT_HOST", help="MQTT broker host (required with --mqtt)"
+    ),
+    mqtt_port: int = typer.Option(1883, "--mqtt-port", envvar="UCM_MQTT_PORT", help="MQTT broker port"),
+    mqtt_user: str = typer.Option("", "--mqtt-user", envvar="UCM_MQTT_USER", help="MQTT username (empty = anonymous)"),
+    mqtt_password: str = typer.Option("", "--mqtt-password", envvar="UCM_MQTT_PASSWORD", help="MQTT password"),
+    mqtt_base_topic: str = typer.Option(
+        "ucm6204", "--mqtt-base-topic", envvar="UCM_MQTT_BASE_TOPIC", help="Root of the MQTT topic tree"
+    ),
+    mqtt_commands: bool = typer.Option(
+        False,
+        "--mqtt-commands/--no-mqtt-commands",
+        envvar="UCM_MQTT_COMMANDS",
+        help="Also accept accept/refuse/hangup commands on <base>/cmd/# (needs --api-user). Default OFF.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
 ) -> None:
     """Monitor UCM6204 events over WebSocket and optionally control calls (CLI).
@@ -1273,6 +1293,15 @@ def main(
         trunk: Inbound trunk name to route incoming calls for. Empty → no routing.
         health_host: Bind address of the health server. Defaults to ``"0.0.0.0"``.
         health_port: Health server port. Defaults to ``8070``.
+        mqtt: Enable the MQTT bridge (publish events, optionally accept commands).
+            Default ``False``; override via ``--mqtt`` / ``UCM_MQTT_ENABLE``.
+        mqtt_host: MQTT broker host. Required when ``mqtt`` is on.
+        mqtt_port: MQTT broker port. Defaults to ``1883``.
+        mqtt_user: MQTT username. Empty → anonymous.
+        mqtt_password: MQTT password.
+        mqtt_base_topic: Root of the MQTT topic tree. Defaults to ``"ucm6204"``.
+        mqtt_commands: Accept accept/refuse/hangup commands on ``<base>/cmd/#``.
+            Requires ``--api-user``. Default ``False``.
         verbose: If ``True``, log at DEBUG level, otherwise INFO.
     """
     logging.basicConfig(
@@ -1315,6 +1344,34 @@ def main(
             logger.info("incoming %s call: %r <%s> on %s", call.trunk, call.name, call.number, call.channel)
 
         ec.add_event_handler(TrunkCallRouter(trunks, on_call=route_incoming).handle)
+
+    # MQTT bridge — default OFF; gated by --mqtt / UCM_MQTT_ENABLE. Imported lazily
+    # so the default path never pulls in mqttstuff. publish runs on paho's own
+    # background loop (non-blocking start), alongside the WebSocket receive loop.
+    if mqtt:
+        if not mqtt_host:
+            raise typer.BadParameter("--mqtt requires --mqtt-host (or UCM_MQTT_HOST)")
+        if mqtt_commands and api is None:
+            raise typer.BadParameter("--mqtt-commands requires --api-user (control client)")
+        from ucmstuff.mqtt_bridge import MqttEventBridge, attach_bridge
+
+        bridge = MqttEventBridge(
+            host=mqtt_host,
+            port=mqtt_port,
+            username=mqtt_user or None,
+            password=mqtt_password or None,
+            base_topic=mqtt_base_topic,
+            api=api,
+        )
+        attach_bridge(ec, bridge, trunks=trunks)
+        bridge.start(enable_commands=mqtt_commands)
+        logger.info(
+            "MQTT bridge -> %s:%d base=%s | commands: %s",
+            mqtt_host,
+            mqtt_port,
+            mqtt_base_topic,
+            "enabled" if mqtt_commands else "disabled",
+        )
 
     start_health_server(health_host, health_port, lambda: ec.connected)
     logger.info(
