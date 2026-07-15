@@ -1,0 +1,91 @@
+"""ucmstuff — Grandstream UCM6204 monitor/control package.
+
+Central logging setup lives here (loguru), mirroring dnsstuff's setup. This
+package logs via the stdlib ``logging`` module, so :func:`configure_logging`
+installs an intercept handler that funnels those records into loguru instead of
+rewriting every call site.
+"""
+
+import inspect
+import logging
+import os
+import sys
+from collections.abc import Callable
+from types import FrameType
+from typing import Any
+
+from loguru import logger as glogger
+from tabulate import tabulate
+
+__version__ = "0.1.0"
+
+__all__ = ["__version__", "configure_logging", "print_banner"]
+
+
+def _loguru_skiplog_filter(record: dict) -> bool:  # type: ignore[type-arg]
+    """Filter function to hide records with ``extra['skiplog']`` set."""
+    return not record.get("extra", {}).get("skiplog", False)
+
+
+class _InterceptHandler(logging.Handler):
+    """Route stdlib ``logging`` records into loguru with correct call-site info.
+
+    Every module in this package uses ``logging.getLogger(...)``; installing this
+    on the root logger lets :func:`configure_logging` govern all of them (format,
+    level, colour) without touching the individual call sites.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Map the stdlib level name to a loguru level, falling back to the number.
+        level: str | int
+        try:
+            level = glogger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        # Walk out of the logging module so {module}/{function}/{line} point at the
+        # real caller rather than at this handler (canonical loguru intercept recipe).
+        frame: FrameType | None = inspect.currentframe()
+        depth = 0
+        while frame and (depth == 0 or frame.f_code.co_filename == logging.__file__):
+            frame = frame.f_back
+            depth += 1
+        glogger.bind(classname=record.name).opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+def configure_logging(verbose: bool = False, loguru_filter: Callable[[dict[str, Any]], bool] = _loguru_skiplog_filter) -> None:  # type: ignore[type-arg]
+    """Configure a default ``loguru`` sink and funnel stdlib logging into it.
+
+    Args:
+        verbose: ``True`` logs at DEBUG, otherwise honours ``LOGURU_LEVEL`` (INFO
+            by default).
+        loguru_filter: Record filter for the loguru sink.
+    """
+    level_name: str = "DEBUG" if verbose else os.getenv("LOGURU_LEVEL", "INFO")
+    os.environ["LOGURU_LEVEL"] = level_name
+    glogger.remove()
+    logger_fmt: str = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{module}</cyan>::<cyan>{extra[classname]}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    )
+    glogger.add(sys.stderr, level=level_name, format=logger_fmt, filter=loguru_filter)  # type: ignore[arg-type]
+    glogger.configure(extra={"classname": "None", "skiplog": False})
+    # Replace any stdlib handlers with the intercept so all ``logging`` output
+    # (this package's and third-party libraries') flows through loguru.
+    logging.basicConfig(handlers=[_InterceptHandler()], level=logging.getLevelNamesMapping()[level_name], force=True)
+
+
+def print_banner() -> None:
+    """Log the startup banner with version and project links."""
+    startup_rows = [
+        ["version", __version__],
+        ["github", "https://github.com/vroomfondel/somestuff/tree/main/ucmstuff"],
+        ["Docker Hub", "https://hub.docker.com/r/xomoxcc/somestuff"],
+    ]
+    table_str = tabulate(startup_rows, tablefmt="mixed_grid")
+    lines = table_str.split("\n")
+    table_width = len(lines[0])
+    title = "ucm6204 event monitor starting up"
+    title_border = "┍" + "━" * (table_width - 2) + "┑"
+    title_row = "│ " + title.center(table_width - 4) + " │"
+    separator = lines[0].replace("┍", "┝").replace("┑", "┥").replace("┯", "┿")
+
+    glogger.opt(raw=True).info(f"\n{title_border}\n{title_row}\n{separator}\n{'\n'.join(lines[1:])}\n")

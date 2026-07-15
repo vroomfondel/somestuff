@@ -38,8 +38,10 @@ from typing import Any, Iterable
 
 from mqttstuff import MWMqttMessage, MosquittoClientWrapper
 
-from ucmstuff.ucm6204_api import IncomingCall, NotifyEvent, UCM6204, UCMAPIError
+from ucmstuff.ucm6204_api import IncomingCall, NotifyEvent, UCM6204, UCMAPIError, UCMEventClient
 
+# stdlib logger by design: ucm6204_api.configure_logging() routes root-logger
+# records into loguru via its _InterceptHandler, so this output lands there too.
 logger = logging.getLogger(__name__)
 
 #: MQTT topic-level separator and single-/multi-level wildcards — illegal inside a
@@ -88,6 +90,8 @@ class MqttEventBridge:
         retain_events: bool = True,
     ) -> None:
         self._base = base_topic.strip("/")
+        self._host = host
+        self._port = port
         self._api = api
         self._retain_events = retain_events
         self._mq = MosquittoClientWrapper(host=host, port=port, username=username, password=password)
@@ -148,7 +152,16 @@ class MqttEventBridge:
             self._mq.set_topics([cmd_topic])
             self._mq.add_message_callback(cmd_topic, self._on_command, rettype="json")
             logger.info("MQTT command path enabled on %s", cmd_topic)
-        self._mq.wait_for_connect_and_start_loop()
+        logger.info("MQTT bridge connecting to host=%s port=%d base=%s", self._host, self._port, self._base)
+        connected = self._mq.wait_for_connect_and_start_loop()
+        if connected:
+            logger.info("MQTT bridge successfully connected to host=%s port=%d", self._host, self._port)
+        else:
+            logger.warning(
+                "MQTT bridge NOT connected to host=%s port=%d within timeout — paho keeps retrying in background",
+                self._host,
+                self._port,
+            )
 
     def stop(self) -> None:
         """Disconnect from the broker."""
@@ -186,7 +199,7 @@ class MqttEventBridge:
 
 
 def attach_bridge(
-    events: Any,
+    eventclient: UCMEventClient,
     bridge: MqttEventBridge,
     trunks: Iterable[str] = (),
     *,
@@ -198,6 +211,9 @@ def attach_bridge(
         events: A :class:`~ucmstuff.ucm6204_api.UCMEventClient`.
         bridge: The bridge to attach.
         trunks: Inbound trunk name(s); if given, a
+            :param trunks:
+            :param bridge:
+            :param eventclient:
             :class:`~ucmstuff.ucm6204_api.TrunkCallRouter` publishes parsed
             incoming calls via :meth:`MqttEventBridge.publish_incoming`.
         raw_events: Also publish every raw event via
@@ -208,7 +224,7 @@ def attach_bridge(
     from ucmstuff.ucm6204_api import TrunkCallRouter
 
     if raw_events:
-        events.add_event_handler(bridge.publish_event)
+        eventclient.add_event_handler(bridge.publish_event)
     trunk_list = [t for t in trunks if t]
     if trunk_list:
-        events.add_event_handler(TrunkCallRouter(trunk_list, on_call=bridge.publish_incoming).handle)
+        eventclient.add_event_handler(TrunkCallRouter(trunk_list, on_call=bridge.publish_incoming).handle)

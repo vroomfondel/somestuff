@@ -27,7 +27,7 @@ Attributes:
     logger (logging.Logger): Module-wide logger named ``ucm6204``.
 
 Dependencies:
-    ``pip install requests typer websocket-client``
+    ``pip install requests typer websocket-client loguru tabulate``
 
 Example:
     Monitor events and act on incoming calls on a specific trunk::
@@ -65,7 +65,15 @@ import typer
 import websocket
 from requests.adapters import HTTPAdapter
 
+from ucmstuff import configure_logging, print_banner
+
+# stdlib logger by design: the package's configure_logging() installs an
+# _InterceptHandler on the root logger, so every logger.<level>(...) below (and
+# third-party libs like paho / websocket / requests) is funneled into loguru. Kept
+# on stdlib so the existing printf-style ("%s") call sites need no rewrite to
+# loguru's "{}" formatting.
 logger = logging.getLogger("ucm6204")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Type aliases
@@ -1304,10 +1312,8 @@ def main(
             Requires ``--api-user``. Default ``False``.
         verbose: If ``True``, log at DEBUG level, otherwise INFO.
     """
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    configure_logging(verbose=verbose)
+    print_banner()
 
     api: UCM6204 | None = None
     if api_user:
