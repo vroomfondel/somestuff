@@ -19,8 +19,6 @@ Run (from the repo root so ``ucmstuff`` is importable)::
     python3 -m ucmstuff.example_router
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import sys
