@@ -12,18 +12,29 @@ import os
 import sys
 from collections.abc import Callable
 from types import FrameType
-from typing import Any
+from typing import TYPE_CHECKING
 
 from loguru import logger as glogger
 from tabulate import tabulate
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 __version__ = "0.1.0"
 
 __all__ = ["__version__", "configure_logging", "print_banner"]
 
 
-def _loguru_skiplog_filter(record: dict) -> bool:  # type: ignore[type-arg]
-    """Filter function to hide records with ``extra['skiplog']`` set."""
+def _loguru_skiplog_filter(record: "Record") -> bool:
+    """Decide whether a loguru record should be emitted.
+
+    Args:
+        record: The loguru record about to be handled by a sink.
+
+    Returns:
+        ``False`` for records whose ``extra['skiplog']`` flag is truthy (they are
+        hidden), ``True`` otherwise.
+    """
     return not record.get("extra", {}).get("skiplog", False)
 
 
@@ -36,6 +47,12 @@ class _InterceptHandler(logging.Handler):
     """
 
     def emit(self, record: logging.LogRecord) -> None:
+        """Forward a single stdlib record to loguru.
+
+        Args:
+            record: The stdlib log record to re-emit through loguru, preserving
+                its level, message, exception info and originating call site.
+        """
         # Map the stdlib level name to a loguru level, falling back to the number.
         level: str | int
         try:
@@ -52,13 +69,16 @@ class _InterceptHandler(logging.Handler):
         glogger.bind(classname=record.name).opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
-def configure_logging(verbose: bool = False, loguru_filter: Callable[[dict[str, Any]], bool] = _loguru_skiplog_filter) -> None:  # type: ignore[type-arg]
+def configure_logging(
+    verbose: bool = False, loguru_filter: Callable[["Record"], bool] = _loguru_skiplog_filter
+) -> None:
     """Configure a default ``loguru`` sink and funnel stdlib logging into it.
 
     Args:
         verbose: ``True`` logs at DEBUG, otherwise honours ``LOGURU_LEVEL`` (INFO
             by default).
-        loguru_filter: Record filter for the loguru sink.
+        loguru_filter: Predicate deciding, per loguru record, whether it is emitted
+            by the sink. Defaults to :func:`_loguru_skiplog_filter`.
     """
     level_name: str = "DEBUG" if verbose else os.getenv("LOGURU_LEVEL", "INFO")
     os.environ["LOGURU_LEVEL"] = level_name
