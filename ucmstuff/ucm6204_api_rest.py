@@ -40,8 +40,6 @@ Example:
     'Registered'
 """
 
-from __future__ import annotations
-
 from ucmstuff.ucm6204_api import JSONObject, JSONValue, UCM6204, UCMAPIError
 
 __all__ = ["UCM6204Rest", "UCMAPIError"]
