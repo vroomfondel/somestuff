@@ -17,9 +17,12 @@ Two directions, both optional and independently usable:
 
 Topic layout (``base_topic`` defaults to ``ucm6204``)::
 
-    ucm6204/events/<eventname>       retained   full notify event as JSON
+    ucm6204/events/<eventname>       transient  full notify event as JSON
     ucm6204/calls/<trunk>/incoming   transient  parsed IncomingCall as JSON
     ucm6204/cmd/{accept,refuse,hangup}   inbound   {"channel": "PJSIP/..."}
+
+All outbound messages are published with ``retain=False`` — they are point-in-time
+notifications, never retained "last value" state.
 
 Incoming calls are published per inbound trunk (``<trunk>`` is the call's
 ``inbound_trunk_name``, MQTT-sanitized); subscribe to ``ucm6204/calls/+/incoming``
@@ -56,6 +59,13 @@ def _mqtt_safe(name: str) -> str:
     whitespace. An empty or whitespace-only name (e.g. a call with no
     ``inbound_trunk_name``) collapses to ``"unknown"`` so the topic never contains
     an empty level.
+
+    Args:
+        name: The raw trunk name (e.g. ``inbound_trunk_name`` from an
+            :class:`~ucmstuff.ucm6204_api.ActiveCall`).
+
+    Returns:
+        str: A single MQTT topic segment, never empty.
     """
     safe = name.strip().translate(_MQTT_RESERVED)
     return safe or "unknown"
@@ -64,18 +74,8 @@ def _mqtt_safe(name: str) -> str:
 class MqttEventBridge:
     """Publish UCM events to MQTT and optionally dispatch MQTT commands to the API.
 
-    Args:
-        host: MQTT broker host (e.g. ``mosquitto.mosquitto.svc.cluster.local``).
-        port: Broker port. Defaults to ``1883``.
-        username: Broker username, or ``None`` for anonymous.
-        password: Broker password, or ``None``.
-        base_topic: Root of the topic tree. Defaults to ``"ucm6204"``.
-        api: A connected :class:`UCM6204` control client. Required only when the
-            inbound command path is enabled (:meth:`start` with
-            ``enable_commands=True``); ``None`` disables control.
-        retain_events: Publish ``<base>/events/*`` with the MQTT retain flag, so a
-            late subscriber immediately sees the last state per event type.
-            Defaults to ``True``.
+    See the module docstring for the topic layout and the outbound/inbound
+    direction split.
     """
 
     def __init__(
@@ -87,13 +87,26 @@ class MqttEventBridge:
         *,
         base_topic: str = "ucm6204",
         api: UCM6204 | None = None,
-        retain_events: bool = True,
     ) -> None:
+        """Initialize the bridge and the underlying MQTT client wrapper.
+
+        Does not connect yet — call :meth:`start` to connect and begin the
+        network loop.
+
+        Args:
+            host: MQTT broker host (e.g. ``mosquitto.mosquitto.svc.cluster.local``).
+            port: Broker port. Defaults to ``1883``.
+            username: Broker username, or ``None`` for anonymous.
+            password: Broker password, or ``None``.
+            base_topic: Root of the topic tree. Defaults to ``"ucm6204"``.
+            api: A connected :class:`UCM6204` control client. Required only when the
+                inbound command path is enabled (:meth:`start` with
+                ``enable_commands=True``); ``None`` disables control.
+        """
         self._base = base_topic.strip("/")
         self._host = host
         self._port = port
         self._api = api
-        self._retain_events = retain_events
         self._mq = MosquittoClientWrapper(host=host, port=port, username=username, password=password)
 
     # ── Outbound: UCM → MQTT ────────────────────────────────────────────────
@@ -104,9 +117,12 @@ class MqttEventBridge:
         Register with :meth:`UCMEventClient.add_event_handler`. Publishes the whole
         event dict (``eventname`` + ``eventbody`` + ``transactionid``) as JSON.
         Never raises — a broker hiccup must not kill the WebSocket receive loop.
+
+        Args:
+            event: The notify event delivered by :class:`UCMEventClient`.
         """
         name = str(event.get("eventname") or "unknown")
-        self._safe_publish(f"{self._base}/events/{name}", dict(event), retain=self._retain_events)
+        self._safe_publish(f"{self._base}/events/{name}", dict(event))
 
     def publish_incoming(self, call: IncomingCall) -> None:
         """CallHandler: publish a parsed incoming call to ``<base>/calls/<trunk>/incoming``.
@@ -115,15 +131,30 @@ class MqttEventBridge:
         your own router). The inbound trunk becomes a topic segment (MQTT-sanitized,
         see :func:`_mqtt_safe`), so subscribers can filter per trunk. Drops the bulky
         ``raw`` leg dict from the payload.
+
+        Args:
+            call: The parsed incoming call, as produced by :class:`TrunkCallRouter`.
         """
         payload = {k: v for k, v in asdict(call).items() if k != "raw"}
         trunk = _mqtt_safe(call.trunk)
-        self._safe_publish(f"{self._base}/calls/{trunk}/incoming", payload, retain=False)
+        self._safe_publish(f"{self._base}/calls/{trunk}/incoming", payload)
 
-    def _safe_publish(self, topic: str, payload: dict[str, Any], *, retain: bool) -> None:
-        """Publish ``payload`` (always a dict → JSON) swallowing broker errors."""
+    def _safe_publish(self, topic: str, payload: dict[str, Any]) -> None:
+        """Publish ``payload`` (always a dict → JSON), swallowing broker errors.
+
+        Always publishes with ``retain=False``: these are point-in-time events
+        (an event fired, a call arrived), so a retained "last value" left on the
+        broker would be replayed as stale state to every late subscriber.
+
+        Args:
+            topic: Full MQTT topic to publish to.
+            payload: The JSON-serializable payload (arbitrary JSON-compatible
+                values, hence ``Any``); ``mqttstuff.publish_one`` wraps it in
+                ``json.dumps``. See the module docstring's serialization note on
+                why this must always be a ``dict``, never a bare ``list``.
+        """
         try:
-            ok = self._mq.publish_one(topic, payload, retain=retain)
+            ok = self._mq.publish_one(topic, payload, retain=False)
             if not ok:
                 logger.warning("MQTT publish to %s not confirmed", topic)
         except Exception:
@@ -170,15 +201,28 @@ class MqttEventBridge:
         except Exception:
             logger.exception("MQTT disconnect failed")
 
-    #: Command topic suffix → (UCM6204 method name, human label).
+    #: Command topic suffix → matching :class:`~ucmstuff.ucm6204_api.UCM6204` method name.
     _COMMANDS: dict[str, str] = {"accept": "accept_call", "refuse": "refuse_call", "hangup": "hangup"}
 
-    def _on_command(self, msg: MWMqttMessage, userdata: Any) -> None:
+    def _on_command(self, msg: MWMqttMessage, userdata: dict[str, Any]) -> None:
         """Dispatch one ``<base>/cmd/<action>`` message to the API control client.
 
         Payload is JSON with at least ``{"channel": "PJSIP/..."}``. Unknown actions,
         missing channels and API errors are logged, never raised (this runs in the
         paho network thread).
+
+        Registered via :meth:`start` as the ``mqttstuff`` message callback for
+        ``<base>/cmd/#`` (``rettype="json"``), so ``mqttstuff`` calls it directly —
+        its signature is dictated by :meth:`MosquittoClientWrapper.add_message_callback`.
+
+        Args:
+            msg: The decoded command message; ``msg.value`` is the JSON payload
+                (expected to be a ``dict``) and ``msg.topic`` is the full command
+                topic (``<base>/cmd/<action>``).
+            userdata: ``mqttstuff``'s internal per-client state dict (topic list,
+                QoS, connect condition …). Untouched here — accepted only because
+                ``mqttstuff`` always passes it to message callbacks; its value
+                types are heterogeneous library internals, hence ``Any``.
         """
         action = str(msg.topic).rsplit("/", 1)[-1]
         method = self._COMMANDS.get(action)
@@ -208,14 +252,13 @@ def attach_bridge(
     """Convenience wiring: hook a :class:`MqttEventBridge` onto a UCMEventClient.
 
     Args:
-        events: A :class:`~ucmstuff.ucm6204_api.UCMEventClient`.
+        eventclient: The :class:`~ucmstuff.ucm6204_api.UCMEventClient` to attach the
+            bridge to.
         bridge: The bridge to attach.
         trunks: Inbound trunk name(s); if given, a
-            :param trunks:
-            :param bridge:
-            :param eventclient:
-            :class:`~ucmstuff.ucm6204_api.TrunkCallRouter` publishes parsed
-            incoming calls via :meth:`MqttEventBridge.publish_incoming`.
+            :class:`~ucmstuff.ucm6204_api.TrunkCallRouter` is registered that
+            publishes parsed incoming calls via
+            :meth:`MqttEventBridge.publish_incoming`. Empty → no call routing.
         raw_events: Also publish every raw event via
             :meth:`MqttEventBridge.publish_event`. Defaults to ``True``.
     """
