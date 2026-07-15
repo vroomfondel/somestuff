@@ -237,16 +237,49 @@ class _LegacyTLSAdapter(HTTPAdapter):
     """
 
     def __init__(self, ssl_context: ssl.SSLContext) -> None:
+        """Store the SSL context and initialize the underlying ``HTTPAdapter``.
+
+        Args:
+            ssl_context: The context to use for all HTTPS connections.
+        """
         self._ssl_context = ssl_context
         super().__init__()
 
     def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
-        """Attach the pinned SSL context when the pool manager is created."""
+        """Attach the pinned SSL context when the pool manager is created.
+
+        ``*args``/``**kwargs`` are ``Any`` because they simply forward to
+        ``requests.adapters.HTTPAdapter.init_poolmanager``, whose own signature
+        (``connections, maxsize, block=False, **pool_kwargs``) is left untyped
+        (``Incomplete``) by the ``types-requests`` stubs — there is nothing more
+        precise to narrow to without duplicating that untyped surface.
+
+        Args:
+            *args: Positional arguments forwarded to
+                :meth:`requests.adapters.HTTPAdapter.init_poolmanager`.
+            **kwargs: Keyword arguments forwarded likewise; ``ssl_context`` is
+                overwritten with the pinned context before forwarding.
+        """
         kwargs["ssl_context"] = self._ssl_context
         super().init_poolmanager(*args, **kwargs)
 
     def proxy_manager_for(self, *args: Any, **kwargs: Any) -> object:
-        """Attach the pinned SSL context when a proxy manager is created."""
+        """Attach the pinned SSL context when a proxy manager is created.
+
+        ``*args``/``**kwargs`` are ``Any`` for the same reason as in
+        :meth:`init_poolmanager`: they forward to the untyped
+        ``HTTPAdapter.proxy_manager_for(self, proxy, **proxy_kwargs)``.
+
+        Args:
+            *args: Positional arguments forwarded to
+                :meth:`requests.adapters.HTTPAdapter.proxy_manager_for`.
+            **kwargs: Keyword arguments forwarded likewise; ``ssl_context`` is
+                overwritten with the pinned context before forwarding.
+
+        Returns:
+            object: The proxy manager instance created by the base class (its
+            concrete type is likewise left untyped by the ``requests`` stubs).
+        """
         kwargs["ssl_context"] = self._ssl_context
         return super().proxy_manager_for(*args, **kwargs)
 
@@ -1159,7 +1192,13 @@ def start_health_server(host: str, port: int, is_ready: Callable[[], bool]) -> T
     """
 
     class _Handler(BaseHTTPRequestHandler):
+        """Request handler serving the single ``/healthz`` JSON probe endpoint."""
+
         def do_GET(self) -> None:  # noqa: N802
+            """Reply with ``200``/``{"connected": true}`` or ``503``/``false``.
+
+            Ignores the requested path — any GET hits this same readiness check.
+            """
             ready = is_ready()
             self.send_response(200 if ready else 503)
             self.send_header("Content-Type", "application/json")
@@ -1167,6 +1206,13 @@ def start_health_server(host: str, port: int, is_ready: Callable[[], bool]) -> T
             self.wfile.write(json.dumps({"connected": ready}).encode())
 
         def log_message(self, fmt: str, *args: object) -> None:
+            """Route the server's access log line through :data:`logger` instead of stderr.
+
+            Args:
+                fmt: ``printf``-style format string (as passed by
+                    :class:`~http.server.BaseHTTPRequestHandler`).
+                *args: Values to interpolate into ``fmt``.
+            """
             logger.debug("health %s - %s", self.address_string(), fmt % args)
 
     server = ThreadingHTTPServer((host, port), _Handler)
