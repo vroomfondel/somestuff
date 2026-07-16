@@ -1393,7 +1393,8 @@ def main(
                 elif call.name.upper().startswith("SPAM"):
                     api.refuse_call(call.channel)
             """
-            logger.info("incoming %s call: %r <%s> on %s", call.trunk, call.name, call.number, call.channel)
+            # logger.info("incoming %s call: %r <%s> on %s", call.trunk, call.name, call.number, call.channel)
+            logger.info(f"incoming {call.trunk=} | {call.name=} <{call.number=}> on {call.channel=}")
 
         ec.add_event_handler(TrunkCallRouter(trunks, on_call=route_incoming).handle)
 
