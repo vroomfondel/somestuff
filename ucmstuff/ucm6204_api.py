@@ -55,7 +55,7 @@ import ssl
 import threading
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar, Literal, NotRequired, TypedDict
@@ -1052,8 +1052,11 @@ class IncomingCall:
             :meth:`UCM6204.refuse_call` or :meth:`UCM6204.hangup`.
         trunk (str): The inbound trunk the call arrived on (``inbound_trunk_name``).
         uniqueid (str): The call's unique id.
-        state (str): The ring state (``Ring`` / ``Ringing``).
-        raw (JSONObject): The full underlying ``ActiveCall`` leg dict.
+        state (str): The ring state (``Ring`` / ``Ringing``) — or ``"Ended"`` when
+            delivered to an ``on_end`` callback.
+        raw (JSONObject): The full underlying ``ActiveCall`` leg dict. For
+            ``on_end`` this is still the leg from the *ringing* phase — the
+            terminating ``delete`` frame carries no call details.
     """
 
     number: str
@@ -1080,10 +1083,16 @@ class TrunkCallRouter:
     :class:`IncomingCall`. The caller's own branching (by number/name) lives in
     that callback, keeping transport/parsing separate from business logic.
 
+    Optionally, ``on_end`` is invoked exactly once when a previously routed call
+    leg terminates (its ``delete`` frame arrives). It receives the *same* parsed
+    call as ``on_call`` — matched via the stored channel, since the ``delete``
+    frame itself carries no call details — with ``state`` set to ``"Ended"``.
+
     Note:
-        Stateful — it holds the set of in-progress channels for de-duplication, so
-        it is a normal instance (not a bag of static methods). Channels are
-        released automatically when a leg reports ``action == "delete"``.
+        Stateful — it maps in-progress channels to their parsed calls for
+        de-duplication and end-matching, so it is a normal instance (not a bag of
+        static methods). Channels are released automatically when a leg reports
+        ``action == "delete"``.
 
     Example::
 
@@ -1097,7 +1106,11 @@ class TrunkCallRouter:
     """
 
     def __init__(
-        self, trunks: str | Iterable[str], on_call: CallHandler, ring_states: Iterable[str] = ("Ring", "Ringing")
+        self,
+        trunks: str | Iterable[str],
+        on_call: CallHandler,
+        ring_states: Iterable[str] = ("Ring", "Ringing"),
+        on_end: CallHandler | None = None,
     ) -> None:
         """Initialize the router.
 
@@ -1107,11 +1120,15 @@ class TrunkCallRouter:
             on_call: Callback invoked once per matching incoming call.
             ring_states: Call states that count as "ringing" and trigger the
                 callback. Defaults to ``("Ring", "Ringing")``.
+            on_end: Optional callback invoked once when a routed call leg
+                terminates, with the ringing-phase :class:`IncomingCall` and
+                ``state`` set to ``"Ended"``. ``None`` → no end notifications.
         """
         self._trunks: set[str] = {trunks} if isinstance(trunks, str) else set(trunks)
         self._on_call = on_call
+        self._on_end = on_end
         self._ring_states: set[str] = set(ring_states)
-        self._active: set[str] = set()
+        self._active: dict[str, IncomingCall] = {}
 
     def handle(self, event: NotifyEvent) -> None:
         """Event handler: route matching incoming calls to ``on_call``.
@@ -1131,7 +1148,7 @@ class TrunkCallRouter:
                 self._process(item)
 
     def _process(self, call: JSONObject) -> None:
-        """Filter and de-duplicate one call leg, then invoke the callback.
+        """Filter and de-duplicate one call leg, then invoke the callback(s).
 
         De-duplication keys on ``channel`` (not ``uniqueid``): a call emits many
         ``add``/``update`` frames for the same channel, and the terminating
@@ -1145,7 +1162,12 @@ class TrunkCallRouter:
         if not isinstance(channel, str):
             return
         if call.get("action") == "delete":
-            self._active.discard(channel)  # leg gone → allow a future call to fire
+            ended = self._active.pop(channel, None)  # leg gone → allow a future call to fire
+            if ended is not None and self._on_end is not None:
+                try:
+                    self._on_end(replace(ended, state="Ended"))
+                except Exception:
+                    logger.exception("on_end handler error for channel=%s", channel)
             return
         if call.get("inbound_trunk_name") not in self._trunks:
             return
@@ -1153,7 +1175,6 @@ class TrunkCallRouter:
             return
         if channel in self._active:
             return  # already handled this call leg
-        self._active.add(channel)
         uid = call.get("uniqueid")
         incoming = IncomingCall(
             number=str(call.get("callernum") or "").strip(),
@@ -1164,6 +1185,7 @@ class TrunkCallRouter:
             state=str(call.get("state") or ""),
             raw=call,
         )
+        self._active[channel] = incoming
         try:
             self._on_call(incoming)
         except Exception:
@@ -1333,8 +1355,9 @@ def main(
     Starts a health server for Kubernetes probes, connects the HTTPS-API control
     client (if API credentials are given), logs every event, and runs the
     WebSocket event client (blocking). With ``--trunk`` it attaches a
-    :class:`TrunkCallRouter` that logs incoming calls on that trunk — extend its
-    ``route_incoming`` callback with your own caller-based branching.
+    :class:`TrunkCallRouter` that logs incoming calls on that trunk (and their
+    end) — extend its ``route_incoming`` callback with your own caller-based
+    branching.
 
     Args:
         host: IP address of the UCM6204.
@@ -1396,7 +1419,11 @@ def main(
             # logger.info("incoming %s call: %r <%s> on %s", call.trunk, call.name, call.number, call.channel)
             logger.info(f"incoming {call.trunk=} | {call.name=} <{call.number=}> on {call.channel=}")
 
-        ec.add_event_handler(TrunkCallRouter(trunks, on_call=route_incoming).handle)
+        def route_ended(call: IncomingCall) -> None:
+            """Log the end of a routed incoming call (its leg reported ``delete``)."""
+            logger.info(f"ended {call.trunk=} | {call.name=} <{call.number=}> on {call.channel=}")
+
+        ec.add_event_handler(TrunkCallRouter(trunks, on_call=route_incoming, on_end=route_ended).handle)
 
     # MQTT bridge — default OFF; gated by --mqtt / UCM_MQTT_ENABLE. Imported lazily
     # so the default path never pulls in mqttstuff. publish runs on paho's own

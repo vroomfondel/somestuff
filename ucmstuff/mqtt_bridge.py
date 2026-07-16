@@ -19,6 +19,7 @@ Topic layout (``base_topic`` defaults to ``ucm6204``)::
 
     ucm6204/events/<eventname>       transient  full notify event as JSON
     ucm6204/calls/<trunk>/incoming   transient  parsed IncomingCall as JSON
+    ucm6204/calls/<trunk>/ended      transient  same call once its leg terminates
     ucm6204/cmd/{accept,refuse,hangup}   inbound   {"channel": "PJSIP/..."}
 
 All outbound messages are published with ``retain=False`` — they are point-in-time
@@ -26,7 +27,10 @@ notifications, never retained "last value" state.
 
 Incoming calls are published per inbound trunk (``<trunk>`` is the call's
 ``inbound_trunk_name``, MQTT-sanitized); subscribe to ``ucm6204/calls/+/incoming``
-for all trunks or ``ucm6204/calls/<trunk>/incoming`` for one.
+for all trunks or ``ucm6204/calls/<trunk>/incoming`` for one. When the routed
+call leg terminates, the same payload (``state: "Ended"``) is published to
+``.../ended`` — start and end of a call share one stream, matched via
+``channel``.
 
 Serialization note: mqttstuff's ``publish_one`` only wraps ``dict`` values (via
 ``json.dumps``); a bare ``list`` — e.g. an ``ActiveCallStatus`` ``eventbody`` — is
@@ -138,6 +142,20 @@ class MqttEventBridge:
         payload = {k: v for k, v in asdict(call).items() if k != "raw"}
         trunk = _mqtt_safe(call.trunk)
         self._safe_publish(f"{self._base}/calls/{trunk}/incoming", payload)
+
+    def publish_ended(self, call: IncomingCall) -> None:
+        """CallHandler: publish a terminated call to ``<base>/calls/<trunk>/ended``.
+
+        Register as the ``on_end`` of a :class:`TrunkCallRouter`. The payload has
+        the same shape as :meth:`publish_incoming` (``state`` is ``"Ended"``), so
+        subscribers can pair start and end of a call via ``channel``.
+
+        Args:
+            call: The ended call, as produced by :class:`TrunkCallRouter`.
+        """
+        payload = {k: v for k, v in asdict(call).items() if k != "raw"}
+        trunk = _mqtt_safe(call.trunk)
+        self._safe_publish(f"{self._base}/calls/{trunk}/ended", payload)
 
     def _safe_publish(self, topic: str, payload: dict[str, Any]) -> None:
         """Publish ``payload`` (always a dict → JSON), swallowing broker errors.
@@ -258,7 +276,8 @@ def attach_bridge(
         trunks: Inbound trunk name(s); if given, a
             :class:`~ucmstuff.ucm6204_api.TrunkCallRouter` is registered that
             publishes parsed incoming calls via
-            :meth:`MqttEventBridge.publish_incoming`. Empty → no call routing.
+            :meth:`MqttEventBridge.publish_incoming` and their termination via
+            :meth:`MqttEventBridge.publish_ended`. Empty → no call routing.
         raw_events: Also publish every raw event via
             :meth:`MqttEventBridge.publish_event`. Defaults to ``True``.
     """
@@ -270,4 +289,5 @@ def attach_bridge(
         eventclient.add_event_handler(bridge.publish_event)
     trunk_list = [t for t in trunks if t]
     if trunk_list:
-        eventclient.add_event_handler(TrunkCallRouter(trunk_list, on_call=bridge.publish_incoming).handle)
+        router = TrunkCallRouter(trunk_list, on_call=bridge.publish_incoming, on_end=bridge.publish_ended)
+        eventclient.add_event_handler(router.handle)
