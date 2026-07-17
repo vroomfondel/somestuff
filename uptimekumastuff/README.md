@@ -121,7 +121,7 @@ References go by **name**, not ID — IDs differ per instance and wouldn't be de
 names are Kuma's (camelCase: `mqttTopic`, `retryInterval`), so an export from
 `uptimekuma_simpleapi.py` drops in without translation.
 
-Output masks secrets (`mqttPassword=<geheim>`). The YAML itself holds plaintext secrets —
+Output masks secrets (`mqttPassword=<secret>`). The YAML itself holds plaintext secrets —
 **don't commit it**; name it `*.local.*` (gitignored).
 
 ## `uptimekuma_simpleapi.py` — backup & migration

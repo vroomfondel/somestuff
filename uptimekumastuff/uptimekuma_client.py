@@ -1,32 +1,30 @@
-"""Direkter Socket.IO-Client fuer Uptime Kuma 2.x - ohne uptime-kuma-api.
+"""Direct Socket.IO client for Uptime Kuma 2.x - without uptime-kuma-api.
 
-Das Fundament fuer idempotentes Provisionieren: lesen -> vergleichen -> schreiben -> neu lesen.
-Nutzer ist :mod:`uptimekumastuff.uptimekuma_apply`; als Bibliothek direkt verwendbar.
+The foundation for idempotent provisioning: read -> compare -> write -> read again.
+Its user is :mod:`uptimekumastuff.uptimekuma_apply`; usable directly as a library.
 
-Warum nicht uptime-kuma-api?
-    Die Lib liest einen **Cache**, nicht den Server::
+Why not uptime-kuma-api?
+    The lib reads a **cache**, not the server::
 
         # uptime_kuma_api/api.py, get_monitors()
         # TODO: replace with getMonitorList?
         r = list(self._get_event_data(Event.MONITOR_LIST).values())
 
-    Sie ruft ``getMonitorList`` nie auf. Der Snapshot stammt vom Login-Push und wird nur
-    passiv fortgeschrieben - nach eigenen Writes ist er veraltet. Genau daran ist
-    ``delete_monitor()`` gescheitert ("monitor does not exist", obwohl er existierte).
-    Fuer Idempotenz und check_mode ist das disqualifizierend: der gelesene Ist-Zustand
-    muss echt sein.
+    It never calls ``getMonitorList``. The snapshot comes from the login push and is only
+    passively updated - after your own writes it is stale. That is exactly what
+    ``delete_monitor()`` failed on ("monitor does not exist", although it existed). For
+    idempotency and check_mode this is disqualifying: the actual state you read must be real.
 
-    Dieser Client ruft ``getMonitorList`` und wartet auf den daraufhin gesendeten
-    ``monitorList``-Push. python-socketio ist dabei keine neue Abhaengigkeit - die Lib
-    baut selbst darauf auf.
+    This client calls ``getMonitorList`` and waits for the ``monitorList`` push sent in
+    response. python-socketio is not a new dependency here - the lib builds on it itself.
 
-Bekannte Server-Eigenheiten (alle am Server-Code von 2.4.0 verifiziert):
-    * ``add`` braucht ``conditions`` (NOT NULL); fehlt es, schreibt der Server NULL.
-    * ``notificationIDList`` muss beim Schreiben ein Dict ``{id: True}`` sein - der Server
-      macht ``for (let id in ...)``, eine Liste liefert die Indizes statt der IDs.
-    * ``active`` und ``weight`` liest ``editMonitor`` **nicht**: ``active`` laeuft ueber
-      ``pauseMonitor``/``resumeMonitor``, ``weight`` ist nur beim Anlegen setzbar.
-    * ``add`` mit ``active: false`` verhindert serverseitig ``startMonitor()``.
+Known server quirks (all verified against the 2.4.0 server code):
+    * ``add`` needs ``conditions`` (NOT NULL); if missing, the server writes NULL.
+    * ``notificationIDList`` must be a dict ``{id: True}`` on write - the server does
+      ``for (let id in ...)``, a list yields the indices instead of the IDs.
+    * ``editMonitor`` does **not** read ``active`` and ``weight``: ``active`` goes via
+      ``pauseMonitor``/``resumeMonitor``, ``weight`` is only settable on creation.
+    * ``add`` with ``active: false`` prevents ``startMonitor()`` server-side.
 """
 
 import json
@@ -36,8 +34,8 @@ from typing import NotRequired, Self, TypedDict, cast
 
 import socketio
 
-# Felder, die editMonitor aus dem Payload liest (aus server.js 2.4.0 extrahiert).
-# Alles andere ignoriert er stillschweigend - ein Diff darauf wuerde ewig "changed" melden.
+# Fields that editMonitor reads from the payload (extracted from server.js 2.4.0).
+# Everything else it silently ignores - a diff on those would forever report "changed".
 EDITABLE_FIELDS: frozenset[str] = frozenset("""
     accepted_statuscodes authDomain authMethod authWorkstation basic_auth_pass basic_auth_user
     bearer_token body cacheBust conditions databaseConnectionString databaseQuery description
@@ -58,34 +56,34 @@ EDITABLE_FIELDS: frozenset[str] = frozenset("""
     wsIgnoreSecWebsocketAcceptHeader wsSubprotocol
     """.split())
 
-# Wird nur beim Anlegen uebernommen. editMonitor liest es nicht - eine Aenderung waere
-# ein stiller No-Op, deshalb melden wir sie als nicht anwendbar statt als "changed".
+# Only applied on creation. editMonitor doesn't read it - a change would be a silent no-op,
+# so we report it as not applicable instead of as "changed".
 ADD_ONLY_FIELDS: frozenset[str] = frozenset({"weight"})
 
-# Laeuft nicht ueber editMonitor, sondern ueber pauseMonitor/resumeMonitor.
+# Does not go via editMonitor, but via pauseMonitor/resumeMonitor.
 PAUSE_RESUME_FIELD = "active"
 
 type Payload = dict[str, object]
 
 
 class KumaError(Exception):
-    """Der Server hat einen Call mit ``ok: false`` beantwortet."""
+    """The server answered a call with ``ok: false``."""
 
 
 class MonitorDict(TypedDict, total=False):
-    """Ein Monitor, wie ``monitorList`` ihn liefert.
+    """A monitor as ``monitorList`` delivers it.
 
-    Kuma liefert 115 Felder je nach Monitor-Typ. Hier stehen nur die, auf die dieser
-    Client zugreift; der Rest wird unveraendert durchgereicht.
+    Kuma delivers 115 fields depending on the monitor type. Only the ones this client
+    accesses are listed here; the rest is passed through unchanged.
 
     Attributes:
-        id: Monitor-ID.
-        name: Anzeigename.
-        type: Monitor-Typ, z.B. ``mqtt``, ``group``, ``http``.
-        parent: ID der Eltern-Gruppe oder ``None``.
-        active: Ob der Monitor laeuft.
-        weight: Sortiergewicht (nur beim Anlegen setzbar).
-        notificationIDList: Verknuepfte Notification-IDs.
+        id: Monitor ID.
+        name: Display name.
+        type: Monitor type, e.g. ``mqtt``, ``group``, ``http``.
+        parent: ID of the parent group or ``None``.
+        active: Whether the monitor is running.
+        weight: Sort weight (only settable on creation).
+        notificationIDList: Linked notification IDs.
     """
 
     id: int
@@ -98,16 +96,16 @@ class MonitorDict(TypedDict, total=False):
 
 
 class UpsertResult(TypedDict):
-    """Ergebnis eines idempotenten Upserts, im Zuschnitt eines Ansible-Rueckgabewerts.
+    """Result of an idempotent upsert, shaped like an Ansible return value.
 
     Attributes:
-        changed: Ob etwas geaendert wurde (bzw. in check_mode: wuerde).
-        object_id: ID des angelegten/gefundenen Objekts, ``None`` nur in check_mode
-            beim Neuanlegen.
-        created: True, wenn das Objekt neu angelegt wurde.
-        diff: Felder, die abweichen, als ``{feld: {"before": ..., "after": ...}}``.
-        not_applicable: Felder, die abweichen, die der Server aber gar nicht uebernimmt
-            (siehe ADD_ONLY_FIELDS).
+        changed: Whether something was changed (or in check_mode: would be).
+        object_id: ID of the created/found object, ``None`` only in check_mode when
+            creating.
+        created: True if the object was newly created.
+        diff: Fields that differ, as ``{field: {"before": ..., "after": ...}}``.
+        not_applicable: Fields that differ but the server doesn't actually apply
+            (see ADD_ONLY_FIELDS).
     """
 
     changed: bool
@@ -118,22 +116,22 @@ class UpsertResult(TypedDict):
 
 
 class KumaClient:
-    """Socket.IO-Client mit garantiert frischen Reads.
+    """Socket.IO client with guaranteed fresh reads.
 
     Attributes:
-        url: Basis-URL der Instanz.
-        timeout: Sekunden, die auf Antworten und Pushes gewartet wird.
+        url: Base URL of the instance.
+        timeout: Seconds to wait for responses and pushes.
     """
 
-    #: Events, die der Server von sich aus pusht und die wir mitschneiden.
+    #: Events the server pushes on its own that we capture.
     PUSHED_EVENTS = ("monitorList", "notificationList")
 
     def __init__(self, url: str, timeout: int = 30) -> None:
-        """Legt den Client an, ohne schon zu verbinden.
+        """Creates the client without connecting yet.
 
         Args:
-            url: Basis-URL, z.B. ``http://127.0.0.1:3001``.
-            timeout: Timeout fuer Calls und erwartete Pushes.
+            url: Base URL, e.g. ``http://127.0.0.1:3001``.
+            timeout: Timeout for calls and expected pushes.
         """
         self.url = url.rstrip("/")
         self.timeout = timeout
@@ -144,13 +142,13 @@ class KumaClient:
             self.sio.on(name, self._make_handler(name))
 
     def _make_handler(self, name: str) -> Callable[[Payload], None]:
-        """Baut den Handler, der einen gepushten Event mitschneidet.
+        """Builds the handler that captures a pushed event.
 
         Args:
-            name: Event-Name.
+            name: Event name.
 
         Returns:
-            Die Handler-Funktion fuer python-socketio.
+            The handler function for python-socketio.
         """
 
         def handler(data: Payload) -> None:
@@ -160,41 +158,41 @@ class KumaClient:
         return handler
 
     def __enter__(self) -> Self:
-        """Verbindet beim Betreten des with-Blocks.
+        """Connects on entering the with block.
 
         Returns:
-            Der verbundene Client.
+            The connected client.
         """
         self.connect()
         return self
 
     def __exit__(self, *exc: object) -> None:
-        """Trennt die Verbindung beim Verlassen des with-Blocks."""
+        """Disconnects on leaving the with block."""
         self.close()
 
     def connect(self) -> None:
-        """Baut die Socket.IO-Verbindung auf (websocket, kein polling-Umweg)."""
+        """Establishes the Socket.IO connection (websocket, no polling detour)."""
         self.sio.connect(self.url, transports=["websocket"], wait_timeout=self.timeout)
 
     def close(self) -> None:
-        """Trennt die Verbindung, ohne bei bereits toter Verbindung zu werfen."""
+        """Disconnects without throwing on an already-dead connection."""
         try:
             self.sio.disconnect()
         except Exception:
             pass
 
     def call(self, event: str, *args: object) -> Payload:
-        """Sendet einen Socket-Call und packt die Server-Antwort aus.
+        """Sends a socket call and unpacks the server response.
 
         Args:
-            event: Event-Name, z.B. ``add``.
-            *args: Argumente des Handlers.
+            event: Event name, e.g. ``add``.
+            *args: Arguments of the handler.
 
         Returns:
-            Die Antwort des Servers.
+            The server's response.
 
         Raises:
-            KumaError: Wenn der Server ``ok: false`` meldet.
+            KumaError: If the server reports ``ok: false``.
         """
         data = args[0] if len(args) == 1 else tuple(args)
         result = cast(Payload, self.sio.call(event, data, timeout=self.timeout))
@@ -203,68 +201,67 @@ class KumaClient:
         return result
 
     def login(self, username: str, password: str) -> None:
-        """Meldet sich an.
+        """Logs in.
 
-        Der Socket-Login akzeptiert ausschliesslich Benutzername+Passwort. API-Keys
-        (``uk1_``/``uk2_``/``uk3_``) gelten nur fuer HTTP-Basic-Auth auf ``/metrics``.
+        The socket login accepts username+password only. API keys
+        (``uk1_``/``uk2_``/``uk3_``) apply only to HTTP basic auth on ``/metrics``.
 
         Args:
-            username: Benutzername.
-            password: Passwort.
+            username: Username.
+            password: Password.
 
         Raises:
-            KumaError: Bei falschen Zugangsdaten.
+            KumaError: On wrong credentials.
         """
         self.call("login", {"username": username, "password": password, "token": None})
 
     def need_setup(self) -> bool:
-        """Prueft, ob die Instanz noch keinen Benutzer hat.
+        """Checks whether the instance still has no user.
 
         Returns:
-            True, wenn ``setup()`` noch aussteht.
+            True if ``setup()`` is still pending.
         """
         return bool(self.sio.call("needSetup", timeout=self.timeout))
 
     def setup(self, username: str, password: str) -> None:
-        """Legt den ersten Benutzer einer frischen Instanz an.
+        """Creates the first user of a fresh instance.
 
         Args:
-            username: Gewuenschter Benutzername.
-            password: Gewuenschtes Passwort (Kuma lehnt zu schwache ab).
+            username: Desired username.
+            password: Desired password (Kuma rejects weak ones).
         """
         self.call("setup", username, password)
 
     # ------------------------------------------------------------------ reads
 
     def _await_push(self, event: str) -> Payload:
-        """Wartet auf den naechsten Push eines Events.
+        """Waits for the next push of an event.
 
         Args:
-            event: Event-Name aus :attr:`PUSHED_EVENTS`.
+            event: Event name from :attr:`PUSHED_EVENTS`.
 
         Returns:
-            Die gepushten Daten.
+            The pushed data.
 
         Raises:
-            KumaError: Wenn innerhalb des Timeouts nichts kommt.
+            KumaError: If nothing arrives within the timeout.
         """
         if not self._arrived[event].wait(self.timeout):
-            raise KumaError(f"kein {event}-push innerhalb von {self.timeout}s")
+            raise KumaError(f"no {event} push within {self.timeout}s")
         return self._data[event]
 
     def monitors(self) -> dict[int, MonitorDict]:
-        """Liest alle Monitore **frisch vom Server**.
+        """Reads all monitors **fresh from the server**.
 
-        Ruft ``getMonitorList``, was serverseitig ``sendMonitorList`` ausloest, und wartet
-        auf den daraufhin gesendeten Push. Genau das macht uptime-kuma-api nicht.
+        Calls ``getMonitorList``, which triggers ``sendMonitorList`` server-side, and waits
+        for the push sent in response. That is exactly what uptime-kuma-api doesn't do.
 
-        ``notificationIDList`` liefert der Server roh als Dict mit String-Keys
-        (``{"1": true}``); wir vereinheitlichen das zu einer sortierten ID-Liste, damit
-        Lesen und Soll-Zustand dieselbe Form haben. :meth:`_wire` dreht es beim Schreiben
-        wieder zurueck.
+        The server returns ``notificationIDList`` raw as a dict with string keys
+        (``{"1": true}``); we unify this to a sorted ID list so that reads and desired state
+        have the same shape. :meth:`_wire` turns it back on write.
 
         Returns:
-            Alle Monitore, nach ID.
+            All monitors, by ID.
         """
         self._arrived["monitorList"].clear()
         self.call("getMonitorList")
@@ -279,36 +276,35 @@ class KumaClient:
         return monitors
 
     def monitor_by_name(self, name: str) -> MonitorDict | None:
-        """Sucht einen Monitor ueber seinen Namen.
+        """Looks up a monitor by its name.
 
         Args:
-            name: Anzeigename.
+            name: Display name.
 
         Returns:
-            Der Monitor oder ``None``.
+            The monitor or ``None``.
 
         Raises:
-            KumaError: Wenn der Name mehrfach vergeben ist - Kuma laesst das zu, fuer
-                idempotentes Arbeiten ist er dann aber kein brauchbarer Schluessel.
+            KumaError: If the name is assigned more than once - Kuma allows that, but then
+                it's not a usable key for idempotent work.
         """
         hits = [m for m in self.monitors().values() if m.get("name") == name]
         if len(hits) > 1:
-            raise KumaError(f"name {name!r} ist {len(hits)}x vergeben - kein eindeutiger schluessel")
+            raise KumaError(f"name {name!r} is assigned {len(hits)}x - not a unique key")
         return hits[0] if hits else None
 
     def notifications(self) -> list[Payload]:
-        """Liest die Notification-Provider, mit ausgepackter config.
+        """Reads the notification providers, with unpacked config.
 
-        Fuer diese Liste gibt es kein Request-Event; der Server pusht sie beim Login und
-        nach jeder Mutation (``sendNotificationList``). Wir lesen daher den zuletzt
-        gepushten Stand.
+        There is no request event for this list; the server pushes it on login and after
+        every mutation (``sendNotificationList``). We therefore read the last pushed state.
 
-        Der Server pusht rohe DB-Zeilen, in denen ``config`` ein **JSON-String** mit den
-        eigentlichen Provider-Feldern ist. Wir packen ihn aus, damit sich flach
-        vergleichen laesst - und weil ``addNotification`` genau die flache Form erwartet.
+        The server pushes raw DB rows in which ``config`` is a **JSON string** holding the
+        actual provider fields. We unpack it so it can be compared flat - and because
+        ``addNotification`` expects exactly that flat form.
 
         Returns:
-            Alle Notification-Provider als flache Dicts.
+            All notification providers as flat dicts.
         """
         pushed = cast(list[Payload], self._await_push("notificationList"))
         result: list[Payload] = []
@@ -323,123 +319,123 @@ class KumaClient:
         return result
 
     def notification_by_name(self, name: str) -> Payload | None:
-        """Sucht einen Notification-Provider ueber seinen Namen.
+        """Looks up a notification provider by its name.
 
         Args:
-            name: Anzeigename.
+            name: Display name.
 
         Returns:
-            Der Provider oder ``None``.
+            The provider or ``None``.
 
         Raises:
-            KumaError: Wenn der Name mehrfach vergeben ist.
+            KumaError: If the name is assigned more than once.
         """
         hits = [n for n in self.notifications() if n.get("name") == name]
         if len(hits) > 1:
-            raise KumaError(f"notification-name {name!r} ist {len(hits)}x vergeben")
+            raise KumaError(f"notification name {name!r} is assigned {len(hits)}x")
         return hits[0] if hits else None
 
     def tags(self) -> list[Payload]:
-        """Liest alle Tags (echtes Request/Response-Event).
+        """Reads all tags (a real request/response event).
 
         Returns:
-            Alle Tags.
+            All tags.
         """
         return cast(list[Payload], self.call("getTags")["tags"])
 
     # ----------------------------------------------------------------- writes
 
     def save_notification(self, notification: Payload, notification_id: int | None = None) -> int:
-        """Legt einen Notification-Provider an oder aktualisiert ihn.
+        """Creates or updates a notification provider.
 
-        ``addNotification`` ist beides: mit ``notification_id`` aktualisiert der Server den
-        bestehenden Datensatz, ohne legt er einen neuen an.
+        ``addNotification`` is both: with ``notification_id`` the server updates the existing
+        record, without it creates a new one.
 
-        ``applyExisting`` wird hart auf False gesetzt. Es ist kein Zustand, sondern ein
-        einmaliger UI-Trigger - stuende es auf True, haengte Kuma die Notification an
-        *alle* bestehenden Monitore und zerstoerte die exakten Verknuepfungen. Der Server
-        normalisiert es beim Speichern auf False, wertet es davor aber aus.
+        ``applyExisting`` is forced hard to False. It is not state but a one-shot UI trigger -
+        if it were True, Kuma would attach the notification to *all* existing monitors and
+        destroy the exact links. The server normalizes it to False on save, but evaluates it
+        beforehand.
 
         Args:
-            notification: Flacher Provider-Payload.
-            notification_id: ID fuer ein Update, ``None`` fuer ein Neuanlegen.
+            notification: Flat provider payload.
+            notification_id: ID for an update, ``None`` for a create.
 
         Returns:
-            Die ID des angelegten/aktualisierten Providers.
+            The ID of the created/updated provider.
         """
         payload = {k: v for k, v in notification.items() if k not in ("id", "userId", "user_id")}
         payload["applyExisting"] = False
         return int(cast(int, self.call("addNotification", payload, notification_id)["id"]))
 
     def delete_notification(self, notification_id: int) -> None:
-        """Loescht einen Notification-Provider.
+        """Deletes a notification provider.
 
         Args:
-            notification_id: ID des Providers.
+            notification_id: ID of the provider.
         """
         self.call("deleteNotification", notification_id)
 
     def add_monitor(self, monitor: Payload) -> int:
-        """Legt einen Monitor an.
+        """Creates a monitor.
 
         Args:
-            monitor: Vollstaendiger Monitor-Payload. ``conditions`` und
-                ``accepted_statuscodes`` muessen gesetzt sein.
+            monitor: Complete monitor payload. ``conditions`` and
+                ``accepted_statuscodes`` must be set.
 
         Returns:
-            Die neue Monitor-ID.
+            The new monitor ID.
         """
         return int(cast(int, self.call("add", monitor)["monitorID"]))
 
     def edit_monitor(self, monitor: Payload) -> None:
-        """Aendert einen Monitor.
+        """Changes a monitor.
 
         Args:
-            monitor: Payload inklusive ``id``. ``active`` und ``weight`` werden vom Server
-                ignoriert (siehe Modul-Docstring).
+            monitor: Payload including ``id``. ``active`` and ``weight`` are ignored by the
+                server (see module docstring).
         """
         self.call("editMonitor", monitor)
 
     def delete_monitor(self, monitor_id: int) -> None:
-        """Loescht einen Monitor.
+        """Deletes a monitor.
 
         Args:
-            monitor_id: ID des Monitors.
+            monitor_id: ID of the monitor.
         """
         self.call("deleteMonitor", monitor_id)
 
     def pause_monitor(self, monitor_id: int) -> None:
-        """Pausiert einen Monitor.
+        """Pauses a monitor.
 
         Args:
-            monitor_id: ID des Monitors.
+            monitor_id: ID of the monitor.
         """
         self.call("pauseMonitor", monitor_id)
 
     def resume_monitor(self, monitor_id: int) -> None:
-        """Startet einen pausierten Monitor.
+        """Starts a paused monitor.
 
         Args:
-            monitor_id: ID des Monitors.
+            monitor_id: ID of the monitor.
         """
         self.call("resumeMonitor", monitor_id)
 
     # ----------------------------------------------------------------- upsert
 
     def _resolve_notifications(self, names: object) -> list[int]:
-        """Loest Notification-Namen zu IDs auf.
+        """Resolves notification names to IDs.
 
         Args:
-            names: Liste von Notification-Namen (oder bereits IDs).
+            names: List of notification names (or already IDs).
 
         Returns:
-            Die IDs, sortiert - vergleichbar mit dem, was der Server liefert.
+            The IDs, sorted - comparable with what the server delivers.
 
         Raises:
-            KumaError: Wenn eine Notification nicht existiert.
+            KumaError: If a notification does not exist.
         """
         if not isinstance(names, list):
-            raise KumaError("'notifications' muss eine liste von namen sein")
+            raise KumaError("'notifications' must be a list of names")
         by_name = {n["name"]: int(cast(int, n["id"])) for n in self.notifications()}
         ids: list[int] = []
         for entry in names:
@@ -448,23 +444,23 @@ class KumaClient:
             elif entry in by_name:
                 ids.append(by_name[cast(str, entry)])
             else:
-                raise KumaError(f"notification {entry!r} existiert nicht")
+                raise KumaError(f"notification {entry!r} does not exist")
         return sorted(ids)
 
     @staticmethod
     def _normalize(key: str, value: object) -> object:
-        """Bringt Werte in eine vergleichbare Form.
+        """Brings values into a comparable form.
 
-        ``notificationIDList`` kommt vom Server als Liste ``[1, 3]``, muss beim Schreiben
-        aber ein Dict ``{1: True}`` sein. Ohne Normalisierung wuerde der Vergleich Liste
-        gegen Dict stellen und ewig "changed" melden.
+        ``notificationIDList`` comes from the server as a list ``[1, 3]``, but must be a dict
+        ``{1: True}`` on write. Without normalization the comparison would pit list against
+        dict and forever report "changed".
 
         Args:
-            key: Feldname.
-            value: Roher Wert.
+            key: Field name.
+            value: Raw value.
 
         Returns:
-            Der vergleichbare Wert.
+            The comparable value.
         """
         if key == "notificationIDList":
             if isinstance(value, dict):
@@ -475,14 +471,14 @@ class KumaClient:
 
     @classmethod
     def _diff(cls, desired: Payload, actual: MonitorDict | Payload) -> dict[str, dict[str, object]]:
-        """Vergleicht nur die Felder, die der Aufrufer vorgibt.
+        """Compares only the fields the caller specifies.
 
         Args:
-            desired: Soll-Zustand, darf beliebig unvollstaendig sein.
-            actual: Ist-Zustand vom Server.
+            desired: Desired state, may be arbitrarily incomplete.
+            actual: Actual state from the server.
 
         Returns:
-            ``{feld: {"before": ist, "after": soll}}`` fuer alle Abweichungen.
+            ``{field: {"before": actual, "after": desired}}`` for all differences.
         """
         out: dict[str, dict[str, object]] = {}
         for key, want in desired.items():
@@ -494,14 +490,14 @@ class KumaClient:
 
     @staticmethod
     def _wire(payload: Payload) -> Payload:
-        """Bringt einen Payload in die Form, die der Server beim Schreiben erwartet.
+        """Brings a payload into the form the server expects on write.
 
         Args:
-            payload: Payload mit ``notificationIDList`` als Liste.
+            payload: Payload with ``notificationIDList`` as a list.
 
         Returns:
-            Payload mit ``notificationIDList`` als Dict ``{id: True}`` - der Server macht
-            ``for (let id in ...)``, eine Liste lieferte die Indizes statt der IDs.
+            Payload with ``notificationIDList`` as a dict ``{id: True}`` - the server does
+            ``for (let id in ...)``, a list would yield the indices instead of the IDs.
         """
         out = dict(payload)
         ids = out.get("notificationIDList")
@@ -510,54 +506,54 @@ class KumaClient:
         return out
 
     def resolve_parent(self, parent: object) -> int | None:
-        """Loest eine Eltern-Gruppe ueber ihren Namen auf.
+        """Resolves a parent group by its name.
 
-        IDs sind fuer deklaratives Anlegen unbrauchbar - sie unterscheiden sich je Instanz.
-        Deshalb darf ``parent`` auch ein Gruppenname sein.
+        IDs are useless for declarative creation - they differ per instance. Hence ``parent``
+        may also be a group name.
 
         Args:
-            parent: Gruppenname, Monitor-ID oder ``None``.
+            parent: Group name, monitor ID, or ``None``.
 
         Returns:
-            Die Monitor-ID der Gruppe oder ``None``.
+            The monitor ID of the group or ``None``.
 
         Raises:
-            KumaError: Wenn keine Gruppe des Namens existiert, der Name mehrdeutig ist
-                oder der Treffer kein ``group``-Monitor ist.
+            KumaError: If no group of that name exists, the name is ambiguous, or the hit is
+                not a ``group`` monitor.
         """
         if parent is None or isinstance(parent, int):
             return parent
         if not isinstance(parent, str):
-            raise KumaError(f"parent muss name, id oder None sein, nicht {type(parent).__name__}")
+            raise KumaError(f"parent must be name, id or None, not {type(parent).__name__}")
 
         hits = [m for m in self.monitors().values() if m.get("name") == parent]
         if not hits:
-            raise KumaError(f"parent-gruppe {parent!r} existiert nicht")
+            raise KumaError(f"parent group {parent!r} does not exist")
         if len(hits) > 1:
-            raise KumaError(f"parent-name {parent!r} ist {len(hits)}x vergeben")
+            raise KumaError(f"parent name {parent!r} is assigned {len(hits)}x")
         if hits[0].get("type") != "group":
-            raise KumaError(f"parent {parent!r} ist kein group-monitor, sondern {hits[0].get('type')!r}")
+            raise KumaError(f"parent {parent!r} is not a group monitor, but {hits[0].get('type')!r}")
         return hits[0]["id"]
 
     def upsert_notification(self, desired: Payload, check_mode: bool = False) -> UpsertResult:
-        """Legt einen Notification-Provider an oder gleicht ihn ab - idempotent.
+        """Creates a notification provider or reconciles it - idempotent.
 
-        Schluessel ist ``name``. Anders als bei Monitoren gibt es keine nicht-schreibbaren
-        Felder: der Server legt die gesamte Konfiguration als JSON ab.
+        The key is ``name``. Unlike monitors there are no non-writable fields: the server
+        stores the entire configuration as JSON.
 
         Args:
-            desired: Soll-Zustand, muss mindestens ``name`` und ``type`` enthalten.
-            check_mode: Wenn True, wird nichts geschrieben.
+            desired: Desired state, must contain at least ``name`` and ``type``.
+            check_mode: If True, nothing is written.
 
         Returns:
-            Was geaendert wurde bzw. wuerde.
+            What was changed (or would be).
 
         Raises:
-            KumaError: Wenn ``name`` fehlt oder mehrfach vergeben ist.
+            KumaError: If ``name`` is missing or assigned more than once.
         """
         name = desired.get("name")
         if not isinstance(name, str):
-            raise KumaError("desired braucht ein 'name'-feld")
+            raise KumaError("desired needs a 'name' field")
 
         existing = self.notification_by_name(name)
 
@@ -572,38 +568,37 @@ class KumaClient:
         if not diff or check_mode:
             return {"changed": bool(diff), "object_id": notification_id, "created": False, "diff": diff}
 
-        # Der Server ersetzt die config komplett - deshalb Ist-Zustand als Basis nehmen
-        # und nur die gewuenschten Felder ueberschreiben.
+        # The server replaces the config entirely - so take the actual state as the base and
+        # only overwrite the desired fields.
         payload: Payload = {**existing, **desired}
         self.save_notification(payload, notification_id)
         return {"changed": True, "object_id": notification_id, "created": False, "diff": diff}
 
     def upsert_monitor(self, desired: Payload, check_mode: bool = False) -> UpsertResult:
-        """Legt einen Monitor an oder gleicht ihn ab - idempotent.
+        """Creates a monitor or reconciles it - idempotent.
 
-        Schluessel ist ``name``. Der Ist-Zustand wird vor *und* nach dem Schreiben frisch
-        vom Server gelesen, nicht aus einem Cache.
+        The key is ``name``. The actual state is read fresh from the server before *and* after
+        writing, not from a cache.
 
-        ``parent`` darf ein Gruppenname sein und ``notifications`` eine Liste von
-        Notification-Namen - beides wird gegen die Instanz aufgeloest, damit der
-        Soll-Zustand ohne instanzspezifische IDs auskommt.
+        ``parent`` may be a group name and ``notifications`` a list of notification names -
+        both are resolved against the instance, so the desired state gets by without
+        instance-specific IDs.
 
         Args:
-            desired: Soll-Zustand, muss mindestens ``name`` enthalten. Beim Neuanlegen
-                zusaetzlich ``type``.
-            check_mode: Wenn True, wird nichts geschrieben - nur berichtet, was passieren
-                wuerde.
+            desired: Desired state, must contain at least ``name``. On creation additionally
+                ``type``.
+            check_mode: If True, nothing is written - only what would happen is reported.
 
         Returns:
-            Was geaendert wurde bzw. wuerde.
+            What was changed (or would be).
 
         Raises:
-            KumaError: Wenn ``name`` fehlt, mehrfach vergeben ist, oder eine referenzierte
-                Gruppe/Notification nicht existiert.
+            KumaError: If ``name`` is missing, assigned more than once, or a referenced
+                group/notification does not exist.
         """
         name = desired.get("name")
         if not isinstance(name, str):
-            raise KumaError("desired braucht ein 'name'-feld")
+            raise KumaError("desired needs a 'name' field")
 
         desired = dict(desired)
         if "parent" in desired:
@@ -622,8 +617,8 @@ class KumaClient:
         monitor_id = existing["id"]
         full_diff = self._diff(desired, existing)
 
-        # Felder trennen, die der Server per editMonitor gar nicht uebernimmt - sonst
-        # meldet das Modul bei jedem Lauf "changed", ohne dass sich je etwas aendert.
+        # Split off fields the server doesn't apply via editMonitor at all - otherwise the
+        # module reports "changed" on every run without anything ever changing.
         not_applicable = {k: v for k, v in full_diff.items() if k in ADD_ONLY_FIELDS}
         wants_active = full_diff.pop(PAUSE_RESUME_FIELD, None)
         editable_diff = {k: v for k, v in full_diff.items() if k not in ADD_ONLY_FIELDS}
@@ -644,8 +639,8 @@ class KumaClient:
             return result
 
         if editable_diff:
-            # editMonitor weist Felder einzeln zu und erwartet den vollen Payload -
-            # ein Teil-Payload wuerde die uebrigen Felder auf undefined setzen.
+            # editMonitor assigns fields one by one and expects the full payload -
+            # a partial payload would set the remaining fields to undefined.
             payload: Payload = {k: v for k, v in existing.items() if k in EDITABLE_FIELDS}
             payload.update({k: v for k, v in desired.items() if k in EDITABLE_FIELDS})
             payload["id"] = monitor_id

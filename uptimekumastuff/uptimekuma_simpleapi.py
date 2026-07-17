@@ -1,35 +1,35 @@
 #!/usr/bin/env python3
-"""Export/Import des kompletten Uptime-Kuma-Stands ueber die Socket.IO-API.
+"""Export/import of the complete Uptime-Kuma state via the Socket.IO API.
 
-Beispiele::
+Examples::
 
     python3 -m uptimekumastuff.uptimekuma_simpleapi export \\
         --url https://uptimekuma.example.lan --out state.local.json
     python3 -m uptimekumastuff.uptimekuma_simpleapi import \\
         --url http://127.0.0.1:3001 --in-file state.local.json --paused
 
-Warum nicht einfach uptime-kuma-api?
-    Die Lib (1.2.1, letztes Release 2023) kann gegen Kuma 2.x lesen, aber nicht schreiben:
+Why not just uptime-kuma-api?
+    The lib (1.2.1, last released 2023) can read against Kuma 2.x, but not write:
 
-    * ``add_monitor()`` -> "NOT NULL constraint failed: monitor.conditions". Kuma 2.x hat
-      die Spalte ``conditions`` NOT NULL DEFAULT '[]'; die Lib kennt das Feld nicht, der
-      Server schreibt deshalb explizit NULL - und explizites NULL sticht den Default.
-    * ``delete_monitor()`` -> "monitor does not exist", weil gegen einen stale lokalen
-      Cache validiert wird.
-    * ``get_status_page()`` -> KeyError 'incident'; das Feld gibt es in 2.x nicht mehr.
+    * ``add_monitor()`` -> "NOT NULL constraint failed: monitor.conditions". Kuma 2.x has
+      the column ``conditions`` NOT NULL DEFAULT '[]'; the lib doesn't know the field, so the
+      server writes an explicit NULL - and explicit NULL beats the default.
+    * ``delete_monitor()`` -> "monitor does not exist", because it validates against a stale
+      local cache.
+    * ``get_status_page()`` -> KeyError 'incident'; the field no longer exists in 2.x.
 
-    Reads laufen daher ueber die Lib, wo sie funktionieren, Writes direkt per ``_call()``.
-    Nach jedem Write-Lauf mit FRISCHER Session verifizieren - die Session-Caches luegen.
+    Reads therefore go through the lib, where they work, writes directly via ``_call()``.
+    After every write run verify with a FRESH session - the session caches lie.
 
 Credentials:
-    ``uptimekuma.local.env`` (UPTIME_KUMA_USERNAME / UPTIME_KUMA_PASSWORD) oder echte
-    Umgebungsvariablen, die haben Vorrang. Fuer ein abweichendes Ziel-System gibt es
-    ``--username`` / ``--password``. Vorlage: ``uptimekuma.env.example``.
+    ``uptimekuma.local.env`` (UPTIME_KUMA_USERNAME / UPTIME_KUMA_PASSWORD) or real
+    environment variables, which take precedence. For a different target system there are
+    ``--username`` / ``--password``. Template: ``uptimekuma.env.example``.
 
-Achtung:
-    Der Export enthaelt Klartext-Secrets (MQTT-Passwoerter, Telegram-Bot-Token,
-    Gotify-Token, SMTP-Passwort). Die Datei gehoert nicht ins Git - Dateiname mit
-    ``.local.`` waehlen, das ist gitignored.
+Warning:
+    The export contains plaintext secrets (MQTT passwords, Telegram bot tokens, Gotify
+    tokens, SMTP password). The file does not belong in Git - pick a filename with
+    ``.local.``, which is gitignored.
 """
 
 import json
@@ -48,36 +48,36 @@ from uptimekumastuff import configure_logging, print_banner
 
 CREDS_FILE = Path(__file__).parent / "uptimekuma.local.env"
 
-# Beim Lesen liefert Kuma 115 Felder, die monitor-Tabelle hat aber nur 111 Spalten.
-# Diese hier werden serverseitig abgeleitet bzw. liegen in eigenen Tabellen und wuerden
-# bean.import() beim Schreiben auf unbekannte Spalten laufen lassen.
+# On read Kuma delivers 115 fields, but the monitor table has only 111 columns. These are
+# derived server-side or live in their own tables and would make bean.import() run into
+# unknown columns on write.
 DERIVED_MONITOR_FIELDS: frozenset[str] = frozenset(
     {
-        "id",  # vergibt das Ziel-System neu
-        "childrenIDs",  # ergibt sich aus parent der Kinder
-        "path",  # ergibt sich aus der parent-Kette
-        "pathName",  # dito
-        "maintenance",  # Laufzeitzustand
-        "forceInactive",  # ergibt sich aus dem parent
-        "includeSensitiveData",  # Lese-Flag der API
-        "screenshot",  # Laufzeit-Artefakt (Spalte heisst screenshot_delay)
-        "dns_last_result",  # Laufzeit-Ergebnis
-        "tags",  # eigene Tabelle monitor_tag
-        "notificationIDList",  # eigene Tabelle monitor_notification, wird remapped
+        "id",  # the target system assigns anew
+        "childrenIDs",  # follows from the children's parent
+        "path",  # follows from the parent chain
+        "pathName",  # ditto
+        "maintenance",  # runtime state
+        "forceInactive",  # follows from the parent
+        "includeSensitiveData",  # read flag of the API
+        "screenshot",  # runtime artifact (column is called screenshot_delay)
+        "dns_last_result",  # runtime result
+        "tags",  # own table monitor_tag
+        "notificationIDList",  # own table monitor_notification, gets remapped
     }
 )
 
-# Ein Payload, wie ihn die Socket-API entgegennimmt bzw. liefert. `object` statt `Any`:
-# unbekannte Werte muessen so vor Gebrauch verengt werden, statt still durchzurutschen.
+# A payload as the Socket API accepts and delivers it. `object` instead of `Any`:
+# unknown values must be narrowed before use rather than silently slipping through.
 type Payload = dict[str, object]
 
 
 class MonitorTagLink(TypedDict):
-    """Zuordnung Tag -> Monitor aus ``monitor["tags"]``.
+    """Assignment tag -> monitor from ``monitor["tags"]``.
 
     Attributes:
-        tag_id: ID des Tags in der alten Instanz.
-        value: Optionaler Freitextwert der Zuordnung.
+        tag_id: ID of the tag in the old instance.
+        value: Optional free-text value of the assignment.
     """
 
     tag_id: int
@@ -85,20 +85,20 @@ class MonitorTagLink(TypedDict):
 
 
 class MonitorDict(TypedDict, total=False):
-    """Ein Monitor, wie ``getMonitorList`` ihn liefert.
+    """A monitor as ``getMonitorList`` delivers it.
 
-    Kuma liefert 115 Felder, die sich je Monitor-Typ stark unterscheiden. Hier stehen nur
-    die, auf die dieses Script zugreift - alle uebrigen werden beim Import unveraendert
-    durchgereicht, ohne dass wir sie kennen muessen.
+    Kuma delivers 115 fields that differ strongly per monitor type. Only the ones this script
+    accesses are listed here - all others are passed through unchanged on import, without our
+    having to know them.
 
     Attributes:
-        id: Monitor-ID in der Quell-Instanz.
-        name: Anzeigename, dient als stabiler Schluessel zwischen den Instanzen.
-        type: Monitor-Typ, z.B. ``mqtt``, ``group``, ``http``.
-        parent: ID der Eltern-Gruppe oder ``None``.
-        active: Ob der Monitor laeuft.
-        notificationIDList: Verknuepfte Notification-IDs der Quell-Instanz.
-        tags: Tag-Zuordnungen des Monitors.
+        id: Monitor ID in the source instance.
+        name: Display name, serves as a stable key between instances.
+        type: Monitor type, e.g. ``mqtt``, ``group``, ``http``.
+        parent: ID of the parent group or ``None``.
+        active: Whether the monitor is running.
+        notificationIDList: Linked notification IDs of the source instance.
+        tags: Tag assignments of the monitor.
     """
 
     id: int
@@ -111,15 +111,15 @@ class MonitorDict(TypedDict, total=False):
 
 
 class NotificationDict(TypedDict, total=False):
-    """Ein Notification-Provider, wie ``getNotificationList`` ihn liefert.
+    """A notification provider as ``getNotificationList`` delivers it.
 
-    Die uebrigen Felder haengen vom Provider ab (smtpHost, telegramBotToken, ...) und
-    werden unveraendert durchgereicht.
+    The remaining fields depend on the provider (smtpHost, telegramBotToken, ...) and are
+    passed through unchanged.
 
     Attributes:
-        id: Notification-ID in der Quell-Instanz.
-        name: Anzeigename.
-        applyExisting: Einmaliger UI-Trigger, kein Zustand - siehe ``_add_notification``.
+        id: Notification ID in the source instance.
+        name: Display name.
+        applyExisting: One-shot UI trigger, not state - see ``_add_notification``.
     """
 
     id: int
@@ -128,12 +128,12 @@ class NotificationDict(TypedDict, total=False):
 
 
 class TagDict(TypedDict):
-    """Ein Tag, wie ``getTags`` ihn liefert.
+    """A tag as ``getTags`` delivers it.
 
     Attributes:
-        id: Server-seitige Tag-ID.
-        name: Anzeigename.
-        color: Hex-Farbe, z.B. ``#059669``.
+        id: Server-side tag ID.
+        name: Display name.
+        color: Hex color, e.g. ``#059669``.
     """
 
     id: int
@@ -142,11 +142,11 @@ class TagDict(TypedDict):
 
 
 class StatusPageMonitor(TypedDict):
-    """Monitor-Eintrag innerhalb einer Status-Page-Gruppe.
+    """Monitor entry within a status page group.
 
     Attributes:
-        id: Monitor-ID in der alten Instanz.
-        sendUrl: 0/1, ob die URL oeffentlich angezeigt wird.
+        id: Monitor ID in the old instance.
+        sendUrl: 0/1, whether the URL is shown publicly.
     """
 
     id: int
@@ -154,12 +154,12 @@ class StatusPageMonitor(TypedDict):
 
 
 class StatusPageGroup(TypedDict):
-    """Oeffentliche Monitor-Gruppe einer Status Page.
+    """Public monitor group of a status page.
 
     Attributes:
-        name: Gruppenname.
-        weight: Sortiergewicht.
-        monitorList: Monitore der Gruppe.
+        name: Group name.
+        weight: Sort weight.
+        monitorList: Monitors of the group.
     """
 
     name: str
@@ -168,11 +168,11 @@ class StatusPageGroup(TypedDict):
 
 
 class StatusPageExport(TypedDict):
-    """Eine Status Page, wie dieses Script sie exportiert.
+    """A status page as this script exports it.
 
     Attributes:
-        config: Die Page-Config (slug, title, theme, customCSS, ...).
-        publicGroupList: Die oeffentlichen Monitor-Gruppen.
+        config: The page config (slug, title, theme, customCSS, ...).
+        publicGroupList: The public monitor groups.
     """
 
     config: Payload
@@ -180,13 +180,13 @@ class StatusPageExport(TypedDict):
 
 
 class KumaState(TypedDict):
-    """Der komplette exportierte Stand einer Instanz.
+    """The complete exported state of an instance.
 
     Attributes:
-        monitors: Alle Monitore inkl. Gruppen.
-        notifications: Alle Notification-Provider.
-        tags: Alle Tags.
-        status_pages: Alle Status Pages inkl. Gruppen.
+        monitors: All monitors incl. groups.
+        notifications: All notification providers.
+        tags: All tags.
+        status_pages: All status pages incl. groups.
     """
 
     monitors: list[MonitorDict]
@@ -196,12 +196,12 @@ class KumaState(TypedDict):
 
 
 class ImportReport(TypedDict):
-    """Abbildung alte ID -> neue ID je Objekttyp.
+    """Mapping old ID -> new ID per object type.
 
     Attributes:
-        notifications: Mapping der Notification-IDs.
-        tags: Mapping der Tag-IDs.
-        monitors: Mapping der Monitor-IDs.
+        notifications: Mapping of the notification IDs.
+        tags: Mapping of the tag IDs.
+        monitors: Mapping of the monitor IDs.
     """
 
     notifications: dict[int, int]
@@ -210,16 +210,16 @@ class ImportReport(TypedDict):
 
 
 def jsonable(obj: object) -> object:
-    """Wandelt Lib-Enums (``MonitorType`` & Co.) rekursiv in JSON-taugliche Werte.
+    """Recursively converts lib enums (``MonitorType`` & co.) into JSON-capable values.
 
-    Die uptime-kuma-api gibt ``type`` als ``MonitorType``-Enum zurueck, das ``json.dump``
-    nicht serialisieren kann.
+    uptime-kuma-api returns ``type`` as a ``MonitorType`` enum, which ``json.dump`` cannot
+    serialize.
 
     Args:
-        obj: Beliebiger Wert aus der uptime-kuma-api.
+        obj: Any value from uptime-kuma-api.
 
     Returns:
-        Derselbe Wert, aber mit Enums als deren ``.value``.
+        The same value, but with enums as their ``.value``.
     """
     if isinstance(obj, Enum):
         return obj.value
@@ -231,17 +231,17 @@ def jsonable(obj: object) -> object:
 
 
 def load_creds(username: str | None, password: str | None) -> tuple[str, str]:
-    """Ermittelt die Zugangsdaten aus CLI-Argumenten, Umgebung oder Creds-Datei.
+    """Determines the credentials from CLI arguments, environment or creds file.
 
     Args:
-        username: Explizit uebergebener Benutzername oder ``None``.
-        password: Explizit uebergebenes Passwort oder ``None``.
+        username: Explicitly passed username or ``None``.
+        password: Explicitly passed password or ``None``.
 
     Returns:
-        Tupel aus Benutzername und Passwort.
+        Tuple of username and password.
 
     Raises:
-        SystemExit: Wenn weder CLI, Umgebung noch Creds-Datei beides liefern.
+        SystemExit: If neither CLI, environment nor creds file provides both.
     """
     if username and password:
         return username, password
@@ -250,51 +250,51 @@ def load_creds(username: str | None, password: str | None) -> tuple[str, str]:
     pw = password or os.environ.get("UPTIME_KUMA_PASSWORD")
     if not user or not pw:
         sys.exit(
-            f"Credentials fehlen: UPTIME_KUMA_USERNAME/UPTIME_KUMA_PASSWORD "
-            f"(weder in der Umgebung noch in {CREDS_FILE})"
+            f"Credentials missing: UPTIME_KUMA_USERNAME/UPTIME_KUMA_PASSWORD "
+            f"(neither in the environment nor in {CREDS_FILE})"
         )
     return user, pw
 
 
 class SimpleKumaApi:
-    """Duenne Huelle um uptime-kuma-api: Reads via Lib, Writes via ``_call()``.
+    """Thin shell around uptime-kuma-api: reads via the lib, writes via ``_call()``.
 
     Attributes:
-        url: Basis-URL der Instanz.
-        api: Die zugrundeliegende uptime-kuma-api-Session.
+        url: Base URL of the instance.
+        api: The underlying uptime-kuma-api session.
     """
 
     def __init__(self, url: str, username: str, password: str, timeout: int = 30) -> None:
-        """Verbindet sich und loggt ein.
+        """Connects and logs in.
 
         Args:
-            url: Basis-URL, z.B. ``http://127.0.0.1:3001``.
-            username: Benutzername (der Socket-Login akzeptiert keine API-Keys).
-            password: Passwort.
-            timeout: Socket-Timeout in Sekunden.
+            url: Base URL, e.g. ``http://127.0.0.1:3001``.
+            username: Username (the socket login accepts no API keys).
+            password: Password.
+            timeout: Socket timeout in seconds.
         """
         self.url = url.rstrip("/")
         self.api = UptimeKumaApi(self.url, timeout=timeout)
         self.api.login(username, password)
 
     def close(self) -> None:
-        """Trennt die Socket-Verbindung."""
+        """Closes the socket connection."""
         self.api.disconnect()
 
     # ---------------------------------------------------------------- export
 
     def _export_status_page(self, slug: str) -> StatusPageExport:
-        """Liest eine Status Page vollstaendig aus.
+        """Reads a status page in full.
 
-        ``api.get_status_page()`` ist gegen 2.x kaputt (KeyError 'incident'), und der rohe
-        Socket-Call liefert nur die Config - die Monitor-Gruppen haengen am oeffentlichen
-        HTTP-Endpoint.
+        ``api.get_status_page()`` is broken against 2.x (KeyError 'incident'), and the raw
+        socket call only delivers the config - the monitor groups hang off the public HTTP
+        endpoint.
 
         Args:
-            slug: Slug der Status Page.
+            slug: Slug of the status page.
 
         Returns:
-            Config und oeffentliche Gruppenliste.
+            Config and public group list.
         """
         config = cast(Payload, self.api._call("getStatusPage", slug)["config"])
         with urllib.request.urlopen(f"{self.url}/api/status-page/{slug}") as resp:
@@ -305,10 +305,10 @@ class SimpleKumaApi:
         }
 
     def export_state(self) -> KumaState:
-        """Zieht Monitore, Notifications, Tags und Status Pages aus der Instanz.
+        """Pulls monitors, notifications, tags and status pages from the instance.
 
         Returns:
-            Der komplette Stand, JSON-serialisierbar.
+            The complete state, JSON-serializable.
         """
         pages = [self._export_status_page(str(s["slug"])) for s in self.api.get_status_pages()]
         return {
@@ -321,19 +321,19 @@ class SimpleKumaApi:
     # ---------------------------------------------------------------- import
 
     def _add_notification(self, notification: NotificationDict) -> int:
-        """Legt einen Notification-Provider an.
+        """Creates a notification provider.
 
-        ``applyExisting`` wird bewusst hart auf False gesetzt: Es ist kein Zustand, sondern
-        ein einmaliger UI-Trigger ("an alle bestehenden Monitore haengen"). Der Server
-        normalisiert es beim Speichern selbst auf False, wertet es davor aber aus - stuende
-        es auf True und gaebe es schon Monitore, wuerde die Notification an *alle* gehaengt
-        und die exakten Verknuepfungen ueberschrieben. In alten Prod-DBs steht dort noch True.
+        ``applyExisting`` is deliberately forced hard to False: it is not state but a one-shot
+        UI trigger ("attach to all existing monitors"). The server normalizes it to False on
+        save itself, but evaluates it beforehand - were it True and monitors already existed,
+        the notification would be attached to *all* of them and the exact links overwritten.
+        In old prod DBs it is still True.
 
         Args:
-            notification: Notification-Dict aus dem Export.
+            notification: Notification dict from the export.
 
         Returns:
-            Die neue Notification-ID.
+            The new notification ID.
         """
         payload: Payload = {k: v for k, v in notification.items() if k not in ("id", "userId")}
         payload["applyExisting"] = False
@@ -341,13 +341,13 @@ class SimpleKumaApi:
         return int(result["id"])
 
     def _add_tag(self, tag: TagDict) -> int:
-        """Legt einen Tag an.
+        """Creates a tag.
 
         Args:
-            tag: Tag-Dict aus dem Export.
+            tag: Tag dict from the export.
 
         Returns:
-            Die neue Tag-ID.
+            The new tag ID.
         """
         result = self.api._call("addTag", {"name": tag["name"], "color": tag["color"]})
         return int(result["tag"]["id"])
@@ -359,16 +359,16 @@ class SimpleKumaApi:
         parent_map: dict[int, int],
         paused: bool,
     ) -> int:
-        """Legt einen Monitor an und biegt dabei alle Fremd-IDs um.
+        """Creates a monitor and remaps all foreign IDs in the process.
 
         Args:
-            monitor: Monitor-Dict aus dem Export.
-            notif_map: Mapping alte -> neue Notification-ID.
-            parent_map: Mapping alte -> neue Monitor-ID (fuer ``parent``).
-            paused: Wenn True, wird der Monitor inaktiv angelegt.
+            monitor: Monitor dict from the export.
+            notif_map: Mapping old -> new notification ID.
+            parent_map: Mapping old -> new monitor ID (for ``parent``).
+            paused: If True, the monitor is created inactive.
 
         Returns:
-            Die neue Monitor-ID.
+            The new monitor ID.
         """
         data: Payload = {k: v for k, v in monitor.items() if k not in DERIVED_MONITOR_FIELDS}
 
@@ -376,25 +376,25 @@ class SimpleKumaApi:
         if parent:
             data["parent"] = parent_map[parent]
 
-        # Der Server macht `for (let id in notificationIDList)` und prueft auf truthy.
-        # Bei einer Liste [1, 3] waeren das die Indizes 0, 1 -> falsche Verknuepfung.
-        # Es muss ein Dict {neue_id: True} sein.
+        # The server does `for (let id in notificationIDList)` and checks for truthy.
+        # With a list [1, 3] those would be the indices 0, 1 -> wrong link.
+        # It must be a dict {new_id: True}.
         data["notificationIDList"] = {
             notif_map[old]: True for old in monitor.get("notificationIDList") or [] if old in notif_map
         }
 
         if paused:
-            data["active"] = False  # verhindert serverseitig startMonitor()
+            data["active"] = False  # prevents startMonitor() server-side
 
         result = self.api._call("add", data)
         return int(result["monitorID"])
 
     def _add_status_page(self, page: StatusPageExport, monitor_map: dict[int, int]) -> None:
-        """Legt eine Status Page an und verknuepft ihre Monitor-Gruppen neu.
+        """Creates a status page and re-links its monitor groups.
 
         Args:
-            page: Status Page aus dem Export.
-            monitor_map: Mapping alte -> neue Monitor-ID.
+            page: Status page from the export.
+            monitor_map: Mapping old -> new monitor ID.
         """
         cfg = page["config"]
         slug = str(cfg["slug"])
@@ -409,27 +409,27 @@ class SimpleKumaApi:
             ]
             groups.append({"name": group["name"], "weight": group.get("weight", 1), "monitorList": monitors})
 
-        # imgDataUrl muss ein String sein - der Server ruft blind .startsWith("data:")
-        # darauf auf. Ist es keine data-URI, wird der Wert als config.logo uebernommen;
-        # wir reichen deshalb den bestehenden Icon-Pfad durch (so macht es das Frontend).
+        # imgDataUrl must be a string - the server blindly calls .startsWith("data:") on it.
+        # If it isn't a data URI, the value is taken over as config.logo; we therefore pass
+        # through the existing icon path (as the frontend does).
         icon = cfg.get("icon") or "/icon.svg"
         self.api._call("saveStatusPage", (slug, cfg, icon, groups))
 
     @staticmethod
     def parents_first(monitors: list[MonitorDict]) -> list[MonitorDict]:
-        """Sortiert Monitore so, dass jede Gruppe vor ihren Kindern kommt.
+        """Sorts monitors so that every group comes before its children.
 
-        Kuma erlaubt Gruppen in Gruppen, deshalb topologisch statt nur "groups first".
+        Kuma allows groups within groups, hence topological rather than just "groups first".
 
         Args:
-            monitors: Alle Monitore aus dem Export.
+            monitors: All monitors from the export.
 
         Returns:
-            Dieselben Monitore, Eltern vor Kindern.
+            The same monitors, parents before children.
 
         Raises:
-            RuntimeError: Bei einem Zyklus in der Hierarchie - lieber abbrechen, als
-                stillschweigend Monitore zu verlieren.
+            RuntimeError: On a cycle in the hierarchy - better to abort than to silently lose
+                monitors.
         """
         by_id = {m["id"]: m for m in monitors}
         ordered: list[MonitorDict] = []
@@ -447,38 +447,38 @@ class SimpleKumaApi:
                     progress = True
             if not progress:
                 stuck = [m["name"] for m in monitors if m["id"] not in placed]
-                raise RuntimeError(f"Zyklus in der Gruppen-Hierarchie, haengen geblieben bei: {stuck}")
+                raise RuntimeError(f"cycle in the group hierarchy, stuck at: {stuck}")
         return ordered
 
     def import_state(self, state: KumaState, paused: bool = False) -> ImportReport:
-        """Schreibt einen exportierten Stand in die Instanz.
+        """Writes an exported state into the instance.
 
-        Reihenfolge ist zwingend: Notifications und Tags zuerst (Monitore referenzieren
-        sie), dann Monitore Eltern-vor-Kind, dann Tag-Zuordnungen, dann Status Pages.
+        The order is mandatory: notifications and tags first (monitors reference them), then
+        monitors parents-before-children, then tag assignments, then status pages.
 
         Args:
-            state: Der zu schreibende Stand.
-            paused: Wenn True, werden alle Monitore inaktiv angelegt - keine Checks,
-                keine Alarme. Fuer Testinstanzen dringend empfohlen.
+            state: The state to write.
+            paused: If True, all monitors are created inactive - no checks, no alarms.
+                Strongly recommended for test instances.
 
         Returns:
-            Die ID-Mappings alt -> neu.
+            The ID mappings old -> new.
         """
         report: ImportReport = {"notifications": {}, "tags": {}, "monitors": {}}
 
         for notification in state["notifications"]:
             report["notifications"][notification["id"]] = self._add_notification(notification)
-        typer.echo(f"notifications: {len(report['notifications'])} angelegt")
+        typer.echo(f"notifications: {len(report['notifications'])} created")
 
         for tag in state["tags"]:
             report["tags"][tag["id"]] = self._add_tag(tag)
-        typer.echo(f"tags: {len(report['tags'])} angelegt")
+        typer.echo(f"tags: {len(report['tags'])} created")
 
         for monitor in self.parents_first(state["monitors"]):
             report["monitors"][monitor["id"]] = self._add_monitor(
                 monitor, report["notifications"], report["monitors"], paused
             )
-        typer.echo(f"monitore: {len(report['monitors'])} angelegt{' (pausiert)' if paused else ''}")
+        typer.echo(f"monitors: {len(report['monitors'])} created{' (paused)' if paused else ''}")
 
         links = 0
         for monitor in state["monitors"]:
@@ -493,12 +493,12 @@ class SimpleKumaApi:
                 )
                 links += 1
         if links:
-            typer.echo(f"tag-zuordnungen: {links} angelegt")
+            typer.echo(f"tag assignments: {links} created")
 
         for page in state["status_pages"]:
             self._add_status_page(page, report["monitors"])
         if state["status_pages"]:
-            typer.echo(f"status pages: {len(state['status_pages'])} angelegt")
+            typer.echo(f"status pages: {len(state['status_pages'])} created")
 
         return report
 
@@ -508,20 +508,20 @@ app = typer.Typer(add_completion=False, help=__doc__)
 
 @app.command("export")
 def export_cmd(
-    url: str = typer.Option(..., help="Basis-URL der Quell-Instanz"),
-    out: Path = typer.Option(..., help="Zieldatei fuer den JSON-Export"),
-    username: str | None = typer.Option(None, help="ueberschreibt uptimekuma.local.env"),
-    password: str | None = typer.Option(None, help="ueberschreibt uptimekuma.local.env"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG-Logging"),
+    url: str = typer.Option(..., help="Base URL of the source instance"),
+    out: Path = typer.Option(..., help="Target file for the JSON export"),
+    username: str | None = typer.Option(None, help="overrides uptimekuma.local.env"),
+    password: str | None = typer.Option(None, help="overrides uptimekuma.local.env"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG logging"),
 ) -> None:
-    """Zieht den kompletten Stand einer Instanz in eine JSON-Datei.
+    """Pulls the complete state of an instance into a JSON file.
 
     Args:
-        url: Basis-URL der Quell-Instanz.
-        out: Pfad der zu schreibenden JSON-Datei.
-        username: Optionaler Benutzername, sonst aus Umgebung/Creds-Datei.
-        password: Optionales Passwort, sonst aus Umgebung/Creds-Datei.
-        verbose: Wenn True, wird auf DEBUG-Level geloggt.
+        url: Base URL of the source instance.
+        out: Path of the JSON file to write.
+        username: Optional username, otherwise from environment/creds file.
+        password: Optional password, otherwise from environment/creds file.
+        verbose: If True, logs at DEBUG level.
     """
     configure_logging(verbose=verbose)
     print_banner()
@@ -535,33 +535,33 @@ def export_cmd(
 
     out.write_text(json.dumps(state, indent=1))
     typer.echo(
-        f"export -> {out}: {len(state['monitors'])} monitore, "
+        f"export -> {out}: {len(state['monitors'])} monitors, "
         f"{len(state['notifications'])} notifications, {len(state['tags'])} tags, "
         f"{len(state['status_pages'])} status pages"
     )
-    typer.secho("ACHTUNG: enthaelt Klartext-Secrets - nicht committen.", fg=typer.colors.YELLOW)
+    typer.secho("WARNING: contains plaintext secrets - do not commit.", fg=typer.colors.YELLOW)
 
 
 @app.command("import")
 def import_cmd(
-    url: str = typer.Option(..., help="Basis-URL der Ziel-Instanz"),
-    in_file: Path = typer.Option(..., "--in-file", help="JSON-Export, der geschrieben wird"),
-    paused: bool = typer.Option(False, help="Monitore inaktiv anlegen: keine Checks, keine Alarme"),
-    dry_run: bool = typer.Option(False, help="nur zeigen, was angelegt wuerde"),
-    username: str | None = typer.Option(None, help="Creds der ZIEL-Instanz"),
-    password: str | None = typer.Option(None, help="Creds der ZIEL-Instanz"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG-Logging"),
+    url: str = typer.Option(..., help="Base URL of the target instance"),
+    in_file: Path = typer.Option(..., "--in-file", help="JSON export that gets written"),
+    paused: bool = typer.Option(False, help="create monitors inactive: no checks, no alarms"),
+    dry_run: bool = typer.Option(False, help="only show what would be created"),
+    username: str | None = typer.Option(None, help="creds of the TARGET instance"),
+    password: str | None = typer.Option(None, help="creds of the TARGET instance"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG logging"),
 ) -> None:
-    """Schreibt einen JSON-Export in eine (leere) Instanz.
+    """Writes a JSON export into an (empty) instance.
 
     Args:
-        url: Basis-URL der Ziel-Instanz.
-        in_file: Pfad des einzulesenden JSON-Exports.
-        paused: Monitore inaktiv anlegen.
-        dry_run: Nichts schreiben, nur die geplanten Objekte ausgeben.
-        username: Optionaler Benutzername der Ziel-Instanz.
-        password: Optionales Passwort der Ziel-Instanz.
-        verbose: Wenn True, wird auf DEBUG-Level geloggt.
+        url: Base URL of the target instance.
+        in_file: Path of the JSON export to read in.
+        paused: Create monitors inactive.
+        dry_run: Write nothing, only print the planned objects.
+        username: Optional username of the target instance.
+        password: Optional password of the target instance.
+        verbose: If True, logs at DEBUG level.
     """
     configure_logging(verbose=verbose)
     print_banner()
@@ -571,9 +571,9 @@ def import_cmd(
     if dry_run:
         groups = [m for m in state["monitors"] if m.get("type") == "group"]
         typer.echo(
-            f"[dry-run] wuerde anlegen: {len(state['notifications'])} notifications, "
-            f"{len(state['tags'])} tags, {len(state['monitors'])} monitore "
-            f"({len(groups)} davon gruppen), {len(state['status_pages'])} status pages"
+            f"[dry-run] would create: {len(state['notifications'])} notifications, "
+            f"{len(state['tags'])} tags, {len(state['monitors'])} monitors "
+            f"({len(groups)} of them groups), {len(state['status_pages'])} status pages"
         )
         return
 
