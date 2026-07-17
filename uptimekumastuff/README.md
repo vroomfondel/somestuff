@@ -11,6 +11,7 @@ declaratively and idempotently — instead of clicking monitors together in the 
 | I want to…                                              | Tool                                          |
 |---------------------------------------------------------|-----------------------------------------------|
 | Apply monitors **and** notifications from a YAML file   | **`uptimekuma_apply.py`** — `SimpleKumaApi`'s idempotent sibling |
+| Manage monitors from an **Ansible** playbook            | **`uptimekuma_monitor.py`** (Ansible module)  |
 | Back up / migrate the complete state to a new instance  | **`uptimekuma_simpleapi.py`** (`SimpleKumaApi`) |
 | Write my own Python against Kuma                        | **`uptimekuma_client.py`** (`KumaClient`)     |
 
@@ -19,6 +20,8 @@ declaratively and idempotently — instead of clicking monitors together in the 
   builds on.
 - **`uptimekuma_apply.py`** — applies a partial desired state from a YAML file against an
   existing instance, re-runnable, with `--check` (dry run) and `--prune`.
+- **`uptimekuma_monitor.py`** — an Ansible module wrapping `KumaClient` for idempotent,
+  per-monitor management from a playbook (`state: present`/`absent`, `--check` support).
 - **`uptimekuma_simpleapi.py`** — `SimpleKumaApi`, full export/import of a whole instance
   (monitors, notifications, tags, status pages) into a preferably **empty** target.
 
@@ -150,6 +153,76 @@ newly assigned target IDs, and creates monitors parents-before-children so neste
 It targets an **empty** instance — there is no merge or update, objects are always created new,
 so re-running against a populated instance duplicates. (For idempotent updates use
 `uptimekuma_apply.py`.)
+
+## `uptimekuma_monitor.py` — Ansible module
+
+An Ansible module that wraps `KumaClient` for idempotent, per-monitor management from a
+playbook — `state: present`/`absent`, full `--check` support, and `changed`/`diff`/
+`not_applicable` reporting. Use it when Kuma provisioning is one step in a larger Ansible run;
+for a standalone declarative file, `uptimekuma_apply.py` is the better fit.
+
+**Wiring it into Ansible.** The module imports its client via
+`from ansible.module_utils.uptimekuma_client import KumaClient, KumaError`, so two files have to
+be reachable from your Ansible config's `library` and `module_utils` paths:
+
+| Ansible path                       | points at                                |
+|------------------------------------|------------------------------------------|
+| `library/uptimekuma_monitor.py`    | `uptimekumastuff/uptimekuma_monitor.py`  |
+| `module_utils/uptimekuma_client.py`| `uptimekumastuff/uptimekuma_client.py`   |
+
+**Symlink** rather than copy, so this package stays the single source of truth:
+
+```bash
+ln -s /path/to/uptimekumastuff/uptimekuma_monitor.py library/uptimekuma_monitor.py
+ln -s /path/to/uptimekumastuff/uptimekuma_client.py  module_utils/uptimekuma_client.py
+```
+
+**Runtime requirements** — all consequences of talking to Kuma over Socket.IO:
+
+- It runs on the **control node**, so `python-socketio` is needed *there*, not on the targets.
+  Use `hosts: localhost` or `delegate_to: localhost`.
+- `python-socketio` must be importable by the interpreter Ansible uses. If it only lives in a
+  virtualenv, point `ansible_python_interpreter` at that venv's `python`
+  (`-e ansible_python_interpreter=/path/to/.venv/bin/python`, or set it for localhost in the
+  inventory) — otherwise the module import fails.
+
+```yaml
+- name: Provision Uptime-Kuma monitors
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Create group
+      uptimekuma_monitor:
+        url: https://uptimekuma.example.lan
+        username: "{{ uptimekuma_admin_user }}"
+        password: "{{ uptimekuma_admin_password }}"
+        name: outdoormesh
+        type: group
+
+    - name: MQTT check in the group
+      uptimekuma_monitor:
+        url: https://uptimekuma.example.lan
+        username: "{{ uptimekuma_admin_user }}"
+        password: "{{ uptimekuma_admin_password }}"
+        name: husqvarna/automower/pongs
+        type: mqtt
+        parent: outdoormesh                     # name, not ID
+        notifications: [My Gotify Alarm (1)]     # names, not IDs
+        hostname: mosquitto.mosquitto.svc.cluster.local
+        port: 1883
+        mqtt_topic: husqvarna/automower/pongs
+        active: true
+```
+
+Like `uptimekuma_apply.py`, references go by **name** (`parent`, `notifications`). Options are
+snake_case (`retry_interval`, `mqtt_topic`); the ~100 rarer Kuma fields aren't mapped
+individually — pass them camelCase under `extra:`. `state: absent` deletes by name. Full option
+docs: `ansible-doc -M /path/to/library uptimekuma_monitor`.
+
+> **check_mode caveat:** against an empty instance, a task whose `parent`/`notifications` only a
+> *prior task of the same run* would create fails under `--check` — the reference doesn't exist
+> yet. `uptimekuma_apply.py` avoids this because it knows the whole desired state up front.
 
 ## Library
 
