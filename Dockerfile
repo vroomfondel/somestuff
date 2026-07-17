@@ -62,6 +62,7 @@ COPY --chown=${UID}:${GID} k3shelperstuff /app/k3shelperstuff
 COPY --chown=${UID}:${GID} gcalstuff /app/gcalstuff
 COPY --chown=${UID}:${GID} dhcpstuff /app/dhcpstuff
 COPY --chown=${UID}:${GID} ucmstuff /app/ucmstuff
+COPY --chown=${UID}:${GID} uptimekumastuff /app/uptimekumastuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 

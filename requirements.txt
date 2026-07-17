@@ -53,3 +53,7 @@ reputils==0.0.16
 # ucmstuff (Grandstream UCM6204 monitor + control)
 typer
 websocket-client
+
+# uptimekumastuff (Uptime-Kuma export/import)
+python-dotenv
+uptime-kuma-api
