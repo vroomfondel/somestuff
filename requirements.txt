@@ -56,4 +56,5 @@ websocket-client
 
 # uptimekumastuff (Uptime-Kuma export/import)
 python-dotenv
+python-socketio
 uptime-kuma-api
