@@ -83,9 +83,10 @@ def configure_logging(
 
 
 def print_banner() -> None:
-    """Log the startup banner with version and project links."""
+    """Log the startup banner with version, build time and project links."""
     startup_rows = [
         ["version", __version__],
+        ["buildtime", os.getenv("BUILDTIME", "unknown")],
         ["github", "https://github.com/vroomfondel/somestuff/tree/main/dnsstuff"],
         ["Docker Hub", "https://hub.docker.com/r/xomoxcc/somestuff"],
     ]
