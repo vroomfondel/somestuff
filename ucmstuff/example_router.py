@@ -15,7 +15,7 @@ branching lives. Configuration is read from environment variables — see
 
 Run (from the repo root so ``ucmstuff`` is importable)::
 
-    set -a; . ucmstuff/ucm.env.local; set +a   # your filled-in copy
+    set -a; . ucmstuff/ucm.local.env; set +a   # your filled-in copy
     python3 -m ucmstuff.example_router
 """
 
