@@ -3,8 +3,9 @@
 A tiny live web view onto arbitrary MQTT streams: FastAPI subscribes to the
 broker, a **mapper plugin** (a plain, mountable Python file) filters/maps every
 message, and the browser receives rendered HTML fragments via **Server-Sent
-Events** — displayed with **htmx** (+ SSE extension) on **PicoCSS**, zero
-hand-written JavaScript.
+Events** — displayed with **htmx** (+ SSE extension) on **PicoCSS**. No
+frontend build, no framework; the only hand-written JavaScript is a dozen
+lines in `base.html.j2` preserving open `<details>` states across SSE swaps.
 
 ```
 MQTT broker ──> paho thread ──> ViewHub (last-value cache) ──> SSE ──> htmx swaps panels
@@ -29,14 +30,17 @@ disappear from the board — mirroring the non-retained semantics.
 python3 -m mqttwebstuff.serve --mapper mqttwebstuff/plugins/oepnv_view.py --mqtt-host broker.example.org
 python3 -m mqttwebstuff.serve --mapper mqttwebstuff.plugins.oepnv_view --mqtt-host broker.example.org
 
-# generic JSON-card view of any stream
+# generic view of any stream (default: indented topic tree, see below)
 python3 -m mqttwebstuff.serve --topics 'ecowitt/#,oepnv/status' --mqtt-host broker.example.org
 
-# ad-hoc: peek into a whole topic tree (one card per subtopic, newest payload
-# wins). --mapper "" explicitly overrides a mapper configured via env /
-# mqttweb.local.env — a set mapper otherwise wins over --topics. --item-ttl 0
-# keeps cards forever (default: gone after 15 min without a new message).
+# ad-hoc: peek into a whole topic tree. Default layout is an indented
+# hierarchical tree (branch rows per level, scalars inline, JSON collapsible);
+# --view flat gives one JSON card per topic instead. --mapper "" explicitly
+# overrides a mapper configured via env / mqttweb.local.env — a set mapper
+# otherwise wins over --topics. --item-ttl 0 keeps items forever (default:
+# gone after 15 min without a new message).
 python3 -m mqttwebstuff.serve --mapper "" --topics 'nodered/#' --item-ttl 0 --title "Node-RED Live"
+python3 -m mqttwebstuff.serve --mapper "" --topics 'nodered/#' --view flat
 ```
 
 All options are also environment variables (`MQTTWEB_*`, CLI wins) — see
@@ -57,6 +61,9 @@ TITLE = "My Stream"
 SUBSCRIPTIONS = ["mystream/#"]
 PANELS = {"main": "Main"}          # optional: fixes panel order + headings
 
+# May also return a list of ViewEvents (one message -> several board items,
+# e.g. a leaf plus synthesized ancestor rows — that is how the generic
+# hierarchical view works) — or None to drop the message.
 def map_message(topic: str, payload) -> ViewEvent | None:
     if not isinstance(payload, dict):
         return None                # filter

@@ -101,11 +101,14 @@ def _line_payload(status: LineStatus) -> dict[str, object]:
         status: The line status to serialize.
 
     Returns:
-        Flat dict with update count, delay statistics and static trip count.
+        Flat dict with update count, realtime recency, delay statistics and
+        static trip count.
     """
     return {
         "line": status.line,
         "has_realtime": status.has_realtime,
+        "realtime_recent": status.realtime_recent,
+        "seconds_since_realtime": status.seconds_since_realtime,
         "updates": status.updates,
         "delay_values": len(status.delays),
         "delay_min_s": min(status.delays) if status.delays else None,

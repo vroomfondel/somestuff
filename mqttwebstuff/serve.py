@@ -134,6 +134,13 @@ def serve(
         envvar="MQTTWEB_ITEM_TTL",
         help="generic view: seconds until an unrefreshed card disappears (0 = keep forever)",
     ),
+    view: str = typer.Option(
+        "hierarchical",
+        "--view",
+        envvar="MQTTWEB_VIEW",
+        help="generic view layout: 'hierarchical' (indented topic tree) or 'flat' (one card per topic);"
+        " ignored with --mapper",
+    ),
     mqtt_host: str = typer.Option(
         "mosquitto.mosquitto.svc.cluster.local", "--mqtt-host", envvar="MQTTWEB_MQTT_HOST", help="MQTT broker host"
     ),
@@ -176,12 +183,17 @@ def serve(
     configure_logging(verbose=verbose)
     print_banner()
 
+    if view not in ("hierarchical", "flat"):
+        logger.error(f"invalid --view {view!r} (use 'hierarchical' or 'flat')")
+        raise typer.Exit(code=1)
     try:
         if mapper:
             plugin = load_plugin(mapper)
         else:
             patterns = [t.strip() for t in topics.split(",") if t.strip()]
-            plugin = generic_plugin(patterns, ttl=item_ttl if item_ttl > 0 else None)
+            plugin = generic_plugin(
+                patterns, ttl=item_ttl if item_ttl > 0 else None, hierarchical=view == "hierarchical"
+            )
     except ValueError as exc:
         logger.error(f"{exc}")
         raise typer.Exit(code=1)

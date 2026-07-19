@@ -24,7 +24,7 @@ Contents overview (Python packages/modules):
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
 - `oepnvstuff`: GTFS‑Realtime coverage checker — validates whether an open GTFS‑RT feed actually carries real‑time data for configurable lines/stations, with watch mode, departure board and MQTT publishing
-- `mqttwebstuff`: live web view onto arbitrary MQTT streams — mountable mapper plugins (filter/map per message), server‑side last‑value cache, SSE push to an htmx/PicoCSS frontend; ships an oepnv departure‑board plugin and a generic JSON‑card view
+- `mqttwebstuff`: live web view onto arbitrary MQTT streams — mountable mapper plugins (filter/map per message), server‑side last‑value cache, SSE push to an htmx/PicoCSS frontend; ships an oepnv departure‑board plugin and a generic view (indented topic tree by default, flat JSON cards via `--view flat`)
 - `ucmstuff`: monitor and control a Grandstream UCM6204 IP‑PBX — real‑time call events over WebSocket plus request/response control via the HTTPS API
 - `uptimekumastuff`: provision, migrate and back up Uptime Kuma 2.x declaratively — idempotent YAML apply, Ansible module, full export/import, direct Socket.IO client
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
@@ -243,17 +243,17 @@ python -m oepnvstuff.check_realtime --lines "195,295" --station Ellerbek --show-
 
 
 ### mqttwebstuff
-A small live web view onto arbitrary **MQTT** streams: the server subscribes to the broker, runs every message through a *mapper plugin* (a plain Python file — in Kubernetes simply mounted via ConfigMap) and pushes rendered HTML fragments to all connected browsers via **Server‑Sent Events**. Frontend is htmx (+ SSE extension) on PicoCSS — zero hand‑written JavaScript, all assets vendored (no CDN egress from the pod).
+A small live web view onto arbitrary **MQTT** streams: the server subscribes to the broker, runs every message through a *mapper plugin* (a plain Python file — in Kubernetes simply mounted via ConfigMap) and pushes rendered HTML fragments to all connected browsers via **Server‑Sent Events**. Frontend is htmx (+ SSE extension) on PicoCSS — no frontend build or framework, all assets vendored (no CDN egress from the pod).
 
 - Core: `serve.py` (Typer CLI), `hub.py` (last‑value cache + SSE fan‑out), `plugin_api.py` (the `ViewEvent` plugin contract), `webapp.py` (FastAPI: `/`, `/stream`, `/healthz`).
 - The server‑side **last‑value cache** makes non‑retained live streams browsable: a freshly opened tab gets the full current board server‑rendered, then only deltas over SSE. Per‑item TTLs let vanished topics disappear from the board.
-- Plugins decide filter/panel/grouping/template per message and may bring their own Jinja2 templates (`*.html.j2`, plugin dir is searched before the built‑ins). Without a plugin, a generic mode shows any topic tree as JSON cards.
+- Plugins decide filter/panel/grouping/template per message (one message may map to several board items) and may bring their own Jinja2 templates (`*.html.j2`, plugin dir is searched before the built‑ins). Without a plugin, a generic mode shows any topic tree as an **indented hierarchical tree** (branch rows per level, scalars inline, JSON collapsible) — or as flat JSON cards with `--view flat`.
 - CLI usage:
 ```bash
 # oepnv departure board (reference plugin, ships in the image)
 python -m mqttwebstuff.serve --mapper mqttwebstuff/plugins/oepnv_view.py --mqtt-host broker.example.org
 
-# ad-hoc: peek into any topic tree generically (one card per subtopic, newest payload wins)
+# ad-hoc: peek into any topic tree generically (indented tree, newest payload per topic wins)
 python -m mqttwebstuff.serve --mapper "" --topics 'nodered/#' --item-ttl 0 --mqtt-host broker.example.org
 ```
 - Every option is also an `MQTTWEB_*` environment variable (CLI > env > `mqttweb.local.env`); MQTT TLS options (CA, mTLS, insecure) mirror oepnvstuff's.

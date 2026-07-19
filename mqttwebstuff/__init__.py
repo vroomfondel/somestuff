@@ -3,7 +3,7 @@
 A small FastAPI app subscribes to an MQTT broker, runs every message through a
 *mapper plugin* (a plain Python file mounted into the container) and pushes the
 rendered result to all connected browsers via Server-Sent Events. The browser
-side is htmx + its SSE extension — no hand-written JavaScript.
+side is htmx + its SSE extension — no frontend build or framework.
 
 The mapper plugin decides *what* is shown (filter), *where* (panel/key) and
 *how* (Jinja2 template name); see :mod:`mqttwebstuff.plugin_api` for the
@@ -31,7 +31,7 @@ from tabulate import tabulate
 if TYPE_CHECKING:
     from loguru import Record
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = ["__version__", "configure_logging", "print_banner"]
 

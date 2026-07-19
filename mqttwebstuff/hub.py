@@ -127,38 +127,49 @@ class ViewHub:
     def ingest(self, topic: str, payload: Any) -> None:
         """Map, render and cache one message, then broadcast the delta.
 
-        A crashing mapper or template must never take the stream down: errors
-        are logged and the message is dropped.
+        A mapper may return one :class:`ViewEvent` or a sequence of them (e.g.
+        a leaf plus synthesized ancestor rows for a tree view); affected panels
+        are each repainted once. A crashing mapper or template must never take
+        the stream down: errors are logged and the message is dropped.
 
         Args:
             topic: Full MQTT topic of the message.
             payload: Decoded payload (see :func:`decode_payload`).
         """
         try:
-            event = self._plugin.map_message(topic, payload)
+            result = self._plugin.map_message(topic, payload)
         except Exception:
             logger.exception(f"mapper failed for topic {topic}")
             return
-        if event is None:
+        if result is None:
             return
-        try:
-            rendered = self._render_item(event, topic)
-        except Exception:
-            logger.exception(f"template {event.template or GENERIC_TEMPLATE} failed for topic {topic}")
+        events = [result] if isinstance(result, ViewEvent) else list(result)
+        if not events:
             return
 
-        new_panel = event.panel not in self._panels
-        panel = self._panels.setdefault(event.panel, {})
-        panel[event.key] = _Entry(
-            html=rendered,
-            sort=event.sort or event.key,
-            group=event.group,
-            expires=(time.monotonic() + event.ttl) if event.ttl is not None else None,
-        )
+        new_panel = False
+        touched: set[str] = set()
+        for event in events:
+            try:
+                rendered = self._render_item(event, topic)
+            except Exception:
+                logger.exception(f"template {event.template or GENERIC_TEMPLATE} failed for topic {topic}")
+                continue
+            new_panel = new_panel or event.panel not in self._panels
+            panel = self._panels.setdefault(event.panel, {})
+            panel[event.key] = _Entry(
+                html=rendered,
+                sort=event.sort or event.key,
+                group=event.group,
+                expires=(time.monotonic() + event.ttl) if event.ttl is not None else None,
+            )
+            touched.add(event.panel)
+
         if new_panel:
             self._broadcast("board", self.render_board())
         else:
-            self._broadcast(f"panel:{event.panel}", self.render_panel_body(event.panel))
+            for name in touched:
+                self._broadcast(f"panel:{name}", self.render_panel_body(name))
 
     def _render_item(self, event: ViewEvent, topic: str) -> str:
         """Render one item to its HTML fragment.

@@ -58,6 +58,8 @@ spec:
             #   value: "oepnv/#"
             # - name: MQTTWEB_ITEM_TTL
             #   value: "900"
+            # - name: MQTTWEB_VIEW
+            #   value: "hierarchical"   # or "flat" (one card per topic)
             # Page title override ('' = plugin's TITLE).
             # - name: MQTTWEB_TITLE
             #   value: "ÖPNV Live"

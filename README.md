@@ -26,7 +26,7 @@ Contents overview (Python packages/modules):
 - `ucmstuff`: Grandstream UCM6204 IP‑PBX monitor + control — WebSocket call events and HTTPS‑API control (accept/refuse/route incoming calls)
 - `uptimekumastuff`: Uptime‑Kuma export/import — pull the complete state (monitors, notifications, tags, status pages) via the Socket.IO API and write it into another instance
 - `oepnvstuff`: GTFS‑Realtime coverage checker — validates whether an open GTFS‑RT feed actually carries real‑time data for configurable lines/stations, with watch mode, departure board and MQTT publishing
-- `mqttwebstuff`: live web view onto arbitrary MQTT streams — mountable mapper plugins (filter/map per message), server‑side last‑value cache, SSE push to an htmx/PicoCSS frontend; ships an oepnv departure‑board plugin and a generic JSON‑card view
+- `mqttwebstuff`: live web view onto arbitrary MQTT streams — mountable mapper plugins (filter/map per message), server‑side last‑value cache, SSE push to an htmx/PicoCSS frontend; ships an oepnv departure‑board plugin and a generic view (indented topic tree by default, flat JSON cards via `--view flat`)
 - `sipstuff`: **moved to standalone repo** — [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) (see [`sipstuff/README.md`](sipstuff/README.md))
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)

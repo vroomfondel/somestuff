@@ -55,6 +55,21 @@
       overflow: auto;
     }
     .mqttweb-topic { color: var(--pico-muted-color); font-size: 0.7rem; word-break: break-all; }
+    /* Hierarchical generic view: one indented row per topic segment. */
+    .mqttweb-tree-row { font-size: 0.85rem; padding: 0.05rem 0; }
+    .mqttweb-tree-branch { color: var(--pico-muted-color); }
+    .mqttweb-tree-label { font-weight: 600; }
+    .mqttweb-tree-branch .mqttweb-tree-label { font-weight: 500; }
+    .mqttweb-tree-row code { padding: 0.05rem 0.35rem; font-size: 0.8rem; }
+    .mqttweb-tree-row pre {
+      margin: 0.2rem 0 0.3rem 0;
+      padding: 0.4rem;
+      font-size: 0.72rem;
+      max-height: 14rem;
+      overflow: auto;
+    }
+    .mqttweb-tree-details summary { cursor: pointer; }
+    .mqttweb-tree-details summary small { color: var(--pico-muted-color); }
   </style>
   <script src="/static/htmx.min.js"></script>
   <script src="/static/htmx-ext-sse.js"></script>
@@ -75,5 +90,23 @@
       {{ board|safe }}
     </div>
   </main>
+  <script>
+    // Panel repaints replace the DOM, which would collapse any expanded
+    // <details> (tree view JSON). Remember open states by data-tree-id and
+    // re-apply them after every htmx swap.
+    (function () {
+      const openTree = new Set();
+      document.addEventListener("toggle", (e) => {
+        const id = e.target.dataset && e.target.dataset.treeId;
+        if (!id) return;
+        if (e.target.open) { openTree.add(id); } else { openTree.delete(id); }
+      }, true);
+      document.body.addEventListener("htmx:afterSwap", () => {
+        document.querySelectorAll("details[data-tree-id]").forEach((d) => {
+          if (openTree.has(d.dataset.treeId)) { d.open = true; }
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

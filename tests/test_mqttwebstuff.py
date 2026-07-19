@@ -6,8 +6,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mqttwebstuff.hub import ViewHub, decode_payload
-from mqttwebstuff.plugin_api import LoadedPlugin, ViewEvent, generic_plugin, load_plugin
+from mqttwebstuff.plugin_api import LoadedPlugin, MapResult, ViewEvent, generic_plugin, load_plugin
 from mqttwebstuff.webapp import _sse_frame, build_environment, create_app
+
+
+def _one(result: MapResult) -> ViewEvent:
+    """Narrow a mapper result expected to be a single event."""
+    assert isinstance(result, ViewEvent)
+    return result
+
 
 OEPNV_PLUGIN = Path(__file__).parents[1] / "mqttwebstuff" / "plugins" / "oepnv_view.py"
 
@@ -98,8 +105,7 @@ def test_load_plugin_relative_template_dir_anchors_at_plugin(tmp_path: Path) -> 
 def test_oepnv_plugin_mapping() -> None:
     plugin = load_plugin(OEPNV_PLUGIN)
 
-    ev = plugin.map_message("oepnv/departures/X95/Ellerbek_Waldhofstrasse/S_Hamburg_Airport", DEPARTURES_PAYLOAD)
-    assert ev is not None
+    ev = _one(plugin.map_message("oepnv/departures/X95/Ellerbek_Waldhofstrasse/S_Hamburg_Airport", DEPARTURES_PAYLOAD))
     assert (ev.panel, ev.template) == ("departures", "oepnv_departures.html.j2")
     assert ev.key == "X95/Ellerbek_Waldhofstrasse/S_Hamburg_Airport"
     assert ev.sort.startswith("2026-07-19T20:32:00")
@@ -109,34 +115,73 @@ def test_oepnv_plugin_mapping() -> None:
     assert plugin.map_message("oepnv/status", "not a dict") is None
     assert plugin.map_message("oepnv/unknown/topic", {}) is None
 
-    status = plugin.map_message("oepnv/status", STATUS_PAYLOAD)
-    assert status is not None and (status.panel, status.key) == ("status", "summary")
+    status = _one(plugin.map_message("oepnv/status", STATUS_PAYLOAD))
+    assert (status.panel, status.key) == ("status", "summary")
 
-    line = plugin.map_message("oepnv/lines/X95/status", LINE_PAYLOAD)
-    assert line is not None and (line.panel, line.key) == ("lines", "X95")
+    line = _one(plugin.map_message("oepnv/lines/X95/status", LINE_PAYLOAD))
+    assert (line.panel, line.key) == ("lines", "X95")
 
-    alert = plugin.map_message("oepnv/alerts", {"entity": "444730", "text": "Umleitung"})
-    assert alert is not None and alert.panel == "alerts"
+    alert = _one(plugin.map_message("oepnv/alerts", {"entity": "444730", "text": "Umleitung"}))
+    assert alert.panel == "alerts"
     # Content-addressed key: the same alert re-published replaces itself.
-    alert2 = plugin.map_message("oepnv/alerts", {"entity": "444730", "text": "Umleitung"})
-    assert alert2 is not None and alert2.key == alert.key
+    alert2 = _one(plugin.map_message("oepnv/alerts", {"entity": "444730", "text": "Umleitung"}))
+    assert alert2.key == alert.key
 
 
 def test_oepnv_plugin_base_topic_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OEPNV_MQTT_BASE_TOPIC", "home/oepnv")
     plugin = load_plugin(OEPNV_PLUGIN)  # file-based load re-executes the module
     assert plugin.subscriptions == ("home/oepnv/#",)
-    status = plugin.map_message("home/oepnv/status", STATUS_PAYLOAD)
-    assert status is not None and status.panel == "status"
+    status = _one(plugin.map_message("home/oepnv/status", STATUS_PAYLOAD))
+    assert status.panel == "status"
     # Topics outside the configured base are dropped.
     assert plugin.map_message("oepnv/status", STATUS_PAYLOAD) is None
 
 
-def test_generic_plugin_maps_topic_root_to_panel() -> None:
-    plugin = generic_plugin(["ecowitt/#"], ttl=None)
-    ev = plugin.map_message("ecowitt/sensor/temp", {"t": 21.5})
-    assert ev is not None
+def test_generic_plugin_flat_maps_topic_root_to_panel() -> None:
+    plugin = generic_plugin(["ecowitt/#"], ttl=None, hierarchical=False)
+    ev = _one(plugin.map_message("ecowitt/sensor/temp", {"t": 21.5}))
     assert (ev.panel, ev.key, ev.ttl) == ("ecowitt", "ecowitt/sensor/temp", None)
+
+
+def test_generic_plugin_hierarchical_emits_branches_and_leaf() -> None:
+    plugin = generic_plugin(["nodered/#"], ttl=None)  # hierarchical is the default
+    events = plugin.map_message("nodered/hydrostatics/hydrostatic1/busvoltage", 24.19)
+    assert isinstance(events, list) and len(events) == 3
+
+    branches, leaf = events[:-1], events[-1]
+    assert [(b.data["label"], b.data["depth"], b.data["branch"]) for b in branches] == [
+        ("hydrostatics", 0, True),
+        ("hydrostatic1", 1, True),
+    ]
+    assert (leaf.data["label"], leaf.data["depth"], leaf.data["branch"]) == ("busvoltage", 2, False)
+    assert leaf.data["value"] == 24.19
+    # Branch keys end in "/" so they sort before their children and never
+    # collide with a leaf published on the same path.
+    assert branches[0].key == "nodered/hydrostatics/"
+    assert all(e.panel == "nodered" for e in events)
+
+    # Two-segment topic: a single leaf, no branch rows.
+    events = plugin.map_message("nodered/status", "OK")
+    assert isinstance(events, list) and len(events) == 1 and events[0].data["depth"] == 0
+
+
+def test_hub_renders_hierarchical_tree_in_order() -> None:
+    plugin = generic_plugin(["nodered/#"], ttl=None)
+    hub = ViewHub(build_environment(plugin), plugin)
+    hub.ingest("nodered/hydrostatics/hydrostatic1/busvoltage", 24.19)
+    hub.ingest("nodered/hydrostatics/hydrostatic1/status", {"lat": 53.6})
+
+    body = hub.render_panel_body("nodered")
+    # Branch rows appear once each and before their leaves (match the label
+    # spans — the raw segment strings also occur inside data-tree-id paths).
+    label = '<span class="mqttweb-tree-label">{}</span>'.format
+    assert body.count(label("hydrostatics/")) == 1 and body.count(label("hydrostatic1/")) == 1
+    order = [body.index(label(s)) for s in ("hydrostatics/", "hydrostatic1/", "busvoltage", "status")]
+    assert order == sorted(order)
+    # Scalar inline, JSON collapsible with a stable tree id for state restore.
+    assert "<code>24.19</code>" in body
+    assert 'data-tree-id="nodered/hydrostatics/hydrostatic1/status"' in body
 
 
 def _oepnv_hub() -> ViewHub:

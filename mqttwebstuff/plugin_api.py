@@ -33,17 +33,21 @@ payload parses as JSON, otherwise the raw string.
 import importlib.util
 import logging
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, TypeAlias
 
 logger = logging.getLogger(__name__)
 
 #: Fallback template used when a :class:`ViewEvent` names none — a generic
 #: card showing the payload as pretty-printed JSON.
 GENERIC_TEMPLATE = "generic_item.html.j2"
+
+#: Built-in template for the hierarchical generic view: one indented row per
+#: topic segment (branch rows for structure, leaf rows with the value).
+GENERIC_TREE_TEMPLATE = "generic_tree_item.html.j2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +86,11 @@ class ViewEvent:
     ttl: float | None = 300.0
 
 
+#: What ``map_message`` may return: one item, several items (e.g. a leaf plus
+#: synthesized ancestor rows for a tree view), or ``None`` to drop the message.
+MapResult: TypeAlias = "ViewEvent | Sequence[ViewEvent] | None"
+
+
 @dataclass(slots=True)
 class LoadedPlugin:
     """A validated mapper plugin, ready for the hub.
@@ -97,7 +106,7 @@ class LoadedPlugin:
     """
 
     subscriptions: tuple[str, ...]
-    map_message: Callable[[str, Any], ViewEvent | None]
+    map_message: Callable[[str, Any], MapResult]
     panels: dict[str, str] = field(default_factory=dict)
     title: str = "mqttweb"
     template_dir: Path | None = None
@@ -213,16 +222,26 @@ def load_plugin(mapper: str | Path) -> LoadedPlugin:
     return plugin
 
 
-def generic_plugin(topics: list[str], *, title: str = "mqttweb", ttl: float | None = 900.0) -> LoadedPlugin:
+def generic_plugin(
+    topics: list[str], *, title: str = "mqttweb", ttl: float | None = 900.0, hierarchical: bool = True
+) -> LoadedPlugin:
     """Build the fallback plugin used when no mapper file is given.
 
-    Every message becomes a generic JSON card: the panel is the topic's first
-    segment, the key the full topic — so each topic occupies one stable slot.
+    The panel is always the topic's first segment; each topic occupies one
+    stable slot (new payloads replace the old one). Two layouts:
+
+    * ``hierarchical`` (default): the topic tree as indented rows — one muted
+      *branch* row per intermediate segment, one *leaf* row per topic carrying
+      the latest value (scalars inline, JSON documents collapsible). Branch
+      rows are synthesized from every message below them, so they stay alive
+      exactly as long as their subtree does.
+    * flat: one JSON card per topic, headed by the full topic path.
 
     Args:
         topics: MQTT subscribe patterns.
         title: Page title.
         ttl: Per-item lifetime in seconds (``None`` = forever).
+        hierarchical: Choose the indented tree layout over flat cards.
 
     Returns:
         The ready-to-use plugin.
@@ -233,8 +252,41 @@ def generic_plugin(topics: list[str], *, title: str = "mqttweb", ttl: float | No
     if not topics:
         raise ValueError("generic plugin needs at least one topic pattern")
 
-    def _map(topic: str, payload: Any) -> ViewEvent | None:
+    def _map_flat(topic: str, payload: Any) -> MapResult:
         panel = topic.split("/", 1)[0] or "messages"
         return ViewEvent(panel=panel, key=topic, data=payload, title=topic, ttl=ttl)
 
-    return LoadedPlugin(subscriptions=tuple(topics), map_message=_map, title=title)
+    def _map_tree(topic: str, payload: Any) -> MapResult:
+        parts = [p for p in topic.split("/") if p]
+        if not parts:
+            return None
+        panel = parts[0]
+        events: list[ViewEvent] = []
+        # One branch row per intermediate level; key/sort end in "/" so a
+        # branch sorts directly before its children (and never collides with a
+        # leaf published on the same path).
+        for depth, segment in enumerate(parts[1:-1]):
+            path = "/".join(parts[: depth + 2]) + "/"
+            events.append(
+                ViewEvent(
+                    panel=panel,
+                    key=path,
+                    data={"label": segment, "depth": depth, "branch": True},
+                    template=GENERIC_TREE_TEMPLATE,
+                    sort=path,
+                    ttl=ttl,
+                )
+            )
+        events.append(
+            ViewEvent(
+                panel=panel,
+                key=topic,
+                data={"label": parts[-1], "depth": max(len(parts) - 2, 0), "branch": False, "value": payload},
+                template=GENERIC_TREE_TEMPLATE,
+                sort=topic,
+                ttl=ttl,
+            )
+        )
+        return events
+
+    return LoadedPlugin(subscriptions=tuple(topics), map_message=_map_tree if hierarchical else _map_flat, title=title)

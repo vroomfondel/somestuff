@@ -1,0 +1,16 @@
+{# One row of the hierarchical generic view. data: label, depth, branch, value.
+   Indentation encodes the topic hierarchy; branch rows are structure-only. #}
+<div class="mqttweb-tree-row{% if data.branch %} mqttweb-tree-branch{% endif %}" style="margin-left: {{ data.depth * 1.1 }}rem;">
+  {% if data.branch %}
+  <span class="mqttweb-tree-label">{{ data.label }}/</span>
+  {% elif data.value is string or data.value is number or data.value is boolean %}
+  <span class="mqttweb-tree-label">{{ data.label }}</span> <code>{{ data.value }}</code>
+  {% elif data.value is none %}
+  <span class="mqttweb-tree-label">{{ data.label }}</span> <code>null</code>
+  {% else %}
+  <details class="mqttweb-tree-details" data-tree-id="{{ key }}">
+    <summary><span class="mqttweb-tree-label">{{ data.label }}</span> <small>{…}</small></summary>
+    <pre>{{ data.value | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+</div>

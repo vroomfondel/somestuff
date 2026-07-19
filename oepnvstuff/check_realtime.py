@@ -295,6 +295,9 @@ def _console_cycle_line(cycle: CycleResult) -> None:
         if s.has_realtime:
             avg = f" avg{s.avg_delay:+.0f}s" if s.avg_delay is not None else ""
             parts.append(f"{line}: {s.updates}upd{avg}")
+        elif s.realtime_recent:
+            # Between two runs of a sparse line — not gone, just idle.
+            parts.append(f"{line}: -({s.seconds_since_realtime}s ago)")
         else:
             parts.append(f"{line}: -")
 
@@ -418,6 +421,12 @@ def main(
     stop_on_stale: bool = typer.Option(
         False, "--stop-on-stale", envvar="OEPNV_STOP_ON_STALE", help="stop the watch loop on a stale feed (exit 2)"
     ),
+    recent_window: int = typer.Option(
+        900,
+        "--recent-window",
+        envvar="OEPNV_RECENT_WINDOW",
+        help="a line still counts as 'realtime_recent' N s after its last update (0 = off)",
+    ),
     mqtt: bool = typer.Option(False, "--mqtt/--no-mqtt", envvar="OEPNV_MQTT_ENABLE", help="publish results to MQTT"),
     mqtt_host: str = typer.Option(
         "mosquitto.mosquitto.svc.cluster.local", "--mqtt-host", envvar="OEPNV_MQTT_HOST", help="MQTT broker host"
@@ -519,6 +528,7 @@ def main(
             compute_departures=departures,
             departures_horizon_hours=departures_horizon,
             departures_per_direction=departures_count,
+            recent_window=recent_window,
         )
 
         if mqtt:

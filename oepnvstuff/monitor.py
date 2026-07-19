@@ -19,6 +19,7 @@ Console reporting (:mod:`oepnvstuff.check_realtime`) and MQTT publishing
 stays I/O-free apart from the feed itself.
 """
 
+import dataclasses
 import datetime
 import logging
 import time
@@ -183,17 +184,44 @@ class LineStatus:
         static_trips: Number of scheduled target trips of this line (from the
             static feed) — distinguishes "no realtime" from "line/stop not in
             the schedule at all".
+        seconds_since_realtime: Age in seconds of the most recent cycle in
+            which this line had realtime data, or ``None`` if it has not been
+            seen since the monitor started. ``0`` while the line has data in
+            the current cycle. Only the watch loop tracks this across cycles.
+        recent_window: Grace period in seconds backing :attr:`realtime_recent`;
+            ``0`` disables it (then ``realtime_recent == has_realtime``).
     """
 
     line: str
     updates: int
     delays: tuple[int, ...]
     static_trips: int
+    seconds_since_realtime: int | None = None
+    recent_window: int = 0
 
     @property
     def has_realtime(self) -> bool:
-        """Whether at least one trip update matched this line."""
+        """Whether at least one trip update matched this line *in this cycle*.
+
+        Momentary by design: the realtime feed only carries currently active
+        or imminent trips, so a line with sparse service flips this off
+        between its runs. Use :attr:`realtime_recent` for a display-friendly,
+        de-flickered signal.
+        """
         return self.updates > 0
+
+    @property
+    def realtime_recent(self) -> bool:
+        """Whether this line had realtime data within :attr:`recent_window`.
+
+        Equal to :attr:`has_realtime` when ``recent_window`` is ``0`` or when
+        the recency was never tracked (one-shot checks).
+        """
+        if self.has_realtime:
+            return True
+        if not self.recent_window or self.seconds_since_realtime is None:
+            return False
+        return self.seconds_since_realtime <= self.recent_window
 
     @property
     def avg_delay(self) -> float | None:
@@ -313,6 +341,7 @@ class RealtimeMonitor:
         compute_departures: bool = False,
         departures_horizon_hours: float = 48.0,
         departures_per_direction: int = 3,
+        recent_window: int = 900,
     ) -> None:
         """Initialize the monitor.
 
@@ -336,6 +365,11 @@ class RealtimeMonitor:
                 (see :func:`compute_next_departures`).
             departures_per_direction: How many upcoming departures to report
                 per (line, stop name, direction) group.
+            recent_window: Grace period in seconds for
+                :attr:`LineStatus.realtime_recent` — a line keeps counting as
+                "has realtime" for this long after its last matched update, so
+                consumers do not see the flicker between sparse runs. ``0``
+                disables the smoothing.
         """
         self._fetcher = fetcher
         self._index = index
@@ -346,7 +380,9 @@ class RealtimeMonitor:
         self.compute_departures = compute_departures
         self.departures_horizon_hours = departures_horizon_hours
         self.departures_per_direction = departures_per_direction
+        self.recent_window = recent_window
 
+        self._last_realtime: dict[str, float] = {}
         self._cycle_handlers: list[CycleHandler] = []
         self._alert_handlers: list[AlertHandler] = []
         self._stale_handlers: list[StaleHandler] = []
@@ -437,6 +473,32 @@ class RealtimeMonitor:
             per_direction=self.departures_per_direction,
         )
 
+    def _with_recency(self, per_line: dict[str, LineStatus]) -> dict[str, LineStatus]:
+        """Stamp each status with how long ago its line last had realtime data.
+
+        Updates the monitor's per-line last-seen bookkeeping as a side effect,
+        so this must be called exactly once per cycle.
+
+        Args:
+            per_line: The cycle's fresh statuses from :func:`summarize_per_line`.
+
+        Returns:
+            A new mapping whose statuses carry ``seconds_since_realtime`` and
+            the monitor's ``recent_window``.
+        """
+        now = time.time()
+        out: dict[str, LineStatus] = {}
+        for line, status in per_line.items():
+            if status.has_realtime:
+                self._last_realtime[line] = now
+            last = self._last_realtime.get(line)
+            out[line] = dataclasses.replace(
+                status,
+                seconds_since_realtime=int(now - last) if last is not None else None,
+                recent_window=self.recent_window,
+            )
+        return out
+
     # ── one-shot ────────────────────────────────────────────────────────────
 
     def check_once(self, timeout: float = 60) -> CycleResult:
@@ -464,7 +526,7 @@ class RealtimeMonitor:
             fetch_status=result.status,
             snapshot=snapshot,
             next_departures=self._next_departures(snapshot),
-            per_line=summarize_per_line(snapshot, self._index),
+            per_line=self._with_recency(summarize_per_line(snapshot, self._index)),
             feed_age=feed_age,
             payload_bytes=len(result.data),
         )
@@ -528,7 +590,7 @@ class RealtimeMonitor:
                     wall_time=datetime.datetime.now(),
                     fetch_status=result.status,
                     snapshot=snapshot,
-                    per_line=summarize_per_line(snapshot, self._index) if snapshot else {},
+                    per_line=self._with_recency(summarize_per_line(snapshot, self._index)) if snapshot else {},
                     feed_age=feed_age,
                     unchanged_cycles=unchanged,
                     stale=stale,
