@@ -71,6 +71,12 @@ spec:
               value: "0.0.0.0"
             - name: MQTTWEB_LISTEN_PORT
               value: "8080"
+            # Reject new connections with 503 above N concurrent ones
+            # (0/unset = unlimited). Every open tab holds one SSE stream and a
+            # page load briefly needs several slots — size generously (100+).
+            # NOTE: the probes below also consume slots.
+            # - name: MQTTWEB_LIMIT_CONCURRENCY
+            #   value: "200"
             # ── MQTT ─────────────────────────────────────────────────────────
             - name: MQTTWEB_MQTT_HOST
               value: "mosquitto.mosquitto.svc.cluster.local"

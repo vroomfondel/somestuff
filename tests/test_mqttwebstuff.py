@@ -159,6 +159,26 @@ def test_hub_ingest_renders_and_replaces() -> None:
     assert "Bf. Pinneberg" in body and "S Hamburg Airport" not in body
 
 
+def test_hub_groups_departures_by_stop() -> None:
+    hub = _oepnv_hub()
+    moordamm = {**DEPARTURES_PAYLOAD, "stop": "Ellerbek, Moordamm"}
+    hub.ingest("oepnv/departures/X95/Ellerbek_Waldhofstrasse/S_Hamburg_Airport", DEPARTURES_PAYLOAD)
+    hub.ingest("oepnv/departures/X95/Ellerbek_Moordamm/S_Hamburg_Airport", moordamm)
+    hub.ingest("oepnv/departures/295/Ellerbek_Moordamm/Bf_Pinneberg", {**moordamm, "line": "295"})
+
+    body = hub.render_panel_body("departures")
+    # One bordered box per stop, stops alphabetical, both Moordamm cards in one box.
+    assert body.count("mqttweb-group-box") == 2
+    assert body.index("Ellerbek, Moordamm") < body.index("Ellerbek, Waldhofstraße")
+    moordamm_section = body[body.index("Ellerbek, Moordamm") : body.index("Ellerbek, Waldhofstraße")]
+    assert moordamm_section.count("<article") == 2
+
+    # The departures panel is "plain": no enclosing card and no "Abfahrten" title.
+    board = hub.render_board()
+    assert "Abfahrten" not in board
+    assert 'class="mqttweb-panel mqttweb-panel-plain" id="panel-departures"' in board
+
+
 def test_hub_ttl_expiry_sweeps_items() -> None:
     hub = _oepnv_hub()
     hub.ingest("oepnv/status", STATUS_PAYLOAD)

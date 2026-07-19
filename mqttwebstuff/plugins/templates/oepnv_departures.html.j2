@@ -1,8 +1,8 @@
 <article class="oepnv-dep">
-  <header style="padding: 0; margin-bottom: 0.4rem; background: none;">
+  {# The stop itself is the surrounding group heading (ViewEvent.group). #}
+  <header>
     <span class="oepnv-line-badge">{{ data.line }}</span>
-    <strong>→ {{ data.direction or "?" }}</strong><br>
-    <small class="mqttweb-topic">{{ data.stop }}</small>
+    <strong>→ {{ data.direction or "?" }}</strong>
   </header>
   <table class="oepnv-dep-table">
     <tbody>

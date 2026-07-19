@@ -108,6 +108,13 @@ def _build_mqtt_client(
 def serve(
     listen_host: str = typer.Option("0.0.0.0", "--listen-host", envvar="MQTTWEB_LISTEN_HOST", help="bind address"),
     listen_port: int = typer.Option(8080, "--listen-port", envvar="MQTTWEB_LISTEN_PORT", help="bind port"),
+    limit_concurrency: int = typer.Option(
+        0,
+        "--limit-concurrency",
+        envvar="MQTTWEB_LIMIT_CONCURRENCY",
+        help="reject new connections with 503 above N concurrent ones (0 = unlimited); every open browser tab"
+        " holds one SSE stream, a page load briefly needs several slots — size generously (100+), not per-user",
+    ),
     mapper: str = typer.Option(
         "",
         "--mapper",
@@ -221,7 +228,18 @@ def serve(
     logger.info(f"serving on http://{listen_host}:{listen_port}/ (title={plugin.title!r})")
     # log_config=None keeps uvicorn on the root logger, which configure_logging
     # already intercepts into loguru. uvicorn handles SIGTERM/SIGINT itself.
-    uvicorn.run(web, host=listen_host, port=listen_port, log_config=None, access_log=verbose)
+    # timeout_graceful_shutdown: open SSE streams never end on their own, so
+    # without a limit uvicorn would wait forever for connected browsers on
+    # shutdown; force-closing them is safe (clients auto-reconnect, retry: 3000).
+    uvicorn.run(
+        web,
+        host=listen_host,
+        port=listen_port,
+        log_config=None,
+        access_log=verbose,
+        timeout_graceful_shutdown=3,
+        limit_concurrency=limit_concurrency if limit_concurrency > 0 else None,
+    )
 
 
 if __name__ == "__main__":

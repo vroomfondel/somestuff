@@ -21,7 +21,8 @@ Required module attributes::
 Optional module attributes::
 
     TITLE: str                                   # page title (default: plugin module name)
-    PANELS: dict[str, str]                       # panel name -> heading; fixes the board order
+    PANELS: dict[str, str]                       # panel name -> heading; fixes the board order.
+                                                 # Empty heading = plain panel (no title, no chrome)
     TEMPLATE_DIR: str                            # Jinja2 template dir, relative to the plugin's own
                                                  # directory (default: <plugin dir>/templates)
 
@@ -58,7 +59,12 @@ class ViewEvent:
         template: Jinja2 template name rendering this item; ``None`` falls back
             to the built-in :data:`GENERIC_TEMPLATE`.
         sort: Sort key within the panel (ascending, lexicographic); empty
-            string sorts by ``key``. ISO timestamps sort naturally.
+            string sorts by ``key``. ISO timestamps sort naturally. With a
+            ``group`` set, the key orders items *within* that group.
+        group: Optional display label grouping items inside the panel (e.g.
+            the stop name on a departure board). Grouped items render under a
+            sub-heading per label (labels sorted alphabetically); ungrouped
+            items come first. Empty string = ungrouped.
         title: Optional item heading, used by the generic template.
         ttl: Seconds after which the item silently vanishes from the board
             unless re-published — mirrors the ``retain=False`` semantics of a
@@ -71,6 +77,7 @@ class ViewEvent:
     data: Any
     template: str | None = None
     sort: str = ""
+    group: str = ""
     title: str | None = None
     ttl: float | None = 300.0
 

@@ -10,6 +10,15 @@
     color: var(--pico-primary-inverse);
     font-weight: 700;
   }
+  /* Full reset of Pico's article>header card styling — Pico stretches headers
+     with NEGATIVE side margins to the card edge, which made the line badge
+     overhang the group box on the left. */
+  .oepnv-dep > header {
+    margin: 0 0 0.4rem 0;
+    padding: 0;
+    background: none;
+    border: none;
+  }
   .oepnv-dep-table, .oepnv-kv { margin: 0; font-size: 0.85rem; }
   .oepnv-dep-table td, .oepnv-kv td { padding: 0.15rem 0.5rem 0.15rem 0; border: none; background: none; }
   .oepnv-kv td:first-child { color: var(--pico-muted-color); }

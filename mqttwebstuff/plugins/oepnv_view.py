@@ -38,7 +38,9 @@ SUBSCRIPTIONS = [f"{BASE_TOPIC}/#"]
 _BASE_PARTS = BASE_TOPIC.split("/")
 
 PANELS = {
-    "departures": "Abfahrten",
+    # Empty heading = plain panel: the per-stop group boxes need no enclosing
+    # "Abfahrten" card, the stop names are heading enough.
+    "departures": "",
     "status": "Feed-Status",
     "lines": "Linien",
     "alerts": "Meldungen",
@@ -86,7 +88,8 @@ def map_message(topic: str, payload: Any) -> ViewEvent | None:
         return None
     rel = parts[len(_BASE_PARTS) :]
 
-    # <base>/departures/<line>/<stop>/<direction> — one card per group.
+    # <base>/departures/<line>/<stop>/<direction> — one card per group,
+    # clustered under a per-stop heading (ViewEvent.group), earliest first.
     if len(rel) == 4 and rel[0] == "departures":
         return ViewEvent(
             panel="departures",
@@ -94,6 +97,7 @@ def map_message(topic: str, payload: Any) -> ViewEvent | None:
             data=payload,
             template="oepnv_departures.html.j2",
             sort=_departures_sort(payload),
+            group=str(payload.get("stop") or rel[2]),
             ttl=_CYCLE_TTL,
         )
 

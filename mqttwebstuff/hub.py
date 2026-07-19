@@ -42,10 +42,11 @@ _QUEUE_MAXSIZE = 256
 
 @dataclass(slots=True)
 class _Entry:
-    """One cached board item: pre-rendered HTML plus ordering/expiry."""
+    """One cached board item: pre-rendered HTML plus grouping/ordering/expiry."""
 
     html: str
     sort: str
+    group: str
     expires: float | None
 
 
@@ -151,6 +152,7 @@ class ViewHub:
         panel[event.key] = _Entry(
             html=rendered,
             sort=event.sort or event.key,
+            group=event.group,
             expires=(time.monotonic() + event.ttl) if event.ttl is not None else None,
         )
         if new_panel:
@@ -172,7 +174,11 @@ class ViewHub:
         return template.render(data=event.data, topic=topic, key=event.key, panel=event.panel, title=event.title)
 
     def render_panel_body(self, name: str) -> str:
-        """Render a panel's body: all items in sort order, or a placeholder.
+        """Render a panel's body: items in sort order, or a placeholder.
+
+        Items carrying a ``group`` label are clustered under a sub-heading per
+        label (labels sorted alphabetically, items within a group by their
+        ``sort`` key); ungrouped items render first.
 
         Args:
             name: Panel name.
@@ -183,8 +189,20 @@ class ViewHub:
         entries = self._panels.get(name, {})
         if not entries:
             return '<p class="mqttweb-empty">– keine Daten –</p>'
-        ordered = sorted(entries.values(), key=lambda e: e.sort)
-        return "\n".join(e.html for e in ordered)
+
+        ungrouped = sorted((e for e in entries.values() if not e.group), key=lambda e: e.sort)
+        groups: dict[str, list[_Entry]] = {}
+        for entry in entries.values():
+            if entry.group:
+                groups.setdefault(entry.group, []).append(entry)
+
+        parts: list[str] = [e.html for e in ungrouped]
+        for label in sorted(groups):
+            items = "\n".join(e.html for e in sorted(groups[label], key=lambda e: e.sort))
+            parts.append(
+                '<div class="mqttweb-group-box">' f'<h3 class="mqttweb-group">{html.escape(label)}</h3>\n{items}</div>'
+            )
+        return "\n".join(parts)
 
     def render_board(self) -> str:
         """Render the whole board (all panels) from cache.
@@ -199,10 +217,13 @@ class ViewHub:
         extra = sorted(name for name in self._panels if name not in self._plugin.panels)
         sections: list[str] = []
         for name in declared + extra:
+            # An empty declared heading renders the panel "plain": no title and
+            # no panel chrome — its items (e.g. group boxes) stand on their own.
             heading = self._plugin.panels.get(name, name)
+            css = "mqttweb-panel" if heading else "mqttweb-panel mqttweb-panel-plain"
+            title_html = f"<h2>{html.escape(heading)}</h2>" if heading else ""
             sections.append(
-                f'<section class="mqttweb-panel" id="panel-{html.escape(name, quote=True)}">'
-                f"<h2>{html.escape(heading)}</h2>"
+                f'<section class="{css}" id="panel-{html.escape(name, quote=True)}">{title_html}'
                 f'<div class="mqttweb-panel-body" sse-swap="panel:{html.escape(name, quote=True)}">'
                 f"{self.render_panel_body(name)}</div></section>"
             )

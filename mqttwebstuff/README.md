@@ -59,7 +59,9 @@ def map_message(topic: str, payload) -> ViewEvent | None:
         key=topic,                 # stable identity -> idempotent replace
         data=payload,              # template context
         template=None,             # None = built-in generic JSON card
-        sort="",                   # ordering within the panel ("" = by key)
+        sort="",                   # ordering within the panel/group ("" = by key)
+        group="",                  # optional sub-heading label (e.g. stop name);
+                                   # items cluster under it, "" = ungrouped
         ttl=300.0,                 # vanish after 5 min without re-publish
     )
 ```
