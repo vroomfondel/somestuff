@@ -70,6 +70,17 @@
     }
     .mqttweb-tree-details summary { cursor: pointer; }
     .mqttweb-tree-details summary small { color: var(--pico-muted-color); }
+    /* Anchor self-links: look like plain labels, reveal a # on hover; a
+       targeted element gets highlighted after the jump. */
+    .mqttweb-anchor { color: inherit; text-decoration: none; }
+    .mqttweb-anchor:hover { text-decoration: underline dotted; }
+    .mqttweb-anchor:hover::after { content: " #"; color: var(--pico-muted-color); }
+    :target { scroll-margin-top: 0.5rem; }
+    .mqttweb-group-box:target, .mqttweb-tree-row:target {
+      outline: 2px solid var(--pico-primary);
+      outline-offset: 2px;
+      border-radius: var(--pico-border-radius);
+    }
   </style>
   <script src="/static/htmx.min.js"></script>
   <script src="/static/htmx-ext-sse.js"></script>

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mqttwebstuff.hub import ViewHub, decode_payload
+from mqttwebstuff.hub import ViewHub, anchor_slug, decode_payload
 from mqttwebstuff.plugin_api import LoadedPlugin, MapResult, ViewEvent, generic_plugin, load_plugin
 from mqttwebstuff.webapp import _sse_frame, build_environment, create_app
 
@@ -57,6 +57,12 @@ LINE_PAYLOAD = {
     "delay_avg_s": 40.0,
     "static_trips": 12,
 }
+
+
+def test_anchor_slug() -> None:
+    assert anchor_slug("Ellerbek, Waldhofstraße") == "ellerbek-waldhofstrasse"
+    assert anchor_slug("nodered/hydrostatics/hydrostatic1") == "nodered-hydrostatics-hydrostatic1"
+    assert anchor_slug("///") == "x"
 
 
 def test_decode_payload() -> None:
@@ -182,6 +188,9 @@ def test_hub_renders_hierarchical_tree_in_order() -> None:
     # Scalar inline, JSON collapsible with a stable tree id for state restore.
     assert "<code>24.19</code>" in body
     assert 'data-tree-id="nodered/hydrostatics/hydrostatic1/status"' in body
+    # Rows are deep-linkable: stable anchor id plus a self-link on the label.
+    assert 'id="t-nodered-hydrostatics-hydrostatic1-busvoltage"' in body
+    assert 'href="#t-nodered-hydrostatics-hydrostatic1-busvoltage"' in body
 
 
 def _oepnv_hub() -> ViewHub:
@@ -217,6 +226,10 @@ def test_hub_groups_departures_by_stop() -> None:
     assert body.index("Ellerbek, Moordamm") < body.index("Ellerbek, Waldhofstraße")
     moordamm_section = body[body.index("Ellerbek, Moordamm") : body.index("Ellerbek, Waldhofstraße")]
     assert moordamm_section.count("<article") == 2
+
+    # Each stop box is deep-linkable: stable anchor id, heading is a self-link.
+    assert 'id="g-departures-ellerbek-moordamm"' in body
+    assert 'href="#g-departures-ellerbek-moordamm"' in body
 
     # The departures panel is "plain": no enclosing card and no "Abfahrten" title.
     board = hub.render_board()

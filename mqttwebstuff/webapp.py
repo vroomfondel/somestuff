@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from mqttwebstuff.hub import ViewHub
+from mqttwebstuff.hub import ViewHub, anchor_slug
 from mqttwebstuff.plugin_api import LoadedPlugin
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,8 @@ def build_environment(plugin: LoadedPlugin) -> jinja2.Environment:
         plugin: The loaded mapper plugin (its ``template_dir`` may be ``None``).
 
     Returns:
-        An autoescaping environment with the extra filters (``hhmm``).
+        An autoescaping environment with the extra filters (``hhmm``,
+        ``anchor`` for URL-fragment-safe anchor ids).
     """
     loaders: list[jinja2.BaseLoader] = []
     if plugin.template_dir is not None:
@@ -71,6 +72,7 @@ def build_environment(plugin: LoadedPlugin) -> jinja2.Environment:
     loaders.append(jinja2.FileSystemLoader(TEMPLATES_DIR))
     env = jinja2.Environment(loader=jinja2.ChoiceLoader(loaders), autoescape=True)
     env.filters["hhmm"] = _filter_hhmm
+    env.filters["anchor"] = anchor_slug
     return env
 
 

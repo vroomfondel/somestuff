@@ -90,6 +90,14 @@ In Kubernetes, mount the plugin (+ templates) from a ConfigMap and point
 reference plugin ships inside the image, so the oepnv board needs no mount at
 all.
 
+## Deep links
+
+Group boxes (e.g. one stop on the oepnv board) and tree rows carry stable,
+ASCII-slugged anchor ids — `/#g-<panel>-<label>` and `/#t-<topic>`, e.g.
+`/#g-departures-ellerbek-moordamm` or `/#t-nodered-hydrostatics-hydrostatic1`.
+Hovering a label reveals its self-link (`#`); the jump target is highlighted.
+Since ids survive repaints and restarts, the links are bookmarkable.
+
 ## Endpoints
 
 | Route      | Purpose                                                        |

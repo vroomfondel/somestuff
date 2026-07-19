@@ -24,7 +24,9 @@ import asyncio
 import html
 import json
 import logging
+import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,6 +35,27 @@ import jinja2
 from mqttwebstuff.plugin_api import GENERIC_TEMPLATE, LoadedPlugin, ViewEvent
 
 logger = logging.getLogger(__name__)
+
+#: German umlauts/eszett → ASCII digraphs, applied before the generic
+#: accent-stripping so "Straße" slugs to "strasse", not "strae".
+_UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
+
+
+def anchor_slug(text: str) -> str:
+    """Turn a label/topic into a stable, URL-fragment-safe anchor id part.
+
+    Deterministic, so deep links (``/#g-departures-ellerbek-moordamm``) stay
+    valid across repaints and restarts as long as the label itself is stable.
+
+    Args:
+        text: Display label or topic path.
+
+    Returns:
+        Lowercased ASCII slug (never empty).
+    """
+    text = unicodedata.normalize("NFKD", text.translate(_UMLAUTS)).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower() or "x"
+
 
 #: Per-subscriber queue depth; a browser that cannot drain this many panel
 #: updates gets the oldest ones dropped (the next update repaints the panel
@@ -210,8 +233,13 @@ class ViewHub:
         parts: list[str] = [e.html for e in ungrouped]
         for label in sorted(groups):
             items = "\n".join(e.html for e in sorted(groups[label], key=lambda e: e.sort))
+            # Stable anchor id so each group (e.g. one stop) is deep-linkable
+            # via /#g-<panel>-<label>; the heading doubles as the self-link.
+            anchor = f"g-{anchor_slug(name)}-{anchor_slug(label)}"
             parts.append(
-                '<div class="mqttweb-group-box">' f'<h3 class="mqttweb-group">{html.escape(label)}</h3>\n{items}</div>'
+                f'<div class="mqttweb-group-box" id="{anchor}">'
+                f'<h3 class="mqttweb-group"><a class="mqttweb-anchor" href="#{anchor}">{html.escape(label)}</a></h3>'
+                f"\n{items}</div>"
             )
         return "\n".join(parts)
 
