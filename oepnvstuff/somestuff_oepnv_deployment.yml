@@ -68,9 +68,10 @@ spec:
             - name: OEPNV_STATION
               value: "Blankenese"
             # Geo filter 'lat,lon,radius_km' — disambiguates same-named stations
-            # in different towns (GTFS has no postal codes). Empty/unset = off.
+            # in different towns (GTFS has no postal codes). Several areas
+            # ';'-separated (OR-combined). Empty/unset = off.
             # - name: OEPNV_NEAR
-            #   value: "53.5633,9.8144,3"
+            #   value: "53.5633,9.8144,3;53.647,9.892,2"
             # ── static feed cache ────────────────────────────────────────────
             # Cache on the volume below so restarts reuse the static zip via 304.
             - name: OEPNV_CACHE_DIR

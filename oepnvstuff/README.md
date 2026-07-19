@@ -58,8 +58,9 @@ python3 -m oepnvstuff.check_realtime --show-stops
 
 # same-named stations in different towns? GTFS has no postal codes — filter
 # geographically by 'lat,lon,radius_km' (applies to the check itself as well;
-# 53.5633,9.8144 is S Blankenese)
+# 53.5633,9.8144 is S Blankenese); several areas ';'-separated (OR-combined)
 python3 -m oepnvstuff.check_realtime --show-stops --station Blankenese --near 53.5633,9.8144,2
+python3 -m oepnvstuff.check_realtime --near "53.5633,9.8144,2;53.647,9.892,3"
 
 # poll loop, one compact status line per cycle
 python3 -m oepnvstuff.check_realtime --watch --interval 20
@@ -102,7 +103,7 @@ $EDITOR oepnvstuff/oepnv.local.env
 | `OEPNV_REALTIME_URL`   | `--realtime`       | `https://realtime.gtfs.de/realtime-free.pb` |
 | `OEPNV_LINES`          | `--lines`, `-l`    | `1,12,22,189` (comma/space separated)       |
 | `OEPNV_STATION`        | `--station`, `-s`  | `Blankenese` (substring match, case-insensitive; several stations `;`-separated) |
-| `OEPNV_NEAR`           | `--near`           | *(off)* — `lat,lon,radius_km` geo filter for the matched stops |
+| `OEPNV_NEAR`           | `--near`           | *(off)* — `lat,lon,radius_km` geo filter for the matched stops; several areas `;`-separated (OR-combined) |
 | `OEPNV_DEPARTURES`     | `--departures`     | off — report upcoming departures per line+direction |
 | `OEPNV_DEPARTURES_COUNT` | `--departures-count` | `3` — next N departures per line+direction |
 | `OEPNV_DEPARTURES_HORIZON` | `--departures-horizon` | `48` h look-ahead (a fresh static feed appears within 48h anyway) |

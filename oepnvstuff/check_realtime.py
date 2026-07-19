@@ -46,6 +46,7 @@ Usage::
     python3 -m oepnvstuff.check_realtime --watch --departures --departures-count 2    # departure board
     python3 -m oepnvstuff.check_realtime --show-stops
     python3 -m oepnvstuff.check_realtime --show-stops --station Ellerbek --near 53.647,9.892,3
+    python3 -m oepnvstuff.check_realtime --near "53.647,9.892,3;53.563,9.813,2"          # several areas
 
 Exit codes:
 
@@ -141,29 +142,37 @@ def _parse_stations(raw: str) -> list[str]:
     return [part.strip() for part in raw.split(";") if part.strip()]
 
 
-def _parse_near(raw: str) -> NearFilter | None:
-    """Parse a ``--near`` specification into a :class:`NearFilter`.
+def _parse_near(raw: str) -> list[NearFilter]:
+    """Parse a ``--near`` specification into :class:`NearFilter` instances.
+
+    Like ``--station``, several filters can be given ``;``-separated; a stop
+    passes if it lies within ANY of them.
 
     Args:
-        raw: ``"lat,lon,radius_km"`` in decimal degrees / kilometres
-            (e.g. ``"53.647,9.892,3"``), or an empty string for "no filter".
+        raw: One or more ``"lat,lon,radius_km"`` triples in decimal degrees /
+            kilometres, ``;``-separated (e.g. ``"53.647,9.892,3"`` or
+            ``"53.647,9.892,3;53.563,9.813,2"``), or an empty string for
+            "no filter".
 
     Returns:
-        The parsed filter, or ``None`` for an empty input.
+        The parsed filters (empty for an empty input).
 
     Raises:
-        ValueError: The specification is not three comma-separated numbers or
-            the radius is not positive.
+        ValueError: A triple is not three comma-separated numbers or a radius
+            is not positive.
     """
-    if not raw.strip():
-        return None
-    parts = [p.strip() for p in raw.split(",")]
-    if len(parts) != 3:
-        raise ValueError(f"--near expects 'lat,lon,radius_km', got {raw!r}")
-    lat, lon, radius_km = (float(p) for p in parts)
-    if radius_km <= 0:
-        raise ValueError(f"--near radius must be positive, got {radius_km!r}")
-    return NearFilter(lat=lat, lon=lon, radius_km=radius_km)
+    filters: list[NearFilter] = []
+    for spec in raw.split(";"):
+        if not spec.strip():
+            continue
+        parts = [p.strip() for p in spec.split(",")]
+        if len(parts) != 3:
+            raise ValueError(f"--near expects 'lat,lon,radius_km' (';'-separated for several), got {spec!r}")
+        lat, lon, radius_km = (float(p) for p in parts)
+        if radius_km <= 0:
+            raise ValueError(f"--near radius must be positive, got {radius_km!r}")
+        filters.append(NearFilter(lat=lat, lon=lon, radius_km=radius_km))
+    return filters
 
 
 def _format_stop_details(details: dict[str, StopDetails]) -> str:
@@ -362,8 +371,9 @@ def main(
         "",
         "--near",
         envvar="OEPNV_NEAR",
-        help="only stops within 'lat,lon,radius_km' (e.g. '53.647,9.892,3') — GTFS has no postal codes, "
-        "so this disambiguates same-named stations in different towns",
+        help="only stops within 'lat,lon,radius_km' (e.g. '53.647,9.892,3'); several areas ';'-separated "
+        "(e.g. '53.647,9.892,3;53.563,9.813,2') — GTFS has no postal codes, so this disambiguates "
+        "same-named stations in different towns",
     ),
     cache_dir: str = typer.Option(
         ".gtfs_cache",
@@ -467,7 +477,7 @@ def main(
         raise typer.Exit(code=1)
 
     try:
-        near_filter = _parse_near(near)
+        near_filters = _parse_near(near)
     except ValueError as exc:
         logger.error(f"{exc}")
         raise typer.Exit(code=1)
@@ -477,14 +487,14 @@ def main(
         static_path = obtain(static_source, cache_dir, force_refresh=force_refresh)
 
         if show_stops:
-            stops = find_stops(static_path, stations, near_filter)
+            stops = find_stops(static_path, stations, near_filters)
             logger.info("enriching stops with lines and directions (streams stop_times.txt) ...")
             details = build_stop_details(static_path, stops)
             logger.info(f"matched stops ({len(details)}):\n{_format_stop_details(details)}")
             raise typer.Exit(code=0)
 
         logger.info("indexing static feed (stop_times.txt can be large) ...")
-        index = build_index(static_path, target_lines, stations, near_filter)
+        index = build_index(static_path, target_lines, stations, near_filters)
 
         if not index.target_trip_ids:
             empty_cycle = CycleResult(

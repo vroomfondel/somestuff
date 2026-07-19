@@ -477,7 +477,7 @@ def _open_member(zf: zipfile.ZipFile, name: str) -> io.TextIOWrapper:
 
 
 def _read_matched_stops(
-    zf: zipfile.ZipFile, station_queries: list[str], near: NearFilter | None = None
+    zf: zipfile.ZipFile, station_queries: list[str], near: list[NearFilter] | None = None
 ) -> dict[str, MatchedStop]:
     """Stream ``stops.txt`` and match stops by name and (optionally) location.
 
@@ -485,9 +485,9 @@ def _read_matched_stops(
         zf: The opened static feed zip.
         station_queries: Substrings to match (case-insensitively) against
             ``stop_name``; a stop matches if ANY query is contained.
-        near: If given, keep only stops within the radius; stops without
-            parsable coordinates are dropped then (their location can't be
-            verified) and counted in a log line.
+        near: If given (non-empty), keep only stops within ANY of the radii;
+            stops without parsable coordinates are dropped then (their location
+            can't be verified) and counted in a log line.
 
     Returns:
         ``stop_id`` → :class:`MatchedStop` for every match.
@@ -509,21 +509,19 @@ def _read_matched_stops(
                 lon = float(row.get("stop_lon", ""))
             except (TypeError, ValueError):
                 lat = lon = None
-            if near is not None:
+            if near:
                 if lat is None or lon is None:
                     dropped_nocoord += 1
                     continue
-                if not near.contains(lat, lon):
+                if not any(nf.contains(lat, lon) for nf in near):
                     dropped_far += 1
                     continue
             sid = row.get("stop_id", "")
             matched[sid] = MatchedStop(stop_id=sid, name=name, lat=lat, lon=lon)
     suffix = ""
-    if near is not None:
-        suffix = (
-            f" within {near.radius_km:g} km of {near.lat:.4f},{near.lon:.4f}"
-            f" (dropped: {dropped_far} outside radius, {dropped_nocoord} without coordinates)"
-        )
+    if near:
+        centres = " OR ".join(f"{nf.radius_km:g} km of {nf.lat:.4f},{nf.lon:.4f}" for nf in near)
+        suffix = f" within {centres} (dropped: {dropped_far} outside radius, {dropped_nocoord} without coordinates)"
     logger.info(f"stops matching {station_queries}: {len(matched)}{suffix}")
     return matched
 
@@ -580,7 +578,7 @@ def _read_service_calendar(zf: zipfile.ZipFile, service_ids: set[str]) -> Servic
 
 
 def build_index(
-    static_path: str, target_lines: list[str], station_queries: list[str], near: NearFilter | None = None
+    static_path: str, target_lines: list[str], station_queries: list[str], near: list[NearFilter] | None = None
 ) -> StaticFeedIndex:
     """Read the static GTFS zip and index it for the target lines and stations.
 
@@ -594,8 +592,9 @@ def build_index(
             against ``route_short_name``).
         station_queries: Substrings to match (case-insensitively) against
             ``stop_name``; a stop matches if ANY query is contained.
-        near: Optional geographic filter narrowing the matched stops (same-named
-            stations exist in several towns; GTFS has no postal codes).
+        near: Optional geographic filters narrowing the matched stops (a stop
+            is kept if it lies within ANY of them — same-named stations exist
+            in several towns; GTFS has no postal codes).
 
     Returns:
         The reduced schedule index.
@@ -697,7 +696,9 @@ def build_index(
     )
 
 
-def find_stops(static_path: str, station_queries: list[str], near: NearFilter | None = None) -> dict[str, MatchedStop]:
+def find_stops(
+    static_path: str, station_queries: list[str], near: list[NearFilter] | None = None
+) -> dict[str, MatchedStop]:
     """Match stops by name (and optionally location) — reads only ``stops.txt``.
 
     The fast path for stop discovery (``--show-stops``): no routes/trips/
@@ -708,7 +709,7 @@ def find_stops(static_path: str, station_queries: list[str], near: NearFilter | 
         static_path: Path to the static GTFS feed zip.
         station_queries: Substrings to match (case-insensitively) against
             ``stop_name``; a stop matches if ANY query is contained.
-        near: Optional geographic filter (centre + radius).
+        near: Optional geographic filters (centre + radius each; OR-combined).
 
     Returns:
         ``stop_id`` → :class:`MatchedStop` for every match.
