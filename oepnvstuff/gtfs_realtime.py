@@ -153,7 +153,8 @@ class ServiceAlert:
 
     Attributes:
         entity: The route id or trip id the alert was matched on.
-        text: The alert's header text (first translation), possibly empty.
+        text: The alert's header text (first translation), falling back to the
+            description text; possibly empty.
     """
 
     entity: str
@@ -225,11 +226,22 @@ def parse_realtime(data: bytes, target_trip_ids: set[str], target_route_ids: set
     for ent in feed.entity:
         if not ent.HasField("alert"):
             continue
-        for ie in ent.alert.informed_entity:
+        alert = ent.alert
+        # gtfs.de attaches one pseudo-alert per realtime trip carrying only the
+        # data-source attribution ("Echtzeitdaten aufbereitet von GTFS.de, …"):
+        # no header text, cause/effect UNKNOWN. Those are not disruptions —
+        # skip them so real alerts (which carry a header) are all that remain.
+        if not alert.header_text.translation and alert.effect == gtfs_realtime_pb2.Alert.UNKNOWN_EFFECT:
+            continue
+        for ie in alert.informed_entity:
             if (ie.route_id and ie.route_id in target_route_ids) or (
                 ie.trip.trip_id and ie.trip.trip_id in target_trip_ids
             ):
-                txt = ent.alert.header_text.translation[0].text if ent.alert.header_text.translation else ""
+                txt = (
+                    alert.header_text.translation[0].text
+                    if alert.header_text.translation
+                    else alert.description_text.translation[0].text if alert.description_text.translation else ""
+                )
                 alerts.append(ServiceAlert(entity=ie.route_id or ie.trip.trip_id, text=txt))
                 break
 
