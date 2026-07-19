@@ -40,7 +40,7 @@ Example:
     'Registered'
 """
 
-from ucmstuff.ucm6204_api import JSONObject, JSONValue, UCM6204, UCMAPIError
+from ucmstuff.ucm6204_api import UCM6204, JSONObject, JSONValue, UCMAPIError
 
 __all__ = ["UCM6204Rest", "UCMAPIError"]
 

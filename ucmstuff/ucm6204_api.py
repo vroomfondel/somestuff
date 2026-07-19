@@ -1348,6 +1348,27 @@ def main(
         envvar="UCM_MQTT_COMMANDS",
         help="Also accept accept/refuse/hangup commands on <base>/cmd/# (needs --api-user). Default OFF.",
     ),
+    mqtt_tls: bool = typer.Option(
+        False,
+        "--mqtt-tls",
+        envvar="UCM_MQTT_TLS",
+        help="Encrypt the MQTT connection with TLS (brokers usually listen on 8883 then — set --mqtt-port)",
+    ),
+    mqtt_tls_ca: str = typer.Option(
+        "", "--mqtt-tls-ca", envvar="UCM_MQTT_TLS_CA", help="CA certificate path ('' = system CA store)"
+    ),
+    mqtt_tls_cert: str = typer.Option(
+        "", "--mqtt-tls-cert", envvar="UCM_MQTT_TLS_CERT", help="Client certificate path (mutual TLS)"
+    ),
+    mqtt_tls_key: str = typer.Option(
+        "", "--mqtt-tls-key", envvar="UCM_MQTT_TLS_KEY", help="Client key path (mutual TLS)"
+    ),
+    mqtt_tls_insecure: bool = typer.Option(
+        False,
+        "--mqtt-tls-insecure",
+        envvar="UCM_MQTT_TLS_INSECURE",
+        help="Skip TLS hostname verification (self-signed certs) — encrypted but MITM-able",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
 ) -> None:
     """Monitor UCM6204 events over WebSocket and optionally control calls (CLI).
@@ -1379,6 +1400,12 @@ def main(
         mqtt_base_topic: Root of the MQTT topic tree. Defaults to ``"ucm6204"``.
         mqtt_commands: Accept accept/refuse/hangup commands on ``<base>/cmd/#``.
             Requires ``--api-user``. Default ``False``.
+        mqtt_tls: Encrypt the MQTT connection with TLS. The broker port is NOT
+            switched automatically — TLS brokers usually listen on ``8883``.
+        mqtt_tls_ca: CA certificate path; empty → system CA store.
+        mqtt_tls_cert: Client certificate path for mutual TLS (with ``mqtt_tls_key``).
+        mqtt_tls_key: Client key path for mutual TLS.
+        mqtt_tls_insecure: Skip TLS hostname verification (self-signed certs).
         verbose: If ``True``, log at DEBUG level, otherwise INFO.
     """
     configure_logging(verbose=verbose)
@@ -1442,6 +1469,11 @@ def main(
             password=mqtt_password or None,
             base_topic=mqtt_base_topic,
             api=api,
+            tls=mqtt_tls,
+            tls_ca=mqtt_tls_ca or None,
+            tls_cert=mqtt_tls_cert or None,
+            tls_key=mqtt_tls_key or None,
+            tls_insecure=mqtt_tls_insecure,
         )
         attach_bridge(ec, bridge, trunks=trunks)
         bridge.start(enable_commands=mqtt_commands)

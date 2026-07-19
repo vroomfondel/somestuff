@@ -43,9 +43,9 @@ import logging
 from dataclasses import asdict
 from typing import Any, Iterable
 
-from mqttstuff import MWMqttMessage, MosquittoClientWrapper
+from mqttstuff import MosquittoClientWrapper, MWMqttMessage
 
-from ucmstuff.ucm6204_api import IncomingCall, NotifyEvent, UCM6204, UCMAPIError, UCMEventClient
+from ucmstuff.ucm6204_api import UCM6204, IncomingCall, NotifyEvent, UCMAPIError, UCMEventClient
 
 # stdlib logger by design: ucm6204_api.configure_logging() routes root-logger
 # records into loguru via its _InterceptHandler, so this output lands there too.
@@ -91,6 +91,11 @@ class MqttEventBridge:
         *,
         base_topic: str = "ucm6204",
         api: UCM6204 | None = None,
+        tls: bool = False,
+        tls_ca: str | None = None,
+        tls_cert: str | None = None,
+        tls_key: str | None = None,
+        tls_insecure: bool = False,
     ) -> None:
         """Initialize the bridge and the underlying MQTT client wrapper.
 
@@ -99,19 +104,48 @@ class MqttEventBridge:
 
         Args:
             host: MQTT broker host (e.g. ``mosquitto.mosquitto.svc.cluster.local``).
-            port: Broker port. Defaults to ``1883``.
+            port: Broker port. Defaults to ``1883``; TLS brokers usually listen
+                on ``8883`` — set that explicitly, it is NOT switched
+                automatically.
             username: Broker username, or ``None`` for anonymous.
             password: Broker password, or ``None``.
             base_topic: Root of the topic tree. Defaults to ``"ucm6204"``.
             api: A connected :class:`UCM6204` control client. Required only when the
                 inbound command path is enabled (:meth:`start` with
                 ``enable_commands=True``); ``None`` disables control.
+            tls: Encrypt the connection with TLS.
+            tls_ca: Path to the CA certificate (PEM) that signed the broker's
+                certificate; ``None`` uses the system CA store.
+            tls_cert: Path to a client certificate (PEM) for mutual TLS, or ``None``.
+            tls_key: Path to the client certificate's private key, or ``None``.
+            tls_insecure: Skip hostname verification (self-signed certificates
+                whose CN/SAN does not match the host). The connection is still
+                encrypted, but vulnerable to MITM — last resort only.
+
+        Raises:
+            ValueError: TLS options are inconsistent — ``tls_cert`` without
+                ``tls_key`` (or vice versa), or ``tls_*`` values given while
+                ``tls`` is off (validated by ``mqttstuff``); unreadable
+                certificate/key files propagate from ``ssl``.
         """
         self._base = base_topic.strip("/")
         self._host = host
         self._port = port
         self._api = api
-        self._mq = MosquittoClientWrapper(host=host, port=port, username=username, password=password)
+        # TLS is native in mqttstuff >= 0.0.6 (ca None -> system CA store).
+        self._mq = MosquittoClientWrapper(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            tls=tls,
+            tls_ca_certs=tls_ca,
+            tls_certfile=tls_cert,
+            tls_keyfile=tls_key,
+            tls_insecure=tls_insecure,
+        )
+        if tls and tls_insecure:
+            logger.warning("MQTT TLS hostname verification DISABLED (tls_insecure) — encrypted but MITM-able")
 
     # ── Outbound: UCM → MQTT ────────────────────────────────────────────────
 
