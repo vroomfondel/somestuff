@@ -4,11 +4,11 @@
 pre-commit==4.5.*
 
 # linting
-isort==7.0.*
-black==26.1.*
-mypy==1.19.*
+isort==8.0.*
+black==26.5.*
+mypy==2.3.*
 
-pytest==9.0.*
+pytest==9.1.*
 # needed for pytest
 httpx
 
