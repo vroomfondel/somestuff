@@ -93,8 +93,8 @@ spec:
             - name: OEPNV_STALE_CYCLES
               value: "6"
             # ── departure board ──────────────────────────────────────────────
-            # Next N departures per line+stop+direction, published retained to
-            # <base>/departures and <base>/departures/<line>/<stop>/<direction>.
+            # Next N departures per line+stop+direction, published (retain=False)
+            # to <base>/departures and <base>/departures/<line>/<stop>/<direction>.
             - name: OEPNV_ENABLE_DEPARTURES
               value: "true"
             - name: OEPNV_DEPARTURES_COUNT
@@ -142,10 +142,10 @@ spec:
               mountPath: /cache
           resources:
             requests:
-              cpu: 50m
+              cpu: 150m
               memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: 5500m
               # Indexing streams the zip, but stop_times.txt is large; give headroom.
               memory: 512Mi
       volumes:

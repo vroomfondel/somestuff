@@ -138,18 +138,18 @@ examples: `somestuff_oepnv_deployment.yml` (watch + MQTT + cache volume) and
 
 `base_topic` defaults to `oepnv`:
 
-| Topic                        | Retain | Payload                                                          |
-|------------------------------|--------|------------------------------------------------------------------|
-| `oepnv/status`               | yes    | per-cycle summary: feed ts/age, stale flag, per-line hit counts  |
-| `oepnv/lines/<line>/status`  | yes    | one line: `updates`, `delay_min/max/avg_s`, `static_trips`       |
-| `oepnv/departures`           | yes    | with `--departures`: all upcoming departures in one document (`in_minutes`, `delay_s`, `realtime`, stop, times) |
-| `oepnv/departures/<line>/<stop>/<direction>` | yes | one group's departures; ASCII-simplified segments (`departures/1/S_Blankenese/U_Kellinghusenstrasse`); vanished groups get their retained message cleared |
-| `oepnv/alerts`               | no     | each *new* (deduplicated) service alert: `{entity, text}`        |
-| `oepnv/stale`                | no     | fired once on the transition into staleness                      |
+| Topic                        | Payload                                                          |
+|------------------------------|------------------------------------------------------------------|
+| `oepnv/status`               | per-cycle summary: feed ts/age, stale flag, per-line hit counts  |
+| `oepnv/lines/<line>/status`  | one line: `updates`, `delay_min/max/avg_s`, `static_trips`       |
+| `oepnv/departures`           | with `--departures`: all upcoming departures in one document (`in_minutes`, `delay_s`, `realtime`, stop, times); published every cycle, empty list when the board is empty |
+| `oepnv/departures/<line>/<stop>/<direction>` | one group's departures; ASCII-simplified segments (`departures/1/S_Blankenese/U_Kellinghusenstrasse`) |
+| `oepnv/alerts`               | each *new* (deduplicated) service alert: `{entity, text}`        |
+| `oepnv/stale`                | fired once on the transition into staleness                      |
 
-Status topics are retained (genuine last-known-value state — a restarting
-dashboard immediately sees the current situation); alerts and stale transitions
-are point-in-time events and therefore transient.
+Everything is published with `retain=False` — the broker keeps no last value,
+subscribers see the live stream only. A late subscriber waits at most one poll
+interval for the next status/departures cycle.
 
 ```bash
 mosquitto_sub -h broker.example.org -v -t 'oepnv/#'

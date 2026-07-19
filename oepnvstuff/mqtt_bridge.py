@@ -11,18 +11,19 @@ handlers — register them via :func:`attach_bridge` (or individually with
 
 Topic layout (``base_topic`` defaults to ``oepnv``)::
 
-    oepnv/status                                 retained   per-cycle summary (feed ts/age, stale flag, per-line counts)
-    oepnv/lines/<line>/status                    retained   one line's status (updates, delay stats, static trips)
-    oepnv/departures                             retained   all upcoming departures in one document
-    oepnv/departures/<line>/<stop>/<direction>   retained   one group's departures (ASCII-simplified segments,
-                                                            e.g. departures/1/S_Blankenese/U_Kellinghusenstrasse)
-    oepnv/alerts                                 transient  each new (deduplicated) service alert
-    oepnv/stale                                  transient  fired once on the transition into staleness
+    oepnv/status                                 per-cycle summary (feed ts/age, stale flag, per-line counts)
+    oepnv/lines/<line>/status                    one line's status (updates, delay stats, static trips)
+    oepnv/departures                             all upcoming departures in one document (every cycle,
+                                                 empty list when the board is empty)
+    oepnv/departures/<line>/<stop>/<direction>   one group's departures (ASCII-simplified segments,
+                                                 e.g. departures/1/S_Blankenese/U_Kellinghusenstrasse)
+    oepnv/alerts                                 each new (deduplicated) service alert
+    oepnv/stale                                  fired once on the transition into staleness
 
-Status topics are retained: they are genuine "last known value" state, so a
-late subscriber (e.g. a dashboard pod restarting) immediately sees the current
-situation. Alerts and stale transitions are point-in-time events and therefore
-published with ``retain=False``.
+Everything is published with ``retain=False``: subscribers see the live stream
+only, the broker never keeps a last value. Late subscribers therefore wait at
+most one poll interval for the next cycle's status/departures instead of
+possibly acting on an outdated retained board.
 
 Serialization note: mqttstuff's ``publish_one`` only wraps ``dict`` values (via
 ``json.dumps``); this bridge therefore always publishes a ``dict``, never a
@@ -181,9 +182,6 @@ class GtfsMqttBridge:
         )
         if tls and tls_insecure:
             logger.warning("MQTT TLS hostname verification DISABLED (tls_insecure) — encrypted but MITM-able")
-        #: Departure sub-topics published last cycle; vanished ones get their
-        #: retained message cleared (see publish_departures).
-        self._dep_topics: set[str] = set()
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
@@ -227,7 +225,7 @@ class GtfsMqttBridge:
 
         Register with :meth:`RealtimeMonitor.add_cycle_handler`. Publishes the
         overall summary to ``<base>/status`` and each line's status to
-        ``<base>/lines/<line>/status``, all retained (last-value state).
+        ``<base>/lines/<line>/status``, all non-retained.
         Never raises — a broker hiccup must not kill the poll loop.
 
         Args:
@@ -245,10 +243,10 @@ class GtfsMqttBridge:
             "lines_with_realtime": sum(1 for s in cycle.per_line.values() if s.has_realtime),
             "lines_total": len(cycle.per_line),
         }
-        self._safe_publish(f"{self._base}/status", summary, retain=True)
+        self._safe_publish(f"{self._base}/status", summary, retain=False)
         for status in cycle.per_line.values():
             self._safe_publish(
-                f"{self._base}/lines/{_mqtt_safe(status.line)}/status", _line_payload(status), retain=True
+                f"{self._base}/lines/{_mqtt_safe(status.line)}/status", _line_payload(status), retain=False
             )
 
     def publish_alert(self, alert: ServiceAlert) -> None:
@@ -266,8 +264,8 @@ class GtfsMqttBridge:
         """StaleHandler: publish the transition into staleness to ``<base>/stale``.
 
         Register with :meth:`RealtimeMonitor.add_stale_handler` — edge-triggered,
-        so this fires once per staleness episode (the retained ``<base>/status``
-        keeps carrying the ``stale`` level).
+        so this fires once per staleness episode (the per-cycle ``<base>/status``
+        keeps carrying the ``stale`` flag).
 
         Args:
             cycle: The first stale cycle.
@@ -300,40 +298,27 @@ class GtfsMqttBridge:
         }
 
     def publish_departures(self, cycle: CycleResult) -> None:
-        """CycleHandler: publish the cycle's upcoming departures.
+        """CycleHandler: publish the cycle's upcoming departures (non-retained).
 
-        Register with :meth:`RealtimeMonitor.add_cycle_handler`. Publishes, all
-        retained:
+        Register with :meth:`RealtimeMonitor.add_cycle_handler`. Publishes:
 
-        * ``<base>/departures`` — one document with every upcoming departure
-          (next N per line and direction, as configured on the monitor).
+        * ``<base>/departures`` — one document per cycle with every upcoming
+          departure (next N per line and direction, as configured on the
+          monitor); an empty ``departures`` list when the board is empty, so
+          subscribers can tell "no departures" from "no data".
         * ``<base>/departures/<line>/<stop>/<direction>`` — one sub-topic per
           group with just that group's departures. Segments are
           ASCII-simplified (see :func:`_ascii_safe`); same-named platforms
           (Steig A/B) merge into one ``<stop>`` level, the per-departure
           ``stop_id`` stays in the payload.
 
-        Groups that vanish from one cycle to the next (last departure left the
-        look-ahead window) get their retained message cleared, so subscribers
-        never act on a stale board. When the monitor runs without
+        Nothing is retained, so groups that vanish from one cycle to the next
+        simply stop being published. When the monitor runs without
         ``compute_departures`` nothing is published and no topic ever appears.
 
         Args:
             cycle: The completed cycle delivered by the monitor.
         """
-        if not cycle.next_departures:
-            if self._dep_topics:
-                # Board just ran empty: clear all previously published groups.
-                for topic in self._dep_topics:
-                    self._clear_retained(topic)
-                self._dep_topics = set()
-                self._safe_publish(
-                    f"{self._base}/departures",
-                    {"time": cycle.wall_time.isoformat(timespec="seconds"), "departures": []},
-                    retain=True,
-                )
-            return
-
         payload: dict[str, object] = {
             "time": cycle.wall_time.isoformat(timespec="seconds"),
             "departures": [
@@ -346,15 +331,13 @@ class GtfsMqttBridge:
                 for nd in cycle.next_departures
             ],
         }
-        self._safe_publish(f"{self._base}/departures", payload, retain=True)
+        self._safe_publish(f"{self._base}/departures", payload, retain=False)
 
         groups: dict[tuple[str, str, str], list[NextDeparture]] = {}
         for nd in cycle.next_departures:
             groups.setdefault((nd.line, nd.stop_name, nd.direction), []).append(nd)
-        current_topics: set[str] = set()
         for (line, stop, direction), nds in groups.items():
             topic = f"{self._base}/departures/{_ascii_safe(line)}/{_ascii_safe(stop)}/{_ascii_safe(direction)}"
-            current_topics.add(topic)
             group_payload: dict[str, object] = {
                 "time": cycle.wall_time.isoformat(timespec="seconds"),
                 "line": line,
@@ -362,21 +345,7 @@ class GtfsMqttBridge:
                 "direction": direction,
                 "departures": [self._departure_entry(nd, cycle.wall_time) for nd in nds],
             }
-            self._safe_publish(topic, group_payload, retain=True)
-        for stale_topic in self._dep_topics - current_topics:
-            self._clear_retained(stale_topic)
-        self._dep_topics = current_topics
-
-    def _clear_retained(self, topic: str) -> None:
-        """Clear a retained message (empty retained payload per MQTT spec).
-
-        Args:
-            topic: The topic whose retained message should be removed.
-        """
-        try:
-            self._mq.publish_one(topic, "", retain=True)
-        except Exception:
-            logger.exception(f"clearing retained MQTT message on {topic} failed")
+            self._safe_publish(topic, group_payload, retain=False)
 
     def _safe_publish(self, topic: str, payload: dict[str, object], *, retain: bool) -> None:
         """Publish ``payload`` (always a dict → JSON), swallowing broker errors.
@@ -387,7 +356,8 @@ class GtfsMqttBridge:
                 nested lists/dicts); ``mqttstuff.publish_one`` wraps it in
                 ``json.dumps``.
             retain: Whether the broker should keep the message as last value
-                for the topic (state yes, events no — see module docstring).
+                for the topic (this bridge always publishes ``False`` — see
+                module docstring).
         """
         try:
             ok = self._mq.publish_one(topic, payload, retain=retain)
