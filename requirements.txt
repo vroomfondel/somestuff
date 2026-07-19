@@ -61,3 +61,7 @@ uptime-kuma-api
 
 # oepnvstuff (GTFS-realtime coverage checker)
 gtfs-realtime-bindings
+
+# mqttwebstuff (live web view onto MQTT streams)
+fastapi
+uvicorn

@@ -1,0 +1,157 @@
+---
+# Live web view onto the oepnv MQTT stream (see mqttwebstuff/README.md).
+# Subscribes to the broker, maps messages through the mapper plugin and pushes
+# rendered updates to browsers via SSE. The oepnv reference plugin ships inside
+# the image; the (optional, commented) ConfigMap mount shows how to override it
+# with a customized copy without rebuilding the image.
+#
+# Prerequisites:
+#   - namespace 'somestuff'
+#   - Secret 'somestuff-oepnv-secret' (reused for the MQTT credentials; the CLI
+#     reads MQTTWEB_MQTT_USER/PASSWORD, map them below if your secret uses
+#     OEPNV_* keys)
+#   - the image must contain: fastapi, uvicorn, jinja2, mqttstuff, typer, loguru
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: somestuff-mqttweb-deployment
+  namespace: somestuff
+  labels:
+    app: somestuff-mqttweb
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: somestuff-mqttweb
+  template:
+    metadata:
+      labels:
+        app: somestuff-mqttweb
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: somestuff-mqttweb
+          image: xomoxcc/somestuff:latest
+          # Fully env-driven (MQTTWEB_*); uvicorn handles SIGTERM itself.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              exec tini -- python3 -m mqttwebstuff.serve
+          env:
+            # ── mapper plugin ────────────────────────────────────────────────
+            # Built-in oepnv board. For a custom plugin, mount it (plus its
+            # templates/ dir) via ConfigMap and point MQTTWEB_MAPPER there.
+            - name: MQTTWEB_MAPPER
+              value: "/app/mqttwebstuff/plugins/oepnv_view.py"
+            # Generic fallback instead (no plugin): comment MQTTWEB_MAPPER out
+            # and subscribe raw patterns as JSON cards.
+            # - name: MQTTWEB_TOPICS
+            #   value: "oepnv/#"
+            # - name: MQTTWEB_ITEM_TTL
+            #   value: "900"
+            # Page title override ('' = plugin's TITLE).
+            # - name: MQTTWEB_TITLE
+            #   value: "ÖPNV Live"
+            # oepnv_view plugin: base of the publisher's topic tree — set this
+            # to the SAME value as the checker's OEPNV_MQTT_BASE_TOPIC when it
+            # deviates from the default "oepnv".
+            # - name: OEPNV_MQTT_BASE_TOPIC
+            #   value: "oepnv"
+            # ── web ──────────────────────────────────────────────────────────
+            - name: MQTTWEB_LISTEN_HOST
+              value: "0.0.0.0"
+            - name: MQTTWEB_LISTEN_PORT
+              value: "8080"
+            # ── MQTT ─────────────────────────────────────────────────────────
+            - name: MQTTWEB_MQTT_HOST
+              value: "mosquitto.mosquitto.svc.cluster.local"
+            - name: MQTTWEB_MQTT_PORT
+              value: "1883"
+            # TLS to the broker (default off) — same semantics as oepnvstuff.
+            # - name: MQTTWEB_MQTT_TLS
+            #   value: "true"
+            # - name: MQTTWEB_MQTT_TLS_CA
+            #   value: "/tls/ca.crt"
+            # - name: MQTTWEB_MQTT_TLS_CERT
+            #   value: "/tls/client.crt"
+            # - name: MQTTWEB_MQTT_TLS_KEY
+            #   value: "/tls/client.key"
+            # - name: MQTTWEB_MQTT_TLS_INSECURE
+            #   value: "true"
+            # ── credentials: map the oepnv secret's keys onto MQTTWEB_* ──────
+            - name: MQTTWEB_MQTT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: somestuff-oepnv-secret
+                  key: OEPNV_MQTT_USER
+                  optional: true
+            - name: MQTTWEB_MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: somestuff-oepnv-secret
+                  key: OEPNV_MQTT_PASSWORD
+                  optional: true
+            # ── misc ─────────────────────────────────────────────────────────
+            # - name: MQTTWEB_VERBOSE
+            #   value: "true"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TZ
+              value: "Europe/Berlin"
+          # volumeMounts:
+          #   - name: mapper
+          #     mountPath: /config
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 256Mi
+      # volumes:
+      #   - name: mapper
+      #     configMap:
+      #       name: somestuff-mqttweb-mapper
+      #       # keys: my_view.py, templates/*.html.j2 -> set MQTTWEB_MAPPER=/config/my_view.py
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: somestuff-mqttweb
+  namespace: somestuff
+  labels:
+    app: somestuff-mqttweb
+spec:
+  selector:
+    app: somestuff-mqttweb
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+# Expose via your ingress of choice; note for nginx-ingress + SSE:
+#   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+#   nginx.ingress.kubernetes.io/proxy-buffering: "off"

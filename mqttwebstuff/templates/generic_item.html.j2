@@ -1,0 +1,9 @@
+<article class="mqttweb-item">
+  {% if title %}<strong>{{ title }}</strong>{% endif %}
+  {% if data is string %}
+  <p>{{ data }}</p>
+  {% else %}
+  <pre>{{ data | tojson(indent=2) }}</pre>
+  {% endif %}
+  {% if topic and topic != title %}<div class="mqttweb-topic">{{ topic }}</div>{% endif %}
+</article>

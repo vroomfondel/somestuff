@@ -1,0 +1,18 @@
+<article class="oepnv-status">
+  <p style="margin: 0;">
+    {% if data.stale %}
+    <mark class="oepnv-stale-badge">STALE</mark>
+    {% else %}
+    <ins>live</ins>
+    {% endif %}
+    &nbsp;<small>Stand {{ data.time | hhmm }}</small>
+  </p>
+  <table class="oepnv-kv">
+    <tbody>
+      <tr><td>Feed-Alter</td><td>{% if data.feed_age_s is not none %}{{ data.feed_age_s | round(0) | int }} s{% else %}–{% endif %}</td></tr>
+      <tr><td>Trip-Updates</td><td>{{ data.total_trip_updates }}</td></tr>
+      <tr><td>Linien mit Echtzeit</td><td>{{ data.lines_with_realtime }} / {{ data.lines_total }}</td></tr>
+      {% if data.unchanged_cycles %}<tr><td>unveränderte Zyklen</td><td>{{ data.unchanged_cycles }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+</article>

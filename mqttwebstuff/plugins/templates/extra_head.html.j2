@@ -1,0 +1,23 @@
+<style>
+  /* oepnv board styling, injected via the extra_head.html hook in base.html. */
+  .oepnv-line-badge {
+    display: inline-block;
+    min-width: 2.4rem;
+    text-align: center;
+    padding: 0.05rem 0.4rem;
+    border-radius: 0.3rem;
+    background: var(--pico-primary);
+    color: var(--pico-primary-inverse);
+    font-weight: 700;
+  }
+  .oepnv-dep-table, .oepnv-kv { margin: 0; font-size: 0.85rem; }
+  .oepnv-dep-table td, .oepnv-kv td { padding: 0.15rem 0.5rem 0.15rem 0; border: none; background: none; }
+  .oepnv-kv td:first-child { color: var(--pico-muted-color); }
+  .oepnv-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .oepnv-in { color: var(--pico-muted-color); font-variant-numeric: tabular-nums; }
+  .oepnv-delay .late { color: #e53935; font-weight: 600; }
+  .oepnv-delay .early { color: #43a047; font-weight: 600; }
+  .oepnv-rt { color: #43a047; }
+  .oepnv-stale-badge { background: #e53935; color: #fff; padding: 0.1rem 0.4rem; border-radius: 0.3rem; }
+  .oepnv-alert { border-left: 4px solid #fb8c00; }
+</style>

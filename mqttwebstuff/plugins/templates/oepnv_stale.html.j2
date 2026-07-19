@@ -1,0 +1,7 @@
+<article class="oepnv-stale">
+  <mark class="oepnv-stale-badge">Feed stale seit {{ data.time | hhmm }}</mark>
+  <p style="margin: 0.3rem 0 0 0;">
+    <small>Feed-Alter {{ data.feed_age_s | round(0) | int if data.feed_age_s is not none else "?" }} s,
+    {{ data.unchanged_cycles }} unveränderte Zyklen</small>
+  </p>
+</article>

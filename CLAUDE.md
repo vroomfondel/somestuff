@@ -54,6 +54,7 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 | `ucmstuff/`                  | Grandstream UCM6204 IP-PBX monitor/control: WebSocket events (`UCMEventClient`) + HTTPS-API control (`UCM6204`/`UCM6204Rest`), trunk call router, Typer CLI |
 | `uptimekumastuff/`           | Uptime-Kuma 2.x provisioning/migration: `KumaClient` (direct Socket.IO, fresh reads, idempotent upserts), `uptimekuma_apply` (YAML → idempotent apply, Typer CLI), `SimpleKumaApi` (full export/import, Typer CLI) |
 | `oepnvstuff/`                | GTFS-Realtime coverage checker: `RealtimeMonitor` (poll loop, staleness detection, pluggable `on_*` handlers), MQTT bridge, Typer CLI (`check_realtime`, `OEPNV_*` env) |
+| `mqttwebstuff/`              | Live web view onto MQTT streams: mountable mapper plugins (`plugin_api.ViewEvent`), `ViewHub` (last-value cache + SSE fan-out), FastAPI + htmx/PicoCSS frontend, Typer CLI (`serve`, `MQTTWEB_*` env) |
 | `dinogame/`                  | Grid pathfinding visualization (A* experiments)             |
 | `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
 

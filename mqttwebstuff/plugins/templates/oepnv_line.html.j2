@@ -1,0 +1,14 @@
+<article class="oepnv-line">
+  <span class="oepnv-line-badge">{{ data.line }}</span>
+  {% if data.has_realtime %}<ins>Echtzeit</ins>{% else %}<del>keine Echtzeit</del>{% endif %}
+  <table class="oepnv-kv">
+    <tbody>
+      <tr><td>Updates</td><td>{{ data.updates }}</td></tr>
+      <tr><td>statische Fahrten</td><td>{{ data.static_trips }}</td></tr>
+      {% if data.delay_avg_s is not none %}
+      <tr><td>Verspätung ø/min/max</td>
+          <td>{{ data.delay_avg_s | round(0) | int }} / {{ data.delay_min_s }} / {{ data.delay_max_s }} s</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</article>

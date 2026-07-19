@@ -1,0 +1,21 @@
+<article class="oepnv-dep">
+  <header style="padding: 0; margin-bottom: 0.4rem; background: none;">
+    <span class="oepnv-line-badge">{{ data.line }}</span>
+    <strong>→ {{ data.direction or "?" }}</strong><br>
+    <small class="mqttweb-topic">{{ data.stop }}</small>
+  </header>
+  <table class="oepnv-dep-table">
+    <tbody>
+      {% for d in data.departures %}
+      <tr>
+        <td class="oepnv-time">{{ d.expected | hhmm }}</td>
+        <td class="oepnv-in">{% if d.in_minutes is not none %}{{ d.in_minutes | round(0) | int }}′{% endif %}</td>
+        <td class="oepnv-delay">
+          {% if d.delay_s %}<span class="{{ 'late' if d.delay_s > 0 else 'early' }}">{{ "%+d′" | format((d.delay_s / 60) | round(0) | int) }}</span>{% endif %}
+        </td>
+        <td class="oepnv-rt" title="{{ 'Echtzeit' if d.realtime else 'nur Fahrplan' }}">{{ "●" if d.realtime else "○" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</article>
