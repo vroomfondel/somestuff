@@ -64,6 +64,13 @@ python3 -m oepnvstuff.check_realtime --show-stops --station Blankenese --near 53
 # poll loop, one compact status line per cycle
 python3 -m oepnvstuff.check_realtime --watch --interval 20
 
+# several stations at once (';'-separated — stop names contain commas/spaces)
+python3 -m oepnvstuff.check_realtime --station "Blankenese;Ellerbek" --lines "1,189,195"
+
+# departure board: next N departures per line+direction, with realtime delay
+# ("1 Richtung S Rissen: in 2 min (+80s)"); publishes to <base>/departures with --mqtt
+python3 -m oepnvstuff.check_realtime --watch --departures --departures-count 2
+
 # poll loop that exits (code 2) once the feed goes stale — lets k8s restart it
 python3 -m oepnvstuff.check_realtime --watch --stop-on-stale
 
@@ -94,8 +101,11 @@ $EDITOR oepnvstuff/oepnv.local.env
 | `OEPNV_STATIC_URL`     | `--static`         | `https://download.gtfs.de/germany/nv_free/latest.zip` |
 | `OEPNV_REALTIME_URL`   | `--realtime`       | `https://realtime.gtfs.de/realtime-free.pb` |
 | `OEPNV_LINES`          | `--lines`, `-l`    | `1,12,22,189` (comma/space separated)       |
-| `OEPNV_STATION`        | `--station`, `-s`  | `Blankenese` (substring match, case-insensitive) |
+| `OEPNV_STATION`        | `--station`, `-s`  | `Blankenese` (substring match, case-insensitive; several stations `;`-separated) |
 | `OEPNV_NEAR`           | `--near`           | *(off)* — `lat,lon,radius_km` geo filter for the matched stops |
+| `OEPNV_DEPARTURES`     | `--departures`     | off — report upcoming departures per line+direction |
+| `OEPNV_DEPARTURES_COUNT` | `--departures-count` | `3` — next N departures per line+direction |
+| `OEPNV_DEPARTURES_HORIZON` | `--departures-horizon` | `48` h look-ahead (a fresh static feed appears within 48h anyway) |
 | `OEPNV_CACHE_DIR`      | `--cache-dir`      | `.gtfs_cache`                               |
 | `OEPNV_FORCE_REFRESH`  | `--force-refresh`  | off                                         |
 | `OEPNV_WATCH`          | `--watch`, `-w`    | off                                         |
@@ -109,6 +119,11 @@ $EDITOR oepnvstuff/oepnv.local.env
 | `OEPNV_MQTT_USER`      | `--mqtt-user`      | *(anonymous)*                               |
 | `OEPNV_MQTT_PASSWORD`  | `--mqtt-password`  | *(empty)*                                   |
 | `OEPNV_MQTT_BASE_TOPIC`| `--mqtt-base-topic`| `oepnv`                                     |
+| `OEPNV_MQTT_TLS`       | `--mqtt-tls`       | off — TLS brokers usually listen on `8883`: set the port explicitly |
+| `OEPNV_MQTT_TLS_CA`    | `--mqtt-tls-ca`    | *(system CA store)* — CA certificate path   |
+| `OEPNV_MQTT_TLS_CERT`  | `--mqtt-tls-cert`  | *(off)* — client certificate for mutual TLS (with `…_KEY`) |
+| `OEPNV_MQTT_TLS_KEY`   | `--mqtt-tls-key`   | *(off)* — client key for mutual TLS         |
+| `OEPNV_MQTT_TLS_INSECURE` | `--mqtt-tls-insecure` | off — skip hostname verification (self-signed certs) |
 | `OEPNV_VERBOSE`        | `--verbose`, `-v`  | off                                         |
 
 **k3s notes:** configure everything via env in the Deployment; point
@@ -127,6 +142,8 @@ examples: `somestuff_oepnv_deployment.yml` (watch + MQTT + cache volume) and
 |------------------------------|--------|------------------------------------------------------------------|
 | `oepnv/status`               | yes    | per-cycle summary: feed ts/age, stale flag, per-line hit counts  |
 | `oepnv/lines/<line>/status`  | yes    | one line: `updates`, `delay_min/max/avg_s`, `static_trips`       |
+| `oepnv/departures`           | yes    | with `--departures`: all upcoming departures in one document (`in_minutes`, `delay_s`, `realtime`, stop, times) |
+| `oepnv/departures/<line>/<stop>/<direction>` | yes | one group's departures; ASCII-simplified segments (`departures/1/S_Blankenese/U_Kellinghusenstrasse`); vanished groups get their retained message cleared |
 | `oepnv/alerts`               | no     | each *new* (deduplicated) service alert: `{entity, text}`        |
 | `oepnv/stale`                | no     | fired once on the transition into staleness                      |
 
