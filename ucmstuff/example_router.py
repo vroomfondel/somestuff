@@ -24,9 +24,9 @@ import os
 import sys
 
 from ucmstuff.ucm6204_api import (
+    UCM6204,
     IncomingCall,
     TrunkCallRouter,
-    UCM6204,
     UCMAPIError,
     UCMEventClient,
 )

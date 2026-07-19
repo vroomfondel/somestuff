@@ -42,6 +42,8 @@ Usage::
     python3 -m oepnvstuff.check_realtime --watch --interval 20
     python3 -m oepnvstuff.check_realtime --watch --mqtt --mqtt-host broker.example.org
     python3 -m oepnvstuff.check_realtime --lines 195,295,781,X95 --station Ellerbek   # non-default station
+    python3 -m oepnvstuff.check_realtime --station "Blankenese;Ellerbek"              # several stations
+    python3 -m oepnvstuff.check_realtime --watch --departures --departures-count 2    # departure board
     python3 -m oepnvstuff.check_realtime --show-stops
     python3 -m oepnvstuff.check_realtime --show-stops --station Ellerbek --near 53.647,9.892,3
 
@@ -123,6 +125,22 @@ def _parse_lines(raw: str) -> list[str]:
     return [part for chunk in raw.split(",") for part in chunk.split() if part]
 
 
+def _parse_stations(raw: str) -> list[str]:
+    """Split a stations specification into individual station queries.
+
+    Separator is ``;`` (NOT comma or whitespace — stop names like
+    ``"Ellerbek, Dorfstraße"`` contain both).
+
+    Args:
+        raw: Semicolon-separated station name substrings, e.g.
+            ``"Blankenese;Ellerbek"``.
+
+    Returns:
+        The non-empty, stripped station queries in their original order.
+    """
+    return [part.strip() for part in raw.split(";") if part.strip()]
+
+
 def _parse_near(raw: str) -> NearFilter | None:
     """Parse a ``--near`` specification into a :class:`NearFilter`.
 
@@ -192,7 +210,8 @@ def _log_report(index: StaticFeedIndex, cycle: CycleResult) -> None:
     lines_txt = ", ".join(index.target_lines)
     out: list[str] = []
     out.append("=" * 68)
-    out.append(f" REALTIME VALIDATION  -  station: '{index.station_query}'  lines: {lines_txt}")
+    stations_txt = "; ".join(index.station_queries)
+    out.append(f" REALTIME VALIDATION  -  station(s): '{stations_txt}'  lines: {lines_txt}")
     out.append("=" * 68)
 
     if index.stop_names:
@@ -200,7 +219,7 @@ def _log_report(index: StaticFeedIndex, cycle: CycleResult) -> None:
         for sid, name in sorted(index.stop_names.items(), key=lambda x: x[1]):
             out.append(f"  - {name}  [stop_id={sid}]")
     else:
-        out.append(f"[!] No stop matching '{index.station_query}' found in the static feed.")
+        out.append(f"[!] No stop matching '{'; '.join(index.station_queries)}' found in the static feed.")
 
     snapshot = cycle.snapshot
     if snapshot and snapshot.feed_timestamp:
@@ -289,6 +308,32 @@ def _console_alert(alert: ServiceAlert) -> None:
     logger.warning(f"alert {alert.entity}: {alert.text[:80]}")
 
 
+def _console_departures(cycle: CycleResult) -> None:
+    """CycleHandler: log the cycle's upcoming departures as one block.
+
+    One line per departure: line, direction, minutes until the expected
+    departure, delay (or "plan" when no realtime exists for the trip), stop
+    and scheduled time.
+
+    Args:
+        cycle: The completed cycle delivered by the monitor.
+    """
+    if not cycle.next_departures:
+        logger.info("no upcoming departures within the look-ahead window")
+        return
+    out: list[str] = []
+    for nd in cycle.next_departures:
+        minutes = nd.minutes_until(cycle.wall_time)
+        delay_txt = f"{nd.delay_seconds:+d}s" if nd.delay_seconds is not None else "plan"
+        direction = nd.direction or "?"
+        out.append(
+            f"  -> {nd.line} Richtung {direction}: in {minutes:.0f} min ({delay_txt})"
+            f"  [{nd.stop_name}, {nd.scheduled:%H:%M}]"
+        )
+    departures_block = "\n".join(out)
+    logger.info(f"next departures:\n{departures_block}")
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -307,7 +352,11 @@ def main(
         help="target lines (route_short_name), comma/space separated, e.g. '1,12,22,189'",
     ),
     station: str = typer.Option(
-        DEFAULT_STATION, "--station", "-s", envvar="OEPNV_STATION", help="substring of the stop name"
+        DEFAULT_STATION,
+        "--station",
+        "-s",
+        envvar="OEPNV_STATION",
+        help="substring(s) of the stop name; several stations ';'-separated, e.g. 'Blankenese;Ellerbek'",
     ),
     near: str = typer.Option(
         "",
@@ -328,6 +377,24 @@ def main(
     show_stops: bool = typer.Option(False, "--show-stops", help="only list the matching stops, then exit"),
     watch: bool = typer.Option(
         False, "--watch", "-w", envvar="OEPNV_WATCH", help="poll loop instead of one-shot check"
+    ),
+    departures: bool = typer.Option(
+        False,
+        "--departures/--no-departures",
+        envvar="OEPNV_ENABLE_DEPARTURES",
+        help="also report upcoming departures per line+direction (console and, with --mqtt, on <base>/departures)",
+    ),
+    departures_count: int = typer.Option(
+        3,
+        "--departures-count",
+        envvar="OEPNV_DEPARTURES_COUNT",
+        help="how many upcoming departures to report per line+direction",
+    ),
+    departures_horizon: float = typer.Option(
+        48.0,
+        "--departures-horizon",
+        envvar="OEPNV_DEPARTURES_HORIZON_HOURS",
+        help="look-ahead window for departures in hours (a fresh static feed appears within 48h anyway)",
     ),
     interval: float = typer.Option(
         20.0, "--interval", envvar="OEPNV_INTERVAL", help="poll interval in seconds (gtfs.de updates every 10s)"
@@ -353,6 +420,27 @@ def main(
     mqtt_base_topic: str = typer.Option(
         "oepnv", "--mqtt-base-topic", envvar="OEPNV_MQTT_BASE_TOPIC", help="root of the MQTT topic tree"
     ),
+    mqtt_tls: bool = typer.Option(
+        False,
+        "--mqtt-tls",
+        envvar="OEPNV_MQTT_TLS",
+        help="encrypt the MQTT connection with TLS (brokers usually listen on 8883 then — set --mqtt-port)",
+    ),
+    mqtt_tls_ca: str = typer.Option(
+        "", "--mqtt-tls-ca", envvar="OEPNV_MQTT_TLS_CA", help="CA certificate path ('' = system CA store)"
+    ),
+    mqtt_tls_cert: str = typer.Option(
+        "", "--mqtt-tls-cert", envvar="OEPNV_MQTT_TLS_CERT", help="client certificate path (mutual TLS)"
+    ),
+    mqtt_tls_key: str = typer.Option(
+        "", "--mqtt-tls-key", envvar="OEPNV_MQTT_TLS_KEY", help="client key path (mutual TLS)"
+    ),
+    mqtt_tls_insecure: bool = typer.Option(
+        False,
+        "--mqtt-tls-insecure",
+        envvar="OEPNV_MQTT_TLS_INSECURE",
+        help="skip TLS hostname verification (self-signed certs) — encrypted but MITM-able",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", envvar="OEPNV_VERBOSE", help="DEBUG logging"),
 ) -> None:
     """Validate GTFS-Realtime coverage for the target lines at a station.
@@ -373,6 +461,11 @@ def main(
         logger.error("no target lines given (--lines / OEPNV_LINES)")
         raise typer.Exit(code=1)
 
+    stations = _parse_stations(station)
+    if not stations:
+        logger.error("no station given (--station / OEPNV_STATION)")
+        raise typer.Exit(code=1)
+
     try:
         near_filter = _parse_near(near)
     except ValueError as exc:
@@ -384,14 +477,14 @@ def main(
         static_path = obtain(static_source, cache_dir, force_refresh=force_refresh)
 
         if show_stops:
-            stops = find_stops(static_path, station, near_filter)
+            stops = find_stops(static_path, stations, near_filter)
             logger.info("enriching stops with lines and directions (streams stop_times.txt) ...")
             details = build_stop_details(static_path, stops)
             logger.info(f"matched stops ({len(details)}):\n{_format_stop_details(details)}")
             raise typer.Exit(code=0)
 
         logger.info("indexing static feed (stop_times.txt can be large) ...")
-        index = build_index(static_path, target_lines, station, near_filter)
+        index = build_index(static_path, target_lines, stations, near_filter)
 
         if not index.target_trip_ids:
             empty_cycle = CycleResult(
@@ -413,6 +506,9 @@ def main(
             max_age=max_age,
             stale_cycles=stale_cycles,
             stop_on_stale=stop_on_stale,
+            compute_departures=departures,
+            departures_horizon_hours=departures_horizon,
+            departures_per_direction=departures_count,
         )
 
         if mqtt:
@@ -424,12 +520,19 @@ def main(
                 username=mqtt_username or None,
                 password=mqtt_password or None,
                 base_topic=mqtt_base_topic,
+                tls=mqtt_tls,
+                tls_ca=mqtt_tls_ca or None,
+                tls_cert=mqtt_tls_cert or None,
+                tls_key=mqtt_tls_key or None,
+                tls_insecure=mqtt_tls_insecure,
             )
             attach_bridge(monitor, bridge)
             bridge.start()
 
         if watch:
             monitor.add_cycle_handler(_console_cycle_line)
+            if departures:
+                monitor.add_cycle_handler(_console_departures)
             monitor.add_alert_handler(_console_alert)
             raise typer.Exit(code=monitor.watch())
 
@@ -437,6 +540,8 @@ def main(
         logger.info("fetching & parsing realtime feed ...")
         cycle = monitor.check_once()
         _log_report(index, cycle)
+        if departures:
+            _console_departures(cycle)
         raise typer.Exit(code=0 if cycle.any_realtime else 2)
 
     except typer.Exit:

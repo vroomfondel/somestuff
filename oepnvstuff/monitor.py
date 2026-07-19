@@ -25,10 +25,150 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from oepnvstuff.gtfs_realtime import FetchStatus, RealtimeFetcher, RealtimeSnapshot, ServiceAlert, parse_realtime
+from oepnvstuff.gtfs_realtime import (
+    FetchStatus,
+    RealtimeFetcher,
+    RealtimeSnapshot,
+    ServiceAlert,
+    TripUpdateHit,
+    parse_realtime,
+)
 from oepnvstuff.gtfs_static import StaticFeedIndex
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class NextDeparture:
+    """The next departure of one line towards one direction.
+
+    Attributes:
+        line: Line name (``route_short_name``).
+        direction: The direction shown at the stop (``stop_headsign``),
+            possibly empty when the feed carries none.
+        stop_id: The stop the departure happens at.
+        stop_name: The stop's display name.
+        scheduled: Scheduled (planned) departure time.
+        delay_seconds: Realtime delay in seconds, or ``None`` when no realtime
+            information exists for this trip (``expected`` then equals
+            ``scheduled``).
+        expected: Expected departure time (scheduled + delay).
+    """
+
+    line: str
+    direction: str
+    stop_id: str
+    stop_name: str
+    scheduled: datetime.datetime
+    delay_seconds: int | None
+    expected: datetime.datetime
+
+    def minutes_until(self, now: datetime.datetime) -> float:
+        """Minutes from ``now`` until the expected departure (may be negative).
+
+        Args:
+            now: The reference time.
+
+        Returns:
+            Fractional minutes until :attr:`expected`.
+        """
+        return (self.expected - now).total_seconds() / 60
+
+
+def _delay_at_stop(hit: TripUpdateHit | None, stop_id: str) -> int | None:
+    """Extract the realtime delay for one stop from a trip update.
+
+    Args:
+        hit: The trip's realtime update, or ``None`` if the trip has none.
+        stop_id: The stop to look up.
+
+    Returns:
+        The delay in seconds: the stop's own value if present, otherwise the
+        update's last known delay (GTFS-RT semantics propagate a delay to
+        subsequent stops), otherwise ``None``.
+    """
+    if hit is None:
+        return None
+    last: int | None = None
+    for sd in hit.delays:
+        if sd.delay is not None:
+            if sd.stop_id == stop_id:
+                return sd.delay
+            last = sd.delay
+    return last
+
+
+def compute_next_departures(
+    index: StaticFeedIndex,
+    snapshot: RealtimeSnapshot,
+    now: datetime.datetime | None = None,
+    *,
+    horizon_hours: float = 48.0,
+    per_direction: int = 3,
+    grace_seconds: int = 60,
+) -> tuple[NextDeparture, ...]:
+    """Compute the next N departures per (line, stop, direction) at the matched stops.
+
+    Walks the schedule's departures for every service day that can produce a
+    departure inside the look-ahead window — from the previous day (GTFS times
+    may exceed 24h, so yesterday's service can still depart today) up to
+    ``horizon_hours`` ahead — keeps only services that actually run on that day
+    (calendar + exceptions), applies realtime delays from the snapshot, and
+    reduces to the ``per_direction`` earliest upcoming departures per
+    (line, stop name, direction) — so a per-stop departure board always carries
+    up to N entries, even with several stations configured. Same-named
+    platforms (Steig A/B) count as one stop.
+
+    Args:
+        index: The static schedule index (departures, calendar, line names).
+        snapshot: The current realtime snapshot (delays per trip/stop).
+        now: Reference time; defaults to the current local time.
+        horizon_hours: Look-ahead window; departures expected later than this
+            are ignored. 48h is plenty — a fresh static feed appears within
+            that window anyway, and each restart looks 48h ahead again.
+        per_direction: How many upcoming departures to keep per
+            (line, stop name, direction) group.
+        grace_seconds: Departures expected up to this many seconds in the past
+            are still reported (the bus may be right at the stop).
+
+    Returns:
+        The next departures, sorted by expected time.
+    """
+    ref = now if now is not None else datetime.datetime.now()
+    horizon_end = ref + datetime.timedelta(hours=horizon_hours)
+    hits_by_trip: dict[str, TripUpdateHit] = {h.trip_id: h for h in snapshot.hits if h.trip_id}
+    grouped: dict[tuple[str, str, str], list[NextDeparture]] = {}
+    max_day_offset = int(horizon_hours // 24) + 1
+    for dep in index.departures:
+        service_id = index.trip_service.get(dep.trip_id, "")
+        for day_offset in range(-1, max_day_offset + 1):
+            day = ref.date() + datetime.timedelta(days=day_offset)
+            if not index.calendar.runs_on(service_id, day):
+                continue
+            scheduled = datetime.datetime.combine(day, datetime.time()) + datetime.timedelta(
+                seconds=dep.departure_seconds
+            )
+            delay = _delay_at_stop(hits_by_trip.get(dep.trip_id), dep.stop_id)
+            expected = scheduled + datetime.timedelta(seconds=delay or 0)
+            if expected < ref - datetime.timedelta(seconds=grace_seconds) or expected > horizon_end:
+                continue
+            line = index.route_shortname.get(dep.route_id, dep.route_id or "?")
+            candidate = NextDeparture(
+                line=line,
+                direction=dep.headsign,
+                stop_id=dep.stop_id,
+                stop_name=index.stop_names.get(dep.stop_id, dep.stop_id),
+                scheduled=scheduled,
+                delay_seconds=delay,
+                expected=expected,
+            )
+            grouped.setdefault((line.upper(), candidate.stop_name, dep.headsign), []).append(candidate)
+
+    kept: list[NextDeparture] = []
+    for group in grouped.values():
+        group.sort(key=lambda d: d.expected)
+        kept.extend(group[: max(per_direction, 1)])
+    return tuple(sorted(kept, key=lambda d: d.expected))
 
 
 @dataclass(frozen=True)
@@ -80,6 +220,9 @@ class CycleResult:
             :class:`RealtimeMonitor` thresholds).
         payload_bytes: Size of the freshly downloaded payload, or ``None`` on
             ``304`` / fetch error.
+        next_departures: Upcoming departures per (line, stop, direction),
+            populated only when the monitor runs with
+            ``compute_departures=True``.
     """
 
     wall_time: datetime.datetime
@@ -90,6 +233,7 @@ class CycleResult:
     unchanged_cycles: int = 0
     stale: bool = False
     payload_bytes: int | None = None
+    next_departures: tuple[NextDeparture, ...] = ()
 
     @property
     def any_realtime(self) -> bool:
@@ -110,10 +254,10 @@ ErrorHandler = Callable[[Exception], None]
 def summarize_per_line(snapshot: RealtimeSnapshot, index: StaticFeedIndex) -> dict[str, LineStatus]:
     """Aggregate a snapshot's hits into one :class:`LineStatus` per target line.
 
-    Hits whose ``route_id`` is unknown to the index (matched via ``trip_id``
-    with a diverging route id) are attributed to their raw route id and thus
-    won't show under a target line — by design, target matching happens in
-    :func:`~oepnvstuff.gtfs_realtime.parse_realtime`.
+    A hit's line is resolved via its ``route_id`` when the index knows it, and
+    via the static ``trip_id`` → route mapping otherwise — gtfs.de's realtime
+    feed ships TripUpdates with an *empty* ``route_id``, so trip-matched hits
+    would otherwise never be attributed to a target line.
 
     Args:
         snapshot: The parsed realtime snapshot.
@@ -125,7 +269,8 @@ def summarize_per_line(snapshot: RealtimeSnapshot, index: StaticFeedIndex) -> di
     updates_per_line: dict[str, int] = {}
     delays_per_line: dict[str, list[int]] = {}
     for hit in snapshot.hits:
-        line = index.route_shortname.get(hit.route_id, hit.route_id or "?").upper()
+        rid = hit.route_id if hit.route_id in index.route_shortname else index.trip_route.get(hit.trip_id, "")
+        line = index.route_shortname.get(rid, rid or hit.route_id or "?").upper()
         updates_per_line[line] = updates_per_line.get(line, 0) + 1
         bucket = delays_per_line.setdefault(line, [])
         for sd in hit.delays:
@@ -165,6 +310,9 @@ class RealtimeMonitor:
         max_age: int = 120,
         stale_cycles: int = 6,
         stop_on_stale: bool = False,
+        compute_departures: bool = False,
+        departures_horizon_hours: float = 48.0,
+        departures_per_direction: int = 3,
     ) -> None:
         """Initialize the monitor.
 
@@ -180,6 +328,14 @@ class RealtimeMonitor:
                 cycles without a timestamp change.
             stop_on_stale: Make :meth:`watch` return (exit code ``2``) once the
                 feed is stale instead of merely flagging it.
+            compute_departures: Populate :attr:`CycleResult.next_departures`
+                every cycle via :func:`compute_next_departures`. Recomputed
+                even on ``304`` cycles — the "in N minutes" view changes with
+                wall-clock time although the snapshot doesn't.
+            departures_horizon_hours: Look-ahead window for next departures
+                (see :func:`compute_next_departures`).
+            departures_per_direction: How many upcoming departures to report
+                per (line, stop name, direction) group.
         """
         self._fetcher = fetcher
         self._index = index
@@ -187,6 +343,9 @@ class RealtimeMonitor:
         self.max_age = max_age
         self.stale_cycles = stale_cycles
         self.stop_on_stale = stop_on_stale
+        self.compute_departures = compute_departures
+        self.departures_horizon_hours = departures_horizon_hours
+        self.departures_per_direction = departures_per_direction
 
         self._cycle_handlers: list[CycleHandler] = []
         self._alert_handlers: list[AlertHandler] = []
@@ -259,6 +418,25 @@ class RealtimeMonitor:
                 self._seen_alerts.add(alert)
                 self._dispatch(list(self._alert_handlers), alert)
 
+    def _next_departures(self, snapshot: RealtimeSnapshot | None) -> tuple[NextDeparture, ...]:
+        """Compute the cycle's next departures, if enabled and data exists.
+
+        Args:
+            snapshot: The snapshot backing the cycle (``None`` before the first
+                successful fetch).
+
+        Returns:
+            The next departures, or ``()`` when disabled or without a snapshot.
+        """
+        if not self.compute_departures or snapshot is None:
+            return ()
+        return compute_next_departures(
+            self._index,
+            snapshot,
+            horizon_hours=self.departures_horizon_hours,
+            per_direction=self.departures_per_direction,
+        )
+
     # ── one-shot ────────────────────────────────────────────────────────────
 
     def check_once(self, timeout: float = 60) -> CycleResult:
@@ -285,6 +463,7 @@ class RealtimeMonitor:
             wall_time=datetime.datetime.now(),
             fetch_status=result.status,
             snapshot=snapshot,
+            next_departures=self._next_departures(snapshot),
             per_line=summarize_per_line(snapshot, self._index),
             feed_age=feed_age,
             payload_bytes=len(result.data),
@@ -354,6 +533,7 @@ class RealtimeMonitor:
                     unchanged_cycles=unchanged,
                     stale=stale,
                     payload_bytes=payload_bytes,
+                    next_departures=self._next_departures(snapshot),
                 )
                 self._dispatch(list(self._cycle_handlers), cycle)
                 if stale and not was_stale:

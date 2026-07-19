@@ -50,40 +50,86 @@ spec:
             - |
               set -e
               exec tini -- python3 -m oepnvstuff.check_realtime
+          # Complete OEPNV_* env catalog (precedence: real env > oepnv.local.env;
+          # booleans accept true|false or 1|0). Optional settings are commented
+          # out with example values. MQTT credentials (OEPNV_MQTT_USER/PASSWORD)
+          # come from the Secret via envFrom below.
           env:
-            # Feed sources (defaults shown; both may also be local file paths).
+            # ── feed sources (both may also be local file paths) ─────────────
             - name: OEPNV_STATIC_URL
               value: "https://download.gtfs.de/germany/nv_free/latest.zip"
             - name: OEPNV_REALTIME_URL
               value: "https://realtime.gtfs.de/realtime-free.pb"
-            # Target lines (comma/space separated) and station (substring match).
+            # ── targets ──────────────────────────────────────────────────────
+            # Lines: comma/space separated. Station(s): substring match against
+            # stop_name, several stations ';'-separated ("Blankenese;Ellerbek").
             - name: OEPNV_LINES
               value: "1,12,22,189"
             - name: OEPNV_STATION
               value: "Blankenese"
+            # Geo filter 'lat,lon,radius_km' — disambiguates same-named stations
+            # in different towns (GTFS has no postal codes). Empty/unset = off.
+            # - name: OEPNV_NEAR
+            #   value: "53.5633,9.8144,3"
+            # ── static feed cache ────────────────────────────────────────────
+            # Cache on the volume below so restarts reuse the static zip via 304.
+            - name: OEPNV_CACHE_DIR
+              value: "/cache"
+            # Re-download the static zip even when the server would answer 304.
+            # - name: OEPNV_FORCE_REFRESH
+            #   value: "true"
+            # ── watch loop ───────────────────────────────────────────────────
             # Poll loop instead of one-shot; exit 2 (-> restart) on a stale feed.
             - name: OEPNV_WATCH
-              value: "1"
+              value: "true"
             - name: OEPNV_STOP_ON_STALE
-              value: "1"
+              value: "true"
+            # Poll interval in seconds (gtfs.de updates every ~10s).
             - name: OEPNV_INTERVAL
               value: "20"
+            # Staleness: feed older than N seconds (0 = off) / N unchanged cycles.
             - name: OEPNV_MAX_AGE
               value: "120"
             - name: OEPNV_STALE_CYCLES
               value: "6"
-            # Cache on the volume below so restarts reuse the static zip via 304.
-            - name: OEPNV_CACHE_DIR
-              value: "/cache"
-            # MQTT result bridge (credentials come from the Secret).
+            # ── departure board ──────────────────────────────────────────────
+            # Next N departures per line+stop+direction, published retained to
+            # <base>/departures and <base>/departures/<line>/<stop>/<direction>.
+            - name: OEPNV_ENABLE_DEPARTURES
+              value: "true"
+            - name: OEPNV_DEPARTURES_COUNT
+              value: "3"
+            # Look-ahead window in hours.
+            - name: OEPNV_DEPARTURES_HORIZON_HOURS
+              value: "48"
+            # ── MQTT result bridge ───────────────────────────────────────────
             - name: OEPNV_MQTT_ENABLE
-              value: "1"
+              value: "true"
             - name: OEPNV_MQTT_HOST
               value: "mosquitto.mosquitto.svc.cluster.local"
             - name: OEPNV_MQTT_PORT
               value: "1883"
             - name: OEPNV_MQTT_BASE_TOPIC
               value: "oepnv"
+            # TLS to the broker (default off). Enable + set port 8883; mount the
+            # CA (and client cert/key for mTLS) from a Secret and point the
+            # OEPNV_MQTT_TLS_CA/CERT/KEY paths at the mount. The CA must be a
+            # certificate the broker actually presents (an ingress default cert
+            # cannot be verified). TLS_INSECURE only skips the hostname check.
+            # - name: OEPNV_MQTT_TLS
+            #   value: "true"
+            # - name: OEPNV_MQTT_TLS_CA
+            #   value: "/tls/ca.crt"
+            # - name: OEPNV_MQTT_TLS_CERT
+            #   value: "/tls/client.crt"
+            # - name: OEPNV_MQTT_TLS_KEY
+            #   value: "/tls/client.key"
+            # - name: OEPNV_MQTT_TLS_INSECURE
+            #   value: "true"
+            # ── misc ─────────────────────────────────────────────────────────
+            # DEBUG logging.
+            # - name: OEPNV_VERBOSE
+            #   value: "true"
             - name: PYTHONUNBUFFERED
               value: "1"
             - name: TZ

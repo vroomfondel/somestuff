@@ -11,10 +11,13 @@ handlers — register them via :func:`attach_bridge` (or individually with
 
 Topic layout (``base_topic`` defaults to ``oepnv``)::
 
-    oepnv/status                  retained   per-cycle summary (feed ts/age, stale flag, per-line counts)
-    oepnv/lines/<line>/status     retained   one line's status (updates, delay stats, static trips)
-    oepnv/alerts                  transient  each new (deduplicated) service alert
-    oepnv/stale                   transient  fired once on the transition into staleness
+    oepnv/status                                 retained   per-cycle summary (feed ts/age, stale flag, per-line counts)
+    oepnv/lines/<line>/status                    retained   one line's status (updates, delay stats, static trips)
+    oepnv/departures                             retained   all upcoming departures in one document
+    oepnv/departures/<line>/<stop>/<direction>   retained   one group's departures (ASCII-simplified segments,
+                                                            e.g. departures/1/S_Blankenese/U_Kellinghusenstrasse)
+    oepnv/alerts                                 transient  each new (deduplicated) service alert
+    oepnv/stale                                  transient  fired once on the transition into staleness
 
 Status topics are retained: they are genuine "last known value" state, so a
 late subscriber (e.g. a dashboard pod restarting) immediately sees the current
@@ -24,14 +27,22 @@ published with ``retain=False``.
 Serialization note: mqttstuff's ``publish_one`` only wraps ``dict`` values (via
 ``json.dumps``); this bridge therefore always publishes a ``dict``, never a
 bare list.
+
+TLS: passed natively to ``mqttstuff`` (>= 0.0.6) — server auth via CA
+(``None`` = system CA store), optional mutual TLS (client cert + key), optional
+``tls_insecure`` for self-signed certificates. The wrapper validates the
+option combination and raises ``ValueError`` on inconsistencies.
 """
 
+import datetime
 import logging
+import re
+import unicodedata
 
 from mqttstuff import MosquittoClientWrapper
 
 from oepnvstuff.gtfs_realtime import ServiceAlert
-from oepnvstuff.monitor import CycleResult, LineStatus, RealtimeMonitor
+from oepnvstuff.monitor import CycleResult, LineStatus, NextDeparture, RealtimeMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +50,9 @@ logger = logging.getLogger(__name__)
 #: a topic segment, so any of these in a line name would split or break the topic.
 _MQTT_RESERVED = str.maketrans({"/": "_", "+": "_", "#": "_"})
 
-#: JSON-compatible payload values this bridge produces (no nesting beyond one
-#: dict/list level is needed for its flat status payloads).
-_JsonValue = str | int | float | bool | None
+#: German umlauts/eszett → ASCII digraphs, applied before the generic
+#: accent-stripping so "Straße" becomes "Strasse", not "Strae".
+_UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
 
 
 def _mqtt_safe(name: str) -> str:
@@ -61,7 +72,28 @@ def _mqtt_safe(name: str) -> str:
     return safe or "unknown"
 
 
-def _line_payload(status: LineStatus) -> dict[str, _JsonValue]:
+def _ascii_safe(name: str) -> str:
+    """Turn a display name into an ASCII-simplified MQTT topic segment.
+
+    Transliterates German umlauts/eszett (``Straße`` → ``Strasse``), strips all
+    remaining accents/non-ASCII, and collapses every other character that is
+    not ``[A-Za-z0-9._-]`` (spaces, commas, MQTT wildcards, …) into ``_``.
+    Used for the ``departures/<line>/<stop>/<direction>`` sub-topics so
+    subscribers can address groups without quoting/encoding issues.
+
+    Args:
+        name: The raw display name (line, stop name or headsign).
+
+    Returns:
+        A single ASCII topic segment, never empty (falls back to ``unknown``).
+    """
+    text = name.translate(_UMLAUTS)
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_")
+    return text or "unknown"
+
+
+def _line_payload(status: LineStatus) -> dict[str, object]:
     """Build the JSON payload for one line's status.
 
     Args:
@@ -96,6 +128,11 @@ class GtfsMqttBridge:
         password: str | None = None,
         *,
         base_topic: str = "oepnv",
+        tls: bool = False,
+        tls_ca: str | None = None,
+        tls_cert: str | None = None,
+        tls_key: str | None = None,
+        tls_insecure: bool = False,
     ) -> None:
         """Initialize the bridge and the underlying MQTT client wrapper.
 
@@ -104,15 +141,49 @@ class GtfsMqttBridge:
 
         Args:
             host: MQTT broker host (e.g. ``mosquitto.mosquitto.svc.cluster.local``).
-            port: Broker port. Defaults to ``1883``.
+            port: Broker port. Defaults to ``1883``; TLS brokers usually listen
+                on ``8883`` — set that explicitly, it is NOT switched
+                automatically.
             username: Broker username, or ``None`` for anonymous.
             password: Broker password, or ``None``.
             base_topic: Root of the topic tree. Defaults to ``"oepnv"``.
+            tls: Encrypt the connection with TLS.
+            tls_ca: Path to the CA certificate (PEM) that signed the broker's
+                certificate; ``None`` uses the system CA store (sufficient for
+                e.g. Let's-Encrypt brokers).
+            tls_cert: Path to a client certificate (PEM) for mutual TLS, or
+                ``None``.
+            tls_key: Path to the client certificate's private key, or ``None``.
+            tls_insecure: Skip hostname verification (self-signed certificates
+                whose CN/SAN does not match the host). The connection is still
+                encrypted, but vulnerable to MITM — last resort only.
+
+        Raises:
+            ValueError: TLS options are inconsistent — ``tls_cert`` without
+                ``tls_key`` (or vice versa), or ``tls_*`` values given while
+                ``tls`` is off (validated by ``mqttstuff``); unreadable
+                certificate/key files propagate from ``ssl``.
         """
         self._base = base_topic.strip("/")
         self._host = host
         self._port = port
-        self._mq = MosquittoClientWrapper(host=host, port=port, username=username, password=password)
+        # TLS is native in mqttstuff >= 0.0.6 (ca None -> system CA store).
+        self._mq = MosquittoClientWrapper(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            tls=tls,
+            tls_ca_certs=tls_ca,
+            tls_certfile=tls_cert,
+            tls_keyfile=tls_key,
+            tls_insecure=tls_insecure,
+        )
+        if tls and tls_insecure:
+            logger.warning("MQTT TLS hostname verification DISABLED (tls_insecure) — encrypted but MITM-able")
+        #: Departure sub-topics published last cycle; vanished ones get their
+        #: retained message cleared (see publish_departures).
+        self._dep_topics: set[str] = set()
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
@@ -163,7 +234,7 @@ class GtfsMqttBridge:
             cycle: The completed cycle delivered by the monitor.
         """
         snapshot = cycle.snapshot
-        summary: dict[str, _JsonValue] = {
+        summary: dict[str, object] = {
             "time": cycle.wall_time.isoformat(timespec="seconds"),
             "feed_timestamp": snapshot.feed_timestamp if snapshot else None,
             "feed_age_s": cycle.feed_age,
@@ -201,20 +272,120 @@ class GtfsMqttBridge:
         Args:
             cycle: The first stale cycle.
         """
-        payload: dict[str, _JsonValue] = {
+        payload: dict[str, object] = {
             "time": cycle.wall_time.isoformat(timespec="seconds"),
             "feed_age_s": cycle.feed_age,
             "unchanged_cycles": cycle.unchanged_cycles,
         }
         self._safe_publish(f"{self._base}/stale", payload, retain=False)
 
-    def _safe_publish(self, topic: str, payload: dict[str, _JsonValue], *, retain: bool) -> None:
+    @staticmethod
+    def _departure_entry(nd: NextDeparture, now: datetime.datetime) -> dict[str, object]:
+        """Serialize one departure for the JSON payloads.
+
+        Args:
+            nd: The departure to serialize.
+            now: The cycle's wall time, reference for ``in_minutes``.
+
+        Returns:
+            Flat dict with times, minutes-until, delay and realtime flag.
+        """
+        return {
+            "scheduled": nd.scheduled.isoformat(timespec="seconds"),
+            "expected": nd.expected.isoformat(timespec="seconds"),
+            "in_minutes": round(nd.minutes_until(now), 1),
+            "delay_s": nd.delay_seconds,
+            "realtime": nd.delay_seconds is not None,
+            "stop_id": nd.stop_id,
+        }
+
+    def publish_departures(self, cycle: CycleResult) -> None:
+        """CycleHandler: publish the cycle's upcoming departures.
+
+        Register with :meth:`RealtimeMonitor.add_cycle_handler`. Publishes, all
+        retained:
+
+        * ``<base>/departures`` — one document with every upcoming departure
+          (next N per line and direction, as configured on the monitor).
+        * ``<base>/departures/<line>/<stop>/<direction>`` — one sub-topic per
+          group with just that group's departures. Segments are
+          ASCII-simplified (see :func:`_ascii_safe`); same-named platforms
+          (Steig A/B) merge into one ``<stop>`` level, the per-departure
+          ``stop_id`` stays in the payload.
+
+        Groups that vanish from one cycle to the next (last departure left the
+        look-ahead window) get their retained message cleared, so subscribers
+        never act on a stale board. When the monitor runs without
+        ``compute_departures`` nothing is published and no topic ever appears.
+
+        Args:
+            cycle: The completed cycle delivered by the monitor.
+        """
+        if not cycle.next_departures:
+            if self._dep_topics:
+                # Board just ran empty: clear all previously published groups.
+                for topic in self._dep_topics:
+                    self._clear_retained(topic)
+                self._dep_topics = set()
+                self._safe_publish(
+                    f"{self._base}/departures",
+                    {"time": cycle.wall_time.isoformat(timespec="seconds"), "departures": []},
+                    retain=True,
+                )
+            return
+
+        payload: dict[str, object] = {
+            "time": cycle.wall_time.isoformat(timespec="seconds"),
+            "departures": [
+                {
+                    "line": nd.line,
+                    "direction": nd.direction,
+                    "stop": nd.stop_name,
+                    **self._departure_entry(nd, cycle.wall_time),
+                }
+                for nd in cycle.next_departures
+            ],
+        }
+        self._safe_publish(f"{self._base}/departures", payload, retain=True)
+
+        groups: dict[tuple[str, str, str], list[NextDeparture]] = {}
+        for nd in cycle.next_departures:
+            groups.setdefault((nd.line, nd.stop_name, nd.direction), []).append(nd)
+        current_topics: set[str] = set()
+        for (line, stop, direction), nds in groups.items():
+            topic = f"{self._base}/departures/{_ascii_safe(line)}/{_ascii_safe(stop)}/{_ascii_safe(direction)}"
+            current_topics.add(topic)
+            group_payload: dict[str, object] = {
+                "time": cycle.wall_time.isoformat(timespec="seconds"),
+                "line": line,
+                "stop": stop,
+                "direction": direction,
+                "departures": [self._departure_entry(nd, cycle.wall_time) for nd in nds],
+            }
+            self._safe_publish(topic, group_payload, retain=True)
+        for stale_topic in self._dep_topics - current_topics:
+            self._clear_retained(stale_topic)
+        self._dep_topics = current_topics
+
+    def _clear_retained(self, topic: str) -> None:
+        """Clear a retained message (empty retained payload per MQTT spec).
+
+        Args:
+            topic: The topic whose retained message should be removed.
+        """
+        try:
+            self._mq.publish_one(topic, "", retain=True)
+        except Exception:
+            logger.exception(f"clearing retained MQTT message on {topic} failed")
+
+    def _safe_publish(self, topic: str, payload: dict[str, object], *, retain: bool) -> None:
         """Publish ``payload`` (always a dict → JSON), swallowing broker errors.
 
         Args:
             topic: Full MQTT topic to publish to.
-            payload: The JSON-serializable payload; ``mqttstuff.publish_one``
-                wraps it in ``json.dumps``.
+            payload: The JSON-serializable payload (flat values or one level of
+                nested lists/dicts); ``mqttstuff.publish_one`` wraps it in
+                ``json.dumps``.
             retain: Whether the broker should keep the message as last value
                 for the topic (state yes, events no — see module docstring).
         """
@@ -230,13 +401,16 @@ def attach_bridge(monitor: RealtimeMonitor, bridge: GtfsMqttBridge) -> None:
     """Convenience wiring: hook a :class:`GtfsMqttBridge` onto a monitor.
 
     Registers :meth:`GtfsMqttBridge.publish_cycle`,
-    :meth:`GtfsMqttBridge.publish_alert` and :meth:`GtfsMqttBridge.publish_stale`
-    with the corresponding monitor handler slots.
+    :meth:`GtfsMqttBridge.publish_departures` (a no-op unless the monitor
+    computes departures), :meth:`GtfsMqttBridge.publish_alert` and
+    :meth:`GtfsMqttBridge.publish_stale` with the corresponding monitor
+    handler slots.
 
     Args:
         monitor: The monitor whose results should be published.
         bridge: The bridge to attach.
     """
     monitor.add_cycle_handler(bridge.publish_cycle)
+    monitor.add_cycle_handler(bridge.publish_departures)
     monitor.add_alert_handler(bridge.publish_alert)
     monitor.add_stale_handler(bridge.publish_stale)

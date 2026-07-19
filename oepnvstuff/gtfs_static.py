@@ -135,6 +135,119 @@ class StopDetails:
 
 
 @dataclass(frozen=True)
+class ScheduledDeparture:
+    """One scheduled departure of a target trip at a matched stop.
+
+    Attributes:
+        trip_id: The GTFS trip this departure belongs to.
+        route_id: The trip's route (resolves to the line name via
+            :attr:`StaticFeedIndex.route_shortname`).
+        stop_id: The matched stop the departure happens at.
+        departure_seconds: Departure time as seconds since service-day
+            midnight. GTFS allows values beyond 24h (e.g. ``25:10:00`` for
+            01:10 the next calendar day, still on the previous service day).
+        headsign: The direction shown at this stop (``stop_headsign``),
+            possibly empty.
+    """
+
+    trip_id: str
+    route_id: str
+    stop_id: str
+    departure_seconds: int
+    headsign: str
+
+
+@dataclass(frozen=True)
+class ServicePeriod:
+    """Weekly pattern and validity range of one service (``calendar.txt`` row).
+
+    Attributes:
+        weekdays: Monday..Sunday flags (index 0 = Monday).
+        start: First service day (inclusive).
+        end: Last service day (inclusive).
+    """
+
+    weekdays: tuple[bool, bool, bool, bool, bool, bool, bool]
+    start: datetime.date
+    end: datetime.date
+
+
+@dataclass(frozen=True)
+class ServiceCalendar:
+    """Service-day rules: weekly patterns plus per-date exceptions.
+
+    Combines ``calendar.txt`` (weekly base pattern) and ``calendar_dates.txt``
+    (per-date add/remove exceptions). Either file may be absent — some feeds
+    express every service purely as ``calendar_dates`` exceptions.
+
+    Attributes:
+        periods: ``service_id`` → weekly pattern with validity range.
+        exceptions: ``service_id`` → (date → ``True`` for added, ``False`` for
+            removed service on that date).
+    """
+
+    periods: dict[str, ServicePeriod] = field(default_factory=dict)
+    exceptions: dict[str, dict[datetime.date, bool]] = field(default_factory=dict)
+
+    def runs_on(self, service_id: str, day: datetime.date) -> bool:
+        """Decide whether a service operates on a given day.
+
+        Args:
+            service_id: The GTFS service id to check.
+            day: The service day in question.
+
+        Returns:
+            ``True`` if the service runs that day: a per-date exception wins,
+            otherwise the weekly pattern within its validity range decides.
+        """
+        exception = self.exceptions.get(service_id, {}).get(day)
+        if exception is not None:
+            return exception
+        period = self.periods.get(service_id)
+        if period is None:
+            return False
+        return period.start <= day <= period.end and period.weekdays[day.weekday()]
+
+
+def _parse_gtfs_time(value: str) -> int | None:
+    """Parse a GTFS time (``H:MM:SS``, hours may exceed 23) into seconds.
+
+    Args:
+        value: The raw time string from ``stop_times.txt``.
+
+    Returns:
+        Seconds since service-day midnight, or ``None`` for an empty or
+        malformed value.
+    """
+    parts = value.strip().split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        h, m, s = (int(p) for p in parts)
+    except ValueError:
+        return None
+    return h * 3600 + m * 60 + s
+
+
+def _parse_gtfs_date(value: str) -> datetime.date | None:
+    """Parse a GTFS date (``YYYYMMDD``) into a :class:`datetime.date`.
+
+    Args:
+        value: The raw date string from ``calendar.txt`` / ``calendar_dates.txt``.
+
+    Returns:
+        The parsed date, or ``None`` for an empty or malformed value.
+    """
+    v = value.strip()
+    if len(v) != 8 or not v.isdigit():
+        return None
+    try:
+        return datetime.date(int(v[:4]), int(v[4:6]), int(v[6:8]))
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
 class StaticFeedIndex:
     """Schedule (planned service) reduced to the target lines and station.
 
@@ -147,7 +260,7 @@ class StaticFeedIndex:
         target_lines: The line names (``route_short_name``) that were searched
             for, in the caller's original casing and order.
         stop_names: ``stop_id`` → ``stop_name`` for every stop whose name
-            contains :attr:`station_query`.
+            contains one of :attr:`station_queries`.
         route_shortname: ``route_id`` → ``route_short_name`` for every route
             belonging to one of the target lines AND actually running through a
             matched stop (same-named routes elsewhere in the feed are dropped,
@@ -157,18 +270,28 @@ class StaticFeedIndex:
             restricted to station-serving routes like :attr:`route_shortname`).
         trip_route: ``trip_id`` → ``route_id``, restricted to trips that belong
             to a target line AND serve one of the matched stops.
+        trip_service: ``trip_id`` → ``service_id`` for the same target trips —
+            resolved against :attr:`calendar` to decide whether a trip runs on
+            a given day (needed for next-departure computation).
+        departures: Scheduled departures of the target trips at the matched
+            stops (time, direction), the static half of next-departure mode.
+        calendar: Service-day rules (``calendar.txt`` + ``calendar_dates.txt``)
+            for the target trips' services.
     """
 
-    station_query: str
+    station_queries: tuple[str, ...]
     target_lines: tuple[str, ...]
     stop_names: dict[str, str] = field(default_factory=dict)
     route_shortname: dict[str, str] = field(default_factory=dict)
     route_ids_of_line: dict[str, set[str]] = field(default_factory=dict)
     trip_route: dict[str, str] = field(default_factory=dict)
+    trip_service: dict[str, str] = field(default_factory=dict)
+    departures: tuple["ScheduledDeparture", ...] = ()
+    calendar: "ServiceCalendar" = field(default_factory=lambda: ServiceCalendar())
 
     @property
     def target_stop_ids(self) -> set[str]:
-        """Stop ids whose name matched :attr:`station_query`."""
+        """Stop ids whose name matched one of :attr:`station_queries`."""
         return set(self.stop_names)
 
     @property
@@ -354,14 +477,14 @@ def _open_member(zf: zipfile.ZipFile, name: str) -> io.TextIOWrapper:
 
 
 def _read_matched_stops(
-    zf: zipfile.ZipFile, station_query: str, near: NearFilter | None = None
+    zf: zipfile.ZipFile, station_queries: list[str], near: NearFilter | None = None
 ) -> dict[str, MatchedStop]:
     """Stream ``stops.txt`` and match stops by name and (optionally) location.
 
     Args:
         zf: The opened static feed zip.
-        station_query: Substring to match (case-insensitively) against
-            ``stop_name``.
+        station_queries: Substrings to match (case-insensitively) against
+            ``stop_name``; a stop matches if ANY query is contained.
         near: If given, keep only stops within the radius; stops without
             parsable coordinates are dropped then (their location can't be
             verified) and counted in a log line.
@@ -369,14 +492,15 @@ def _read_matched_stops(
     Returns:
         ``stop_id`` → :class:`MatchedStop` for every match.
     """
-    q = station_query.strip().lower()
+    queries = [q.strip().lower() for q in station_queries if q.strip()]
     matched: dict[str, MatchedStop] = {}
     dropped_far = 0
     dropped_nocoord = 0
     with _open_member(zf, "stops.txt") as fh:
         for row in csv.DictReader(fh):
             name = row.get("stop_name", "") or ""
-            if q not in name.lower():
+            lowered = name.lower()
+            if not any(q in lowered for q in queries):
                 continue
             lat: float | None
             lon: float | None
@@ -400,24 +524,76 @@ def _read_matched_stops(
             f" within {near.radius_km:g} km of {near.lat:.4f},{near.lon:.4f}"
             f" (dropped: {dropped_far} outside radius, {dropped_nocoord} without coordinates)"
         )
-    logger.info(f"stops matching '{station_query}': {len(matched)}{suffix}")
+    logger.info(f"stops matching {station_queries}: {len(matched)}{suffix}")
     return matched
 
 
+def _read_service_calendar(zf: zipfile.ZipFile, service_ids: set[str]) -> ServiceCalendar:
+    """Read ``calendar.txt`` / ``calendar_dates.txt`` for the given services.
+
+    Both files are optional individually (a feed may express services purely as
+    per-date exceptions); if neither exists, the returned calendar answers
+    ``False`` for every day and next-departure mode degrades gracefully.
+
+    Args:
+        zf: The opened static feed zip.
+        service_ids: Only rows for these services are kept.
+
+    Returns:
+        The service-day rules for the requested services.
+    """
+    names = set(zf.namelist())
+    periods: dict[str, ServicePeriod] = {}
+    exceptions: dict[str, dict[datetime.date, bool]] = {}
+
+    if "calendar.txt" in names:
+        weekday_cols = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+        with _open_member(zf, "calendar.txt") as fh:
+            for row in csv.DictReader(fh):
+                sid = row.get("service_id", "")
+                if sid not in service_ids:
+                    continue
+                start = _parse_gtfs_date(row.get("start_date", "") or "")
+                end = _parse_gtfs_date(row.get("end_date", "") or "")
+                if start is None or end is None:
+                    continue
+                weekdays = tuple((row.get(day, "") or "").strip() == "1" for day in weekday_cols)
+                assert len(weekdays) == 7
+                periods[sid] = ServicePeriod(weekdays=weekdays, start=start, end=end)
+
+    if "calendar_dates.txt" in names:
+        with _open_member(zf, "calendar_dates.txt") as fh:
+            for row in csv.DictReader(fh):
+                sid = row.get("service_id", "")
+                if sid not in service_ids:
+                    continue
+                day = _parse_gtfs_date(row.get("date", "") or "")
+                if day is None:
+                    continue
+                exc = (row.get("exception_type", "") or "").strip()
+                if exc in ("1", "2"):
+                    exceptions.setdefault(sid, {})[day] = exc == "1"
+
+    if not periods and not exceptions:
+        logger.warning("neither calendar.txt nor calendar_dates.txt usable — next-departure mode will find nothing")
+    return ServiceCalendar(periods=periods, exceptions=exceptions)
+
+
 def build_index(
-    static_path: str, target_lines: list[str], station_query: str, near: NearFilter | None = None
+    static_path: str, target_lines: list[str], station_queries: list[str], near: NearFilter | None = None
 ) -> StaticFeedIndex:
-    """Read the static GTFS zip and index it for the target lines and station.
+    """Read the static GTFS zip and index it for the target lines and stations.
 
     Streams the four required GTFS files exactly once each (``stop_times.txt``
-    can be huge) and keeps only what the realtime matching needs.
+    can be huge) and keeps only what the realtime matching and next-departure
+    computation need.
 
     Args:
         static_path: Path to the static GTFS feed zip.
         target_lines: Line names to look for (matched case-insensitively
             against ``route_short_name``).
-        station_query: Substring to match (case-insensitively) against
-            ``stop_name``.
+        station_queries: Substrings to match (case-insensitively) against
+            ``stop_name``; a stop matches if ANY query is contained.
         near: Optional geographic filter narrowing the matched stops (same-named
             stations exist in several towns; GTFS has no postal codes).
 
@@ -437,7 +613,7 @@ def build_index(
                 raise ValueError(f"'{req}' missing from static feed {static_path}")
 
         stop_names: dict[str, str] = {
-            sid: stop.name for sid, stop in _read_matched_stops(zf, station_query, near).items()
+            sid: stop.name for sid, stop in _read_matched_stops(zf, station_queries, near).items()
         }
 
         route_shortname: dict[str, str] = {}
@@ -452,25 +628,44 @@ def build_index(
         logger.info(f"routes (route_ids) for target lines: {len(route_shortname)}")
 
         trip_route_all: dict[str, str] = {}
+        trip_service_all: dict[str, str] = {}
         with _open_member(zf, "trips.txt") as fh:
             for row in csv.DictReader(fh):
                 rid = row.get("route_id", "")
                 if rid in route_shortname:
-                    trip_route_all[row.get("trip_id", "")] = rid
+                    tid = row.get("trip_id", "")
+                    trip_route_all[tid] = rid
+                    trip_service_all[tid] = row.get("service_id", "")
         logger.info(f"trips of target lines in total: {len(trip_route_all)}")
 
         target_trip_ids: set[str] = set()
+        departures_raw: list[tuple[str, str, int, str]] = []  # (trip_id, stop_id, dep_seconds, headsign)
         if stop_names and trip_route_all:
             # Hot loop over tens of millions of rows: csv.reader with header-resolved
             # positions instead of DictReader (no per-row dict, ~2-3x faster).
             with _open_member(zf, "stop_times.txt") as fh:
                 reader = csv.reader(fh)
-                i_trip, i_stop = _header_indices(next(reader, []), "stop_times.txt", "trip_id", "stop_id")
+                header = next(reader, [])
+                i_trip, i_stop = _header_indices(header, "stop_times.txt", "trip_id", "stop_id")
+                i_dep = header.index("departure_time") if "departure_time" in header else -1
+                i_arr = header.index("arrival_time") if "arrival_time" in header else -1
+                i_headsign = header.index("stop_headsign") if "stop_headsign" in header else -1
                 min_len = max(i_trip, i_stop) + 1
                 for cols in reader:
                     if len(cols) >= min_len and cols[i_trip] in trip_route_all and cols[i_stop] in stop_names:
                         target_trip_ids.add(cols[i_trip])
-        logger.info(f"target trips serving '{station_query}': {len(target_trip_ids)}")
+                        # Time/headsign parsing only for the rare matched rows.
+                        raw_time = cols[i_dep] if 0 <= i_dep < len(cols) and cols[i_dep].strip() else ""
+                        if not raw_time and 0 <= i_arr < len(cols):
+                            raw_time = cols[i_arr]
+                        dep_seconds = _parse_gtfs_time(raw_time)
+                        if dep_seconds is not None:
+                            headsign = cols[i_headsign].strip() if 0 <= i_headsign < len(cols) else ""
+                            departures_raw.append((cols[i_trip], cols[i_stop], dep_seconds, headsign))
+        logger.info(f"target trips serving {station_queries}: {len(target_trip_ids)}")
+
+        trip_service = {tid: trip_service_all[tid] for tid in target_trip_ids}
+        calendar = _read_service_calendar(zf, set(trip_service.values()))
 
     # Restrict the route set to routes that actually run through the station.
     # Common line names ("1", "12", …) exist at many agencies nationwide; without
@@ -480,19 +675,29 @@ def build_index(
     used_route_ids = set(trip_route.values())
     dropped = len(route_shortname) - len(used_route_ids)
     if dropped:
-        logger.info(f"narrowing route set to routes serving '{station_query}': dropped {dropped} same-named route(s)")
+        logger.info(f"narrowing route set to routes serving {station_queries}: dropped {dropped} same-named route(s)")
+
+    departures = tuple(
+        ScheduledDeparture(trip_id=tid, route_id=trip_route[tid], stop_id=sid, departure_seconds=dep, headsign=headsign)
+        for tid, sid, dep, headsign in departures_raw
+        if tid in trip_route
+    )
+    logger.info(f"scheduled departures at matched stops: {len(departures)}")
 
     return StaticFeedIndex(
-        station_query=station_query,
+        station_queries=tuple(station_queries),
         target_lines=tuple(target_lines),
         stop_names=stop_names,
         route_shortname={rid: sn for rid, sn in route_shortname.items() if rid in used_route_ids},
         route_ids_of_line={line: rids & used_route_ids for line, rids in route_ids_of_line.items()},
         trip_route=trip_route,
+        trip_service=trip_service,
+        departures=departures,
+        calendar=calendar,
     )
 
 
-def find_stops(static_path: str, station_query: str, near: NearFilter | None = None) -> dict[str, MatchedStop]:
+def find_stops(static_path: str, station_queries: list[str], near: NearFilter | None = None) -> dict[str, MatchedStop]:
     """Match stops by name (and optionally location) — reads only ``stops.txt``.
 
     The fast path for stop discovery (``--show-stops``): no routes/trips/
@@ -501,8 +706,8 @@ def find_stops(static_path: str, station_query: str, near: NearFilter | None = N
 
     Args:
         static_path: Path to the static GTFS feed zip.
-        station_query: Substring to match (case-insensitively) against
-            ``stop_name``.
+        station_queries: Substrings to match (case-insensitively) against
+            ``stop_name``; a stop matches if ANY query is contained.
         near: Optional geographic filter (centre + radius).
 
     Returns:
@@ -515,7 +720,7 @@ def find_stops(static_path: str, station_query: str, near: NearFilter | None = N
     with zipfile.ZipFile(static_path) as zf:
         if "stops.txt" not in zf.namelist():
             raise ValueError(f"'stops.txt' missing from static feed {static_path}")
-        return _read_matched_stops(zf, station_query, near)
+        return _read_matched_stops(zf, station_queries, near)
 
 
 def build_stop_details(static_path: str, stops: dict[str, MatchedStop]) -> dict[str, StopDetails]:
