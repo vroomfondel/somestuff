@@ -23,7 +23,8 @@ Contents overview (Python packages/modules):
 - `mqttstuff`: tiny MQTT wrapper utility
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `oepnvstuff`: GTFS‑Realtime coverage checker — validates whether an open GTFS‑RT feed actually carries real‑time data for configurable lines/stations, with watch mode and MQTT publishing
+- `oepnvstuff`: GTFS‑Realtime coverage checker — validates whether an open GTFS‑RT feed actually carries real‑time data for configurable lines/stations, with watch mode, departure board and MQTT publishing
+- `mqttwebstuff`: live web view onto arbitrary MQTT streams — mountable mapper plugins (filter/map per message), server‑side last‑value cache, SSE push to an htmx/PicoCSS frontend; ships an oepnv departure‑board plugin and a generic JSON‑card view
 - `ucmstuff`: monitor and control a Grandstream UCM6204 IP‑PBX — real‑time call events over WebSocket plus request/response control via the HTTPS API
 - `uptimekumastuff`: provision, migrate and back up Uptime Kuma 2.x declaratively — idempotent YAML apply, Ansible module, full export/import, direct Socket.IO client
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
@@ -224,7 +225,7 @@ python -m uptimekumastuff.uptimekuma_simpleapi import --url http://127.0.0.1:300
 
 
 ### oepnvstuff
-Validate whether an open **GTFS‑Realtime** feed actually carries real‑time data (delays / actual times) for specific transit lines at a specific station — open‑data aggregators like gtfs.de merge whatever agencies deliver, and for many lines that is *schedule only*. One‑shot check or `--watch` poll loop (GTFS‑RT is polled HTTP, with ETag/If‑Modified‑Since conditional requests and staleness detection via `FeedHeader.timestamp`), with pluggable `on_*` handlers and an optional MQTT bridge (retained per‑line status, transient alerts/stale events).
+Validate whether an open **GTFS‑Realtime** feed actually carries real‑time data (delays / actual times) for specific transit lines at a specific station — open‑data aggregators like gtfs.de merge whatever agencies deliver, and for many lines that is *schedule only*. One‑shot check or `--watch` poll loop (GTFS‑RT is polled HTTP, with ETag/If‑Modified‑Since conditional requests and staleness detection via `FeedHeader.timestamp`), with pluggable `on_*` handlers and an optional MQTT bridge (per‑line status, departure board, alerts and stale events — all published non‑retained).
 
 - Entrypoint: `oepnvstuff/check_realtime.py` (Typer CLI); library core in `monitor.py` (`RealtimeMonitor`), `gtfs_static.py`, `gtfs_realtime.py`, `mqtt_bridge.py`.
 - CLI usage:
@@ -239,6 +240,26 @@ python -m oepnvstuff.check_realtime --lines "195,295" --station Ellerbek --show-
 - Deployment: `somestuff_oepnv_deployment.yml` + `somestuff-oepnv-secret.example.yaml` — watch mode with `OEPNV_STOP_ON_STALE=1` (exit 2 → restart) as self‑healing, cache on a volume, SIGTERM handled for clean shutdown.
 - Dependencies: `requests`, `gtfs-realtime-bindings`, `typer`, `python-dotenv`, `mqttstuff` (only for the bridge), `loguru`, `tabulate`.
 - Usefulness: know whether open‑data realtime is good enough for your stop *before* building dashboards/alerts on it — and if it is, get it onto MQTT continuously.
+
+
+### mqttwebstuff
+A small live web view onto arbitrary **MQTT** streams: the server subscribes to the broker, runs every message through a *mapper plugin* (a plain Python file — in Kubernetes simply mounted via ConfigMap) and pushes rendered HTML fragments to all connected browsers via **Server‑Sent Events**. Frontend is htmx (+ SSE extension) on PicoCSS — zero hand‑written JavaScript, all assets vendored (no CDN egress from the pod).
+
+- Core: `serve.py` (Typer CLI), `hub.py` (last‑value cache + SSE fan‑out), `plugin_api.py` (the `ViewEvent` plugin contract), `webapp.py` (FastAPI: `/`, `/stream`, `/healthz`).
+- The server‑side **last‑value cache** makes non‑retained live streams browsable: a freshly opened tab gets the full current board server‑rendered, then only deltas over SSE. Per‑item TTLs let vanished topics disappear from the board.
+- Plugins decide filter/panel/grouping/template per message and may bring their own Jinja2 templates (`*.html.j2`, plugin dir is searched before the built‑ins). Without a plugin, a generic mode shows any topic tree as JSON cards.
+- CLI usage:
+```bash
+# oepnv departure board (reference plugin, ships in the image)
+python -m mqttwebstuff.serve --mapper mqttwebstuff/plugins/oepnv_view.py --mqtt-host broker.example.org
+
+# ad-hoc: peek into any topic tree generically (one card per subtopic, newest payload wins)
+python -m mqttwebstuff.serve --mapper "" --topics 'nodered/#' --item-ttl 0 --mqtt-host broker.example.org
+```
+- Every option is also an `MQTTWEB_*` environment variable (CLI > env > `mqttweb.local.env`); MQTT TLS options (CA, mTLS, insecure) mirror oepnvstuff's.
+- Deployment: `somestuff_mqttweb_deployment.yml` (+ `somestuff-mqttweb-secret.example.yaml`) with health probes; for SSE behind nginx‑ingress disable proxy buffering and raise the read timeout (noted in the manifest).
+- Dependencies: `fastapi`, `uvicorn`, `jinja2`, `mqttstuff`, `typer`, `python-dotenv`, `loguru`, `tabulate`.
+- Usefulness: a zero‑maintenance live dashboard for any MQTT topic tree — and with a ~50‑line plugin file, a purpose‑built board (like the oepnv departure board) without touching the core.
 
 
 ### sipstuff (moved)

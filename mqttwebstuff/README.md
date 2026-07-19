@@ -31,6 +31,12 @@ python3 -m mqttwebstuff.serve --mapper mqttwebstuff.plugins.oepnv_view --mqtt-ho
 
 # generic JSON-card view of any stream
 python3 -m mqttwebstuff.serve --topics 'ecowitt/#,oepnv/status' --mqtt-host broker.example.org
+
+# ad-hoc: peek into a whole topic tree (one card per subtopic, newest payload
+# wins). --mapper "" explicitly overrides a mapper configured via env /
+# mqttweb.local.env — a set mapper otherwise wins over --topics. --item-ttl 0
+# keeps cards forever (default: gone after 15 min without a new message).
+python3 -m mqttwebstuff.serve --mapper "" --topics 'nodered/#' --item-ttl 0 --title "Node-RED Live"
 ```
 
 All options are also environment variables (`MQTTWEB_*`, CLI wins) — see
