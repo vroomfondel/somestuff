@@ -23,9 +23,11 @@ Contents overview (Python packages/modules):
 - `mqttstuff`: tiny MQTT wrapper utility
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
-- `sipstuff`: SIP caller — phone calls with WAV playback or piper TTS via PJSUA2, with silence detection, call recording, and speech-to-text transcription via faster-whisper
+- `oepnvstuff`: GTFS‑Realtime coverage checker — validates whether an open GTFS‑RT feed actually carries real‑time data for configurable lines/stations, with watch mode and MQTT publishing
 - `ucmstuff`: monitor and control a Grandstream UCM6204 IP‑PBX — real‑time call events over WebSocket plus request/response control via the HTTPS API
+- `uptimekumastuff`: provision, migrate and back up Uptime Kuma 2.x declaratively — idempotent YAML apply, Ansible module, full export/import, direct Socket.IO client
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
+- Moved to standalone repos: `sipstuff` ([vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff)), `flickrdownloaderstuff` ([vroomfondel/flickrtoimmich](https://github.com/vroomfondel/flickrtoimmich))
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
 Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh`):
@@ -176,47 +178,6 @@ python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
 
 
-### sipstuff
-SIP caller module using PJSUA2. Registers with a SIP/PBX server, dials a destination, plays a WAV file **or synthesizes speech via piper TTS** on answer, and hangs up. Designed for headless/container operation (null audio device, no sound card required).
-
-Features:
-- **Transports**: UDP, TCP, TLS (with optional server certificate verification).
-- **SRTP**: disabled, optional, or mandatory media encryption.
-- **TTS**: piper text‑to‑speech via a bundled Python 3.12 venv (piper‑phonemize lacks 3.14 wheels). Automatic voice model download; default model `de_DE-thorsten-high`. Optional ffmpeg resampling to SIP‑friendly rates (8000/16000 Hz).
-- **Recording & STT**: record remote‑party audio (`--record`), transcribe via faster‑whisper (`--transcribe`) with Silero VAD pre‑filtering. Outputs a JSON call report with segment timestamps, audio duration, and language probability.
-- **Silence detection**: `--wait-for-silence` delays playback until the callee finishes speaking (RMS‑based `SilenceDetector` on the incoming audio stream).
-- **NAT traversal**: STUN servers, ICE, TURN relay (with auth, UDP/TCP/TLS transport), UDP keepalive interval, and static `--public-address` for K3s/SNAT scenarios where auto‑detection returns an unreachable IP.
-- **Playback controls**: `--repeat`, `--pre-delay`, `--post-delay`, `--inter-delay`.
-- **Multi‑homed host support**: auto‑detects the correct local IP and binds SIP + RTP transports to it, avoiding one‑way audio.
-
-CLI usage:
-```bash
-# WAV playback
-python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
-    --dest +491234567890 --wav alert.wav
-
-# Text-to-speech
-python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
-    --dest +491234567890 --text "Achtung! Wasserstand kritisch!"
-
-# Record, transcribe, and wait for callee to finish speaking
-python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
-    --dest +491234567890 --wav alert.wav \
-    --record /tmp/recording.wav --transcribe --wait-for-silence 1.0
-
-# With NAT traversal and TLS transport
-python -m sipstuff.cli call --server pbx.local --user 1000 --password secret \
-    --dest +491234567890 --wav alert.wav \
-    --transport tls --srtp mandatory \
-    --stun-servers stun.l.google.com:19302 --ice
-```
-- Config: YAML file, `SIP_*` environment variables, or direct CLI arguments. Priority: CLI overrides > env > YAML.
-- Library API: `make_sip_call()` for one‑off calls, `SipCaller` context manager for multiple calls, `generate_wav()` for standalone TTS, `transcribe_wav()` for standalone STT.
-- Dependencies: `pjsua2` (PJSIP Python bindings, built from source in Docker), `pydantic`, `ruamel.yaml`, `loguru`.
-- Docker: PJSIP is compiled in a multi‑stage build (stage 1), piper‑tts is installed in a Python 3.12 venv (stage 2), and both are copied into the final image (stage 3).
-- Usefulness: automated alert/notification calls from scripts, cron jobs, or monitoring systems.
-
-
 ### ucmstuff
 Monitor and control a **Grandstream UCM6204** IP‑PBX from Python. The UCM exposes two independent interfaces with different session models, and this module talks to both:
 
@@ -240,6 +201,53 @@ python -m ucmstuff.ucm6204_api \
 - Usefulness: build call‑routing / screening / monitoring automation on top of a UCM6204 (e.g. auto‑accept known callers, refuse spam, react to PBX status).
 
 
+### uptimekumastuff
+Provision, migrate and back up **Uptime Kuma 2.x** declaratively and idempotently — instead of clicking monitors together in the web UI. None of these tools *monitor* anything; they only create configuration, the monitoring itself is done by Kuma.
+
+- `uptimekuma_client.py`: `KumaClient`, a direct Socket.IO client with guaranteed‑fresh reads and idempotent `upsert_monitor`/`upsert_notification` — the library everything else builds on. (The PyPI `uptime-kuma-api` library cannot *write* against Kuma 2.x and its reads come from a stale cache; see `uptimekumastuff/README.md` for the verified details.)
+- `uptimekuma_apply.py`: applies a desired state from a YAML file against an existing instance — re‑runnable, references by *name* instead of ID, with `--check` (dry run) and `--prune`.
+- `uptimekuma_monitor.py`: Ansible module wrapping `KumaClient` for idempotent per‑monitor management from a playbook (`state: present`/`absent`, full check‑mode support).
+- `uptimekuma_simpleapi.py`: `SimpleKumaApi`, full export/import of a whole instance (monitors, notifications, tags, status pages) into a preferably **empty** target — for backup and migration.
+
+CLI usage:
+```bash
+# dry run - show what would change, write nothing
+python -m uptimekumastuff.uptimekuma_apply -f kuma_state.local.yml --check
+
+# backup the current state / import it into a fresh instance (monitors paused)
+python -m uptimekumastuff.uptimekuma_simpleapi export --url https://kuma.example.lan --out state.local.json
+python -m uptimekumastuff.uptimekuma_simpleapi import --url http://127.0.0.1:3001 --in-file state.local.json --paused
+```
+- Credentials: `uptimekuma.local.env` (gitignored), real env vars, or `--username`/`--password`. The Socket.IO login accepts username+password only — API keys work exclusively for HTTP basic auth on `/metrics`.
+- Dependencies: `python-socketio`, `python-dotenv`, `typer`, `PyYAML`, `uptime-kuma-api` (reads only).
+- Usefulness: reproducible, version‑controllable Kuma configuration (YAML/Ansible) and safe full‑instance backup/migration.
+
+
+### oepnvstuff
+Validate whether an open **GTFS‑Realtime** feed actually carries real‑time data (delays / actual times) for specific transit lines at a specific station — open‑data aggregators like gtfs.de merge whatever agencies deliver, and for many lines that is *schedule only*. One‑shot check or `--watch` poll loop (GTFS‑RT is polled HTTP, with ETag/If‑Modified‑Since conditional requests and staleness detection via `FeedHeader.timestamp`), with pluggable `on_*` handlers and an optional MQTT bridge (retained per‑line status, transient alerts/stale events).
+
+- Entrypoint: `oepnvstuff/check_realtime.py` (Typer CLI); library core in `monitor.py` (`RealtimeMonitor`), `gtfs_static.py`, `gtfs_realtime.py`, `mqtt_bridge.py`.
+- CLI usage:
+```bash
+python -m oepnvstuff.check_realtime                       # one-shot report + exit code
+python -m oepnvstuff.check_realtime --watch --mqtt        # poll loop, publish to MQTT
+python -m oepnvstuff.check_realtime --lines "195,295" --station Ellerbek --show-stops
+```
+- Every option is also an `OEPNV_*` environment variable (CLI > env > `oepnv.local.env`), so the container is fully configurable per Deployment env.
+- The static feed (~250 MB zip) is cached with persisted HTTP validators — repeat runs cost a `304` round‑trip, no re‑download.
+- Exit codes: `0` realtime found, `2` schedule but no realtime (or stale abort), `3` line/stop not in schedule, `1` technical error.
+- Deployment: `somestuff_oepnv_deployment.yml` + `somestuff-oepnv-secret.example.yaml` — watch mode with `OEPNV_STOP_ON_STALE=1` (exit 2 → restart) as self‑healing, cache on a volume, SIGTERM handled for clean shutdown.
+- Dependencies: `requests`, `gtfs-realtime-bindings`, `typer`, `python-dotenv`, `mqttstuff` (only for the bridge), `loguru`, `tabulate`.
+- Usefulness: know whether open‑data realtime is good enough for your stop *before* building dashboards/alerts on it — and if it is, get it onto MQTT continuously.
+
+
+### sipstuff (moved)
+The SIP caller (phone calls with WAV playback or piper TTS via PJSUA2, call recording, speech‑to‑text) has been moved to a standalone repository:
+**[github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff)**
+
+With it, the PJSIP/piper build stages left this image — it is a plain single‑stage Python image again (see the Docker section below).
+
+
 ### flickrdownloaderstuff (moved)
 The Flickr photo backup functionality has been moved to a standalone repository:
 **[github.com/vroomfondel/flickrtoimmich](https://github.com/vroomfondel/flickrtoimmich)**
@@ -257,17 +265,14 @@ The Docker image is still available at [Docker Hub: xomoxcc/flickr-download](htt
 
 ## Docker: build process, use, and usefulness
 
-There is a single Docker image defined by the repo‑root `Dockerfile`. It uses a **three‑stage** multi‑stage build:
-1. **Stage 1 — PJSIP builder** (`python:3.14-slim-trixie`): compiles PJSIP 2.16 with Python bindings (`pjsua2`) and stages the shared libraries.
-2. **Stage 2 — piper builder** (`python:3.12-slim-trixie`): creates a self‑contained Python 3.12 venv with `piper-tts` (piper‑phonemize has no Python 3.14 wheels). The portable Python 3.12 runtime and venv are copied into the final image at `/opt/python312` and `/opt/piper-venv`.
-3. **Stage 3 — Final image** (`python:3.14-slim-trixie`):
-   - Installs system tools (`htop`, `dnsutils`, `tini`, `ffmpeg`, etc.) and audio runtime libraries (`libasound2`, `libssl3`, `libopus0`).
-   - Installs Python deps via `requirements.txt`.
-   - Creates a non‑root user (`pythonuser`, configurable via build args `UID`, `GID`, `UNAME`).
-   - Copies PJSIP libs + bindings from stage 1 and piper venv from stage 2.
-   - Copies the packages into `/app` and sets `PYTHONPATH` accordingly.
-   - Accepts build‑time metadata args and exports them as envs: `GITHUB_REF`, `GITHUB_SHA`, `BUILDTIME`.
-   - Entrypoint is `tini --`, default `CMD` tails the log (adjust for your workload).
+There is a single Docker image defined by the repo‑root `Dockerfile`. It is a plain **single‑stage** build on `python:3.14-slim-trixie` (the PJSIP/piper build stages left together with `sipstuff`, which is now a standalone repo):
+- Installs system tools: `htop`, `procps`, `vim`, `tini`, `bind9-dnsutils`, `ipset`, `git`, `exiftool`, `iputils-ping`.
+- Sets the `de_DE.UTF-8` locale and the `Europe/Berlin` timezone.
+- Installs Python deps via `requirements.txt`.
+- Creates a non‑root user (`pythonuser`, UID 1200, configurable via build args `UID`, `GID`, `UNAME`) and runs as that user.
+- Copies the packages into `/app` and sets `PYTHONPATH=/app`.
+- Accepts build‑time metadata args and exports them as envs: `GITHUB_REF`, `GITHUB_SHA`, `BUILDTIME`.
+- Entrypoint is `tini --`, default `CMD` tails the log (adjust for your workload).
 
 Why this is useful:
 - Reproducible environment across machines/architectures.

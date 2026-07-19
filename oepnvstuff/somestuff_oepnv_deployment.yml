@@ -1,0 +1,111 @@
+---
+# GTFS-realtime coverage watcher: polls the RT feed in --watch mode and
+# publishes per-line status to MQTT (see oepnvstuff/README.md for the topic
+# layout). The pod only makes OUTBOUND connections (feed HTTP + MQTT broker) —
+# no inbound service/ingress needed.
+#
+# Self-healing without a health endpoint: OEPNV_STOP_ON_STALE=1 makes the
+# process exit (code 2) once the feed goes stale; restartPolicy Always brings
+# it back up. The static feed cache lives on a volume, so a restart re-checks
+# it with a conditional GET (304 -> no re-download of the ~250 MB zip).
+#
+# Prerequisites:
+#   - namespace 'somestuff'
+#   - Secret 'somestuff-oepnv-secret' (see somestuff-oepnv-secret.example.yaml)
+#   - the image must contain: requests, typer, python-dotenv,
+#     gtfs-realtime-bindings, mqttstuff, loguru, tabulate
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: somestuff-oepnv-deployment
+  namespace: somestuff
+  labels:
+    app: somestuff-oepnv
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 5m"
+    keel.sh/trigger: poll
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: somestuff-oepnv
+  template:
+    metadata:
+      labels:
+        app: somestuff-oepnv
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: somestuff-oepnv
+          image: xomoxcc/somestuff:latest
+          # The CLI is fully env-driven (OEPNV_*), so no flags are needed here.
+          # SIGTERM on pod stop is handled -> clean shutdown incl. MQTT disconnect.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              exec tini -- python3 -m oepnvstuff.check_realtime
+          env:
+            # Feed sources (defaults shown; both may also be local file paths).
+            - name: OEPNV_STATIC_URL
+              value: "https://download.gtfs.de/germany/nv_free/latest.zip"
+            - name: OEPNV_REALTIME_URL
+              value: "https://realtime.gtfs.de/realtime-free.pb"
+            # Target lines (comma/space separated) and station (substring match).
+            - name: OEPNV_LINES
+              value: "1,12,22,189"
+            - name: OEPNV_STATION
+              value: "Blankenese"
+            # Poll loop instead of one-shot; exit 2 (-> restart) on a stale feed.
+            - name: OEPNV_WATCH
+              value: "1"
+            - name: OEPNV_STOP_ON_STALE
+              value: "1"
+            - name: OEPNV_INTERVAL
+              value: "20"
+            - name: OEPNV_MAX_AGE
+              value: "120"
+            - name: OEPNV_STALE_CYCLES
+              value: "6"
+            # Cache on the volume below so restarts reuse the static zip via 304.
+            - name: OEPNV_CACHE_DIR
+              value: "/cache"
+            # MQTT result bridge (credentials come from the Secret).
+            - name: OEPNV_MQTT_ENABLE
+              value: "1"
+            - name: OEPNV_MQTT_HOST
+              value: "mosquitto.mosquitto.svc.cluster.local"
+            - name: OEPNV_MQTT_PORT
+              value: "1883"
+            - name: OEPNV_MQTT_BASE_TOPIC
+              value: "oepnv"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TZ
+              value: "Europe/Berlin"
+          envFrom:
+            - secretRef:
+                name: somestuff-oepnv-secret
+          volumeMounts:
+            - name: gtfs-cache
+              mountPath: /cache
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              # Indexing streams the zip, but stop_times.txt is large; give headroom.
+              memory: 512Mi
+      volumes:
+        # emptyDir survives container restarts but not pod rescheduling; swap in
+        # a PVC if re-downloading the ~250 MB zip after rescheduling bothers you:
+        #   persistentVolumeClaim: { claimName: somestuff-oepnv-cache }
+        - name: gtfs-cache
+          emptyDir:
+            sizeLimit: 1Gi

@@ -58,3 +58,6 @@ websocket-client
 python-dotenv
 python-socketio
 uptime-kuma-api
+
+# oepnvstuff (GTFS-realtime coverage checker)
+gtfs-realtime-bindings
