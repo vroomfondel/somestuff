@@ -31,7 +31,7 @@ from tabulate import tabulate
 if TYPE_CHECKING:
     from loguru import Record
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 __all__ = ["__version__", "configure_logging", "print_banner"]
 

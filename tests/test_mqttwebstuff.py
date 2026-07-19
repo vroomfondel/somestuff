@@ -188,9 +188,11 @@ def test_hub_renders_hierarchical_tree_in_order() -> None:
     # Scalar inline, JSON collapsible with a stable tree id for state restore.
     assert "<code>24.19</code>" in body
     assert 'data-tree-id="nodered/hydrostatics/hydrostatic1/status"' in body
-    # Rows are deep-linkable: stable anchor id plus a self-link on the label.
+    # Rows are deep-linkable: stable anchor id plus a self-link on the label;
+    # details rows get a separate # mark (no <a> inside <summary>).
     assert 'id="t-nodered-hydrostatics-hydrostatic1-busvoltage"' in body
     assert 'href="#t-nodered-hydrostatics-hydrostatic1-busvoltage"' in body
+    assert 'href="#t-nodered-hydrostatics-hydrostatic1-status"' in body
 
 
 def _oepnv_hub() -> ViewHub:

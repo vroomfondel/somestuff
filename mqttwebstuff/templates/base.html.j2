@@ -75,6 +75,17 @@
     .mqttweb-anchor { color: inherit; text-decoration: none; }
     .mqttweb-anchor:hover { text-decoration: underline dotted; }
     .mqttweb-anchor:hover::after { content: " #"; color: var(--pico-muted-color); }
+    /* Standalone # mark (rows whose label cannot be a link, e.g. <summary>). */
+    .mqttweb-tree-row { position: relative; }
+    .mqttweb-anchor-mark {
+      position: absolute;
+      right: 0.2rem;
+      top: 0.05rem;
+      color: var(--pico-muted-color);
+      opacity: 0;
+    }
+    .mqttweb-anchor-mark:hover::after { content: none; }
+    .mqttweb-tree-row:hover .mqttweb-anchor-mark { opacity: 1; }
     :target { scroll-margin-top: 0.5rem; }
     .mqttweb-group-box:target, .mqttweb-tree-row:target {
       outline: 2px solid var(--pico-primary);

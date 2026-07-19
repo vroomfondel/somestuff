@@ -9,8 +9,9 @@
   {% elif data.value is none %}
   <a class="mqttweb-anchor" href="#t-{{ key | anchor }}"><span class="mqttweb-tree-label">{{ data.label }}</span></a> <code>null</code>
   {% else %}
-  {# No self-link inside <summary> — a nested <a> would fight the toggle; the
-     row is still jumpable via its id. #}
+  {# No self-link inside <summary> — a nested <a> would fight the toggle; a
+     separate # mark at the row's right edge makes the anchor clickable. #}
+  <a class="mqttweb-anchor mqttweb-anchor-mark" href="#t-{{ key | anchor }}" title="{{ key }}">#</a>
   <details class="mqttweb-tree-details" data-tree-id="{{ key }}">
     <summary><span class="mqttweb-tree-label">{{ data.label }}</span> <small>{…}</small></summary>
     <pre>{{ data.value | tojson(indent=2) }}</pre>
