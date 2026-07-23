@@ -1,3 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "somestuff"
+version = "0.1.0"
+description = "Collection of Python utilities for IoT data aggregation, weather monitoring, and DNS automation."
+requires-python = ">=3.13"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools]
+# Top-level single-file modules imported package-wide (e.g. `import Helper`, `from config import settings`).
+py-modules = ["Helper", "config"]
+
+[tool.setuptools.packages.find]
+# Only the real Python packages (dirs with __init__.py). The Docker-image build
+# dirs (tangstuff, python314jit, overlays, …) have no __init__.py and are ignored
+# automatically; tests are excluded explicitly.
+exclude = ["tests*", "docker-config*"]
+
 [tool.black]
 line-length = 120
 target-version = ["py313"]

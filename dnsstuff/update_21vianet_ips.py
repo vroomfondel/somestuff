@@ -19,9 +19,7 @@ import json
 import os
 import random
 import string
-import sys
 import uuid
-from collections.abc import Callable
 from ipaddress import ip_network
 from pathlib import Path
 from typing import Any
@@ -30,11 +28,10 @@ from urllib.request import Request, urlopen
 
 from loguru import logger as glogger
 from pyroute2.ipset import IPSet
-from tabulate import tabulate
+
+from dnsstuff import configure_logging, print_banner
 
 # -- Constants ---------------------------------------------------------------
-
-__version__: str = "0.1.1"
 
 CLIENT_ID: str = str(uuid.uuid4())
 VERSION_URL: str = f"https://endpoints.office.com/version/China?clientrequestid={CLIENT_ID}"
@@ -62,49 +59,7 @@ DEFAULT_API_TIMEOUT: int = 30
 # -- Logging -----------------------------------------------------------------
 
 
-def _loguru_skiplog_filter(record: dict) -> bool:  # type: ignore[type-arg]
-    """Filter function to hide records with ``extra['skiplog']`` set."""
-    return not record.get("extra", {}).get("skiplog", False)
-
-
-def configure_logging(
-    loguru_filter: Callable[[dict[str, Any]], bool] = _loguru_skiplog_filter,
-) -> None:
-    """Configure a default ``loguru`` sink with a convenient format and filter."""
-    os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")
-    glogger.remove()
-    logger_fmt: str = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | "
-        "<cyan>{module}</cyan>::<cyan>{extra[classname]}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-        "<level>{message}</level>"
-    )
-    glogger.add(sys.stderr, level=os.getenv("LOGURU_LEVEL"), format=logger_fmt, filter=loguru_filter)  # type: ignore[arg-type]
-    glogger.configure(extra={"classname": "None", "skiplog": False})
-
-
-def print_banner() -> None:
-    """Log the startup banner with version, build time and project links."""
-    startup_rows = [
-        ["version", __version__],
-        ["buildtime", os.getenv("BUILDTIME", "unknown")],
-        ["github", "https://github.com/vroomfondel/somestuff/tree/main/dnsstuff"],
-        ["Docker Hub", "https://hub.docker.com/r/xomoxcc/somestuff"],
-    ]
-    table_str = tabulate(startup_rows, tablefmt="mixed_grid")
-    lines = table_str.split("\n")
-    table_width = len(lines[0])
-    title = "update_21vianet_ips starting up"
-    title_border = "\u250d" + "\u2501" * (table_width - 2) + "\u2511"
-    title_row = "\u2502 " + title.center(table_width - 4) + " \u2502"
-    separator = lines[0].replace("\u250d", "\u251d").replace("\u2511", "\u2525").replace("\u252f", "\u253f")
-
-    glogger.opt(raw=True).info(f"\n{title_border}\n{title_row}\n{separator}\n{'\n'.join(lines[1:])}\n")
-
-
-configure_logging()
-
 logger = glogger.bind(classname="update_21vianet_ips")
-print_banner()
 
 
 # -- Microsoft API -----------------------------------------------------------
@@ -474,6 +429,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Force update even if the remote version has not changed",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="enable DEBUG logging",
+    )
     return parser.parse_args()
 
 
@@ -489,6 +450,10 @@ def main() -> None:
     as root.
     """
     args: argparse.Namespace = parse_args()
+
+    configure_logging(verbose=args.verbose)
+    print_banner("update_21vianet_ips")
+
     output_dir: Path = Path(args.output_dir)
 
     # -- Version check -------------------------------------------------------
