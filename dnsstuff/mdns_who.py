@@ -21,6 +21,10 @@ Optional --unicast additionally resolves the bare name and <name>.fritz.box via
 the system resolver, to surface a router DHCP-lease that disagrees with mDNS
 (the classic "Fritzbox hands out a stale boot-IP" case).
 
+By default the query is sent out of EVERY local interface (so a multi-homed host
+is covered on every subnet regardless of the default route); pass --iface to pin
+it to a single interface.
+
 No external DNS dependencies (raw sockets + struct). Logging/banner setup is
 shared with the rest of the package via :mod:`dnsstuff`.
 
@@ -53,8 +57,10 @@ QU_BIT = 0x8000  # "unicast response requested" (top bit of the question qclass)
 
 logger = glogger.bind(classname="mdns_who")
 
-# One collected mDNS answer: (advertised_ip, ttl, cache_flush).
+# One parsed mDNS A answer: (advertised_ip, ttl, cache_flush).
 Answer = tuple[str, int, bool]
+# A collected answer plus the local interface the response packet arrived on.
+Record = tuple[str, int, bool, str]
 
 
 # --------------------------------------------------------------------------- #
@@ -150,11 +156,21 @@ def parse_a_answers(data: bytes, want_name: str) -> list[Answer]:
 # --------------------------------------------------------------------------- #
 # mDNS query/collect
 # --------------------------------------------------------------------------- #
-def open_socket(iface_ip: str | None) -> tuple[socket.socket, bool]:
+def _enable_pktinfo(sock: socket.socket) -> None:
+    """Request IP_PKTINFO so recvmsg() reveals the interface a packet arrived on."""
+    if hasattr(socket, "IP_PKTINFO"):
+        try:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_PKTINFO, 1)
+        except OSError as exc:
+            logger.debug("IP_PKTINFO not available: %s" % exc)
+
+
+def open_socket() -> tuple[socket.socket, bool]:
     """
-    Try to bind :5353 + join the multicast group (captures ALL multicast
-    responses, incl. proxies). Fall back to an ephemeral port (QU / unicast
-    replies only) if :5353 is unavailable. Returns (sock, listen_on_5353).
+    Try to bind :5353 (captures ALL multicast responses, incl. proxies). Fall
+    back to an ephemeral port (QU / unicast replies only) if :5353 is
+    unavailable. Group membership and the send interface(s) are set up per
+    interface by :func:`send_query`. Returns (sock, listen_on_5353).
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -163,34 +179,114 @@ def open_socket(iface_ip: str | None) -> tuple[socket.socket, bool]:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         except OSError:
             pass
-    if iface_ip:
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(iface_ip))
+    _enable_pktinfo(sock)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
     try:
         sock.bind(("", MCAST_PORT))
-        mreq = socket.inet_aton(MCAST_GRP) + socket.inet_aton(iface_ip or "0.0.0.0")
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         return sock, True
     except OSError:
         # :5353 busy in an incompatible way -> ephemeral + request unicast reply.
         sock.close()
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        if iface_ip:
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(iface_ip))
+        _enable_pktinfo(sock)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
         sock.bind(("", 0))
         return sock, False
 
 
-def query_mdns(name: str, timeout: float, iface_ip: str | None) -> tuple[dict[str, list[Answer]], bool]:
-    """Send the mDNS query and collect every A-record answer, keyed by responder IP."""
-    sock, listen_5353 = open_socket(iface_ip)
+def _send_targets(iface_ip: str | None) -> list[tuple[str, bytes, bytes]]:
+    """Build the per-interface socket-option payloads to join on and send out of.
+
+    Each entry is ``(label, join_opt, multicast_if_opt)``:
+
+      - with `iface_ip` pinned: a single ``ip_mreq`` / ``in_addr`` addressing that IP;
+      - otherwise: one ``ip_mreqn`` per local interface (by index, from
+        :func:`socket.if_nameindex`, loopback excluded), so a multi-homed host is
+        covered on every subnet regardless of the default route.
+    """
+    if iface_ip:
+        return [
+            (
+                iface_ip,
+                socket.inet_aton(MCAST_GRP) + socket.inet_aton(iface_ip),  # ip_mreq
+                socket.inet_aton(iface_ip),  # in_addr
+            )
+        ]
+    targets: list[tuple[str, bytes, bytes]] = []
+    for idx, name in socket.if_nameindex():
+        if name == "lo":  # loopback only yields the local avahi echo -> skip
+            continue
+        packed_idx = struct.pack("@i", idx)
+        targets.append(
+            (
+                name,
+                socket.inet_aton(MCAST_GRP) + socket.inet_aton("0.0.0.0") + packed_idx,  # ip_mreqn
+                socket.inet_aton("0.0.0.0") * 2 + packed_idx,  # ip_mreqn (ifindex only)
+            )
+        )
+    return targets
+
+
+def send_query(sock: socket.socket, packet: bytes, iface_ip: str | None, join: bool) -> list[str]:
+    """Send `packet` to the mDNS group out of every target interface.
+
+    Joins the multicast group per interface first when `join` (i.e. we bound
+    :5353 and listen for multicast replies). Interfaces that cannot join/send
+    (down, IPv4-less) are skipped. Returns the labels actually used.
+    """
+    sent_on: list[str] = []
+    for label, join_opt, if_opt in _send_targets(iface_ip):
+        try:
+            if join:
+                try:
+                    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, join_opt)
+                except OSError as exc:
+                    # Already joined / no IPv4 / down -> still try to send out of it.
+                    logger.debug("group join on %s failed: %s" % (label, exc))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, if_opt)
+            sock.sendto(packet, (MCAST_GRP, MCAST_PORT))
+            sent_on.append(label)
+        except OSError as exc:
+            logger.debug("send on %s failed: %s" % (label, exc))
+    return sent_on
+
+
+def _recv(sock: socket.socket, if_names: dict[int, str]) -> tuple[bytes, str, str]:
+    """Receive one datagram, returning (data, src_ip, recv_iface).
+
+    Uses recvmsg() to read the IP_PKTINFO ancillary datum (the index of the
+    interface the packet arrived on), falling back to ``"?"`` when unavailable.
+    """
+    if hasattr(socket, "IP_PKTINFO"):
+        data, ancdata, _flags, addr = sock.recvmsg(9000, socket.CMSG_SPACE(12))
+        recv_iface = "?"
+        for level, msg_type, cmsg_data in ancdata:
+            if level == socket.IPPROTO_IP and msg_type == socket.IP_PKTINFO:
+                (ifindex,) = struct.unpack("@i", cmsg_data[:4])  # in_pktinfo.ipi_ifindex
+                recv_iface = if_names.get(ifindex, str(ifindex))
+        return data, addr[0], recv_iface
+    data, addr = sock.recvfrom(9000)
+    return data, addr[0], "?"
+
+
+def query_mdns(name: str, timeout: float, iface_ip: str | None) -> tuple[dict[str, list[Record]], bool, str]:
+    """Send the mDNS query and collect every A-record answer, keyed by responder IP.
+
+    With `iface_ip` the query goes out of that interface only; without it, out of
+    every local interface. Each answer is tagged with the interface its response
+    packet arrived on. Returns ``(responders, listen_on_5353, scope)`` where
+    `scope` describes the interface(s) used, for the report header.
+    """
+    sock, listen_5353 = open_socket()
     # If we could not grab :5353 we depend on unicast replies -> set the QU bit.
     _h, _q, packet = build_query(name, want_unicast=not listen_5353)
-    sock.sendto(packet, (MCAST_GRP, MCAST_PORT))
+    sent_on = send_query(sock, packet, iface_ip, join=listen_5353)
+    if not sent_on:
+        logger.warning("could not send the query on any interface")
 
-    responders: dict[str, list[Answer]] = {}  # src_ip -> list of (answer_ip, ttl, cache_flush)
+    if_names = {idx: iname for idx, iname in socket.if_nameindex()}
+    responders: dict[str, list[Record]] = {}  # src_ip -> list of (answer_ip, ttl, cache_flush, recv_iface)
     deadline = time.monotonic() + timeout
     while True:
         remaining = deadline - time.monotonic()
@@ -198,20 +294,21 @@ def query_mdns(name: str, timeout: float, iface_ip: str | None) -> tuple[dict[st
             break
         sock.settimeout(remaining)
         try:
-            data, addr = sock.recvfrom(9000)
+            data, src_ip, recv_iface = _recv(sock, if_names)
         except socket.timeout:
             break
         except OSError:
             break
-        src_ip = addr[0]
         answers = parse_a_answers(data, name)
         if answers:
-            responders.setdefault(src_ip, [])
-            for a in answers:
-                if a not in responders[src_ip]:
-                    responders[src_ip].append(a)
+            recs = responders.setdefault(src_ip, [])
+            for ip, ttl, cf in answers:
+                rec: Record = (ip, ttl, cf, recv_iface)
+                if rec not in recs:
+                    recs.append(rec)
     sock.close()
-    return responders, listen_5353
+    scope = iface_ip if iface_ip else "all interfaces (%s)" % ", ".join(sent_on)
+    return responders, listen_5353, scope
 
 
 # --------------------------------------------------------------------------- #
@@ -230,10 +327,10 @@ def unicast_lookup(host: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 # report
 # --------------------------------------------------------------------------- #
-def report(name: str, responders: dict[str, list[Answer]], listen_5353: bool, timeout: float) -> None:
+def report(name: str, responders: dict[str, list[Record]], listen_5353: bool, timeout: float, scope: str) -> None:
     """Log the responder table and the stale/cache verdict for `name`."""
-    mode = "multicast-listen (:5353)" if listen_5353 else "unicast-reply (ephemeral)"
-    logger.info("mDNS query for %s   [%s, timeout %.1fs]" % (name, mode, timeout))
+    transport = "multicast-listen (:5353)" if listen_5353 else "unicast-reply (ephemeral)"
+    logger.info("mDNS query for %s   [%s via %s, timeout %.1fs]" % (name, transport, scope, timeout))
     logger.info("=" * 68)
 
     if not responders:
@@ -242,19 +339,22 @@ def report(name: str, responders: dict[str, list[Answer]], listen_5353: bool, ti
 
     all_answer_ips: set[str] = set()
     for src_ip in sorted(responders):
-        for ip, ttl, cf in responders[src_ip]:
+        for ip, ttl, cf, recv_iface in responders[src_ip]:
             all_answer_ips.add(ip)
             match = ip == src_ip
             tag = "self (authoritative)" if match else "PROXY/CACHE (src != answer!)"
             flush = "cache-flush" if cf else "shared"
-            logger.info("  responder %-15s ->  A %-15s  ttl=%-6d  %-11s  %s" % (src_ip, ip, ttl, flush, tag))
+            logger.info(
+                "  responder %-15s (in via %-10s) ->  A %-15s  ttl=%-6d  %-11s  %s"
+                % (src_ip, recv_iface, ip, ttl, flush, tag)
+            )
 
     logger.info("-" * 68)
     # Verdict.
     problems: list[str] = []
     if len(responders) > 1:
         problems.append("MULTIPLE responders (%d) -> conflicting/cached answerer" % len(responders))
-    mismatched = [s for s in responders for (ip, _t, _c) in responders[s] if ip != s]
+    mismatched = [s for s in responders for (ip, _t, _c, _if) in responders[s] if ip != s]
     if mismatched:
         problems.append("source-IP != advertised-IP -> proxy/cache/reflected reply")
     if len(all_answer_ips) > 1:
@@ -294,7 +394,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("name", help="hostname to resolve (bare name -> .local is appended)")
     ap.add_argument("--timeout", type=float, default=2.0, help="seconds to collect responses (default: 2.0)")
-    ap.add_argument("--iface", metavar="IP", default=None, help="local interface IP to send/receive the query on")
+    ap.add_argument(
+        "--iface",
+        metavar="IP",
+        default=None,
+        help="pin the query to this local interface IP (default: send out of every interface)",
+    )
     ap.add_argument(
         "--unicast",
         action="store_true",
@@ -312,8 +417,8 @@ def main(argv: list[str] | None = None) -> int:
     if not name.endswith(".local") and not args.unicast:
         logger.warning("note: %r is not a .local name; mDNS may return nothing." % name)
 
-    responders, listen_5353 = query_mdns(name, args.timeout, args.iface)
-    report(name, responders, listen_5353, args.timeout)
+    responders, listen_5353, scope = query_mdns(name, args.timeout, args.iface)
+    report(name, responders, listen_5353, args.timeout, scope)
 
     if args.unicast:
         report_unicast(name)
