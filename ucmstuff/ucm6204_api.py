@@ -103,29 +103,29 @@ class UCMEvent(StrEnum):
     these members.
     """
 
-    #: Per-channel call state (``add``/``update``/``delete``), caller/callee,
-    #: trunk and ``state`` (Down/Ring/Ringing …) — the actual call events.
+    # Per-channel call state (``add``/``update``/``delete``), caller/callee,
+    # trunk and ``state`` (Down/Ring/Ringing …) — the actual call events.
     ACTIVE_CALL = "ActiveCallStatus"
-    #: Extension state: ``Idle`` / ``Ringing`` / ``InUse``.
+    # Extension state: ``Idle`` / ``Ringing`` / ``InUse``.
     EXTENSION = "ExtensionStatus"
-    #: PBX summary: available/busy/unavailable/unmonitored trunk counts, calls_num.
+    # PBX summary: available/busy/unavailable/unmonitored trunk counts, calls_num.
     PBX = "PbxStatus"
-    #: Per-trunk reachability / registration status.
+    # Per-trunk reachability / registration status.
     TRUNK = "TrunkStatus"
-    #: User presence (available, away, DND …).
+    # User presence (available, away, DND …).
     PRESENCE = "PresenceStatus"
-    #: Per-extension voicemail counts (new / old / urgent).
+    # Per-extension voicemail counts (new / old / urgent).
     VOICEMAIL = "VoiceMailStatus"
-    #: CPU (per-core) and memory usage — noisy, ticks every few seconds.
+    # CPU (per-core) and memory usage — noisy, ticks every few seconds.
     RESOURCE_USAGE = "ResourceUsageStatus"
-    #: Network interface up/down status.
+    # Network interface up/down status.
     INTERFACE = "InterfaceStatus"
-    #: Equipment capacity / limits (extensions, concurrent calls …).
+    # Equipment capacity / limits (extensions, concurrent calls …).
     EQUIPMENT_CAPACITY = "EquipmentCapacityStatus"
 
 
-#: Default events to subscribe to: the call-relevant ones (list, since ``subscribe``
-#: takes an array and the config field is mutable per instance).
+# Default events to subscribe to: the call-relevant ones (list, since ``subscribe``
+# takes an array and the config field is mutable per instance).
 DEFAULT_EVENTS: list[str] = [UCMEvent.ACTIVE_CALL, UCMEvent.EXTENSION, UCMEvent.PBX]
 
 
@@ -162,7 +162,7 @@ class HeartbeatRequest(TypedDict):
     action: Literal["heartbeat"]
 
 
-#: Any request ``message`` the client sends over the WebSocket.
+# Any request ``message`` the client sends over the WebSocket.
 RequestMessage = ChallengeRequest | LoginRequest | SubscribeRequest | HeartbeatRequest
 
 
@@ -1068,8 +1068,8 @@ class IncomingCall:
     raw: JSONObject
 
 
-#: A callback invoked with a parsed :class:`IncomingCall`. This is where the
-#: caller-based branching (by number/name) lives.
+# A callback invoked with a parsed :class:`IncomingCall`. This is where the
+# caller-based branching (by number/name) lives.
 CallHandler = Callable[[IncomingCall], None]
 
 

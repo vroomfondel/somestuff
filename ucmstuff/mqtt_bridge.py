@@ -51,8 +51,8 @@ from ucmstuff.ucm6204_api import UCM6204, IncomingCall, NotifyEvent, UCMAPIError
 # records into loguru via its _InterceptHandler, so this output lands there too.
 logger = logging.getLogger(__name__)
 
-#: MQTT topic-level separator and single-/multi-level wildcards — illegal inside a
-#: topic segment, so any of these in a trunk name would split or break the topic.
+# MQTT topic-level separator and single-/multi-level wildcards — illegal inside a
+# topic segment, so any of these in a trunk name would split or break the topic.
 _MQTT_RESERVED = str.maketrans({"/": "_", "+": "_", "#": "_"})
 
 
@@ -253,7 +253,7 @@ class MqttEventBridge:
         except Exception:
             logger.exception("MQTT disconnect failed")
 
-    #: Command topic suffix → matching :class:`~ucmstuff.ucm6204_api.UCM6204` method name.
+    # Command topic suffix → matching :class:`~ucmstuff.ucm6204_api.UCM6204` method name.
     _COMMANDS: dict[str, str] = {"accept": "accept_call", "refuse": "refuse_call", "hangup": "hangup"}
 
     def _on_command(self, msg: MWMqttMessage, userdata: dict[str, Any]) -> None:
