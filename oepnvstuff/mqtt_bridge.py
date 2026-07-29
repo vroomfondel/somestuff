@@ -47,12 +47,12 @@ from oepnvstuff.monitor import CycleResult, LineStatus, NextDeparture, RealtimeM
 
 logger = logging.getLogger(__name__)
 
-#: MQTT topic-level separator and single-/multi-level wildcards — illegal inside
-#: a topic segment, so any of these in a line name would split or break the topic.
+# MQTT topic-level separator and single-/multi-level wildcards — illegal inside
+# a topic segment, so any of these in a line name would split or break the topic.
 _MQTT_RESERVED = str.maketrans({"/": "_", "+": "_", "#": "_"})
 
-#: German umlauts/eszett → ASCII digraphs, applied before the generic
-#: accent-stripping so "Straße" becomes "Strasse", not "Strae".
+# German umlauts/eszett → ASCII digraphs, applied before the generic
+# accent-stripping so "Straße" becomes "Strasse", not "Strae".
 _UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
 
 

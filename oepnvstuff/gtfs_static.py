@@ -33,10 +33,10 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-#: GTFS files that :func:`build_index` requires inside the static feed zip.
+# GTFS files that :func:`build_index` requires inside the static feed zip.
 REQUIRED_MEMBERS: tuple[str, ...] = ("stops.txt", "routes.txt", "trips.txt", "stop_times.txt")
 
-#: Mean earth radius in kilometres (haversine distance).
+# Mean earth radius in kilometres (haversine distance).
 _EARTH_RADIUS_KM = 6371.0
 
 

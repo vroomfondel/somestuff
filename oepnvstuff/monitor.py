@@ -269,13 +269,13 @@ class CycleResult:
         return any(s.has_realtime for s in self.per_line.values())
 
 
-#: Handler called after every completed cycle (fresh data or ``304``).
+# Handler called after every completed cycle (fresh data or ``304``).
 CycleHandler = Callable[[CycleResult], None]
-#: Handler called once per *new* (deduplicated) service alert.
+# Handler called once per *new* (deduplicated) service alert.
 AlertHandler = Callable[[ServiceAlert], None]
-#: Handler called on the transition from fresh to stale.
+# Handler called on the transition from fresh to stale.
 StaleHandler = Callable[[CycleResult], None]
-#: Handler called when a fetch attempt in the watch loop fails.
+# Handler called when a fetch attempt in the watch loop fails.
 ErrorHandler = Callable[[Exception], None]
 
 

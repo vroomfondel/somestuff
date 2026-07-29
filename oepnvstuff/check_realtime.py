@@ -87,10 +87,10 @@ DEFAULT_REALTIME = "https://realtime.gtfs.de/realtime-free.pb"
 DEFAULT_LINES = "1,12,22,189"
 DEFAULT_STATION = "Blankenese"
 
-#: Optional env files (gitignored via ``*.local.*``), searched in the current
-#: working directory AND next to this module. ``load_dotenv`` never overrides
-#: variables that are already set, so loading the CWD file first yields the
-#: precedence: real environment > ``$CWD/oepnv.local.env`` > module-dir file.
+# Optional env files (gitignored via ``*.local.*``), searched in the current
+# working directory AND next to this module. ``load_dotenv`` never overrides
+# variables that are already set, so loading the CWD file first yields the
+# precedence: real environment > ``$CWD/oepnv.local.env`` > module-dir file.
 CREDS_FILES = (Path.cwd() / "oepnv.local.env", Path(__file__).parent / "oepnv.local.env")
 for _creds_file in CREDS_FILES:
     load_dotenv(_creds_file)
