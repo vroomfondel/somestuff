@@ -1,0 +1,33 @@
+# Broadlink RM4 helper — default configuration (sample values, committed).
+#
+# Copy the parts you need into broadlink.local.yaml (gitignored via *.local.*):
+#
+#   python3 -m broadlinkstuff.broadlinkhelper discover > broadlink.local.yaml
+#   $EDITOR broadlink.local.yaml
+#
+# That file is looked up in the CURRENT WORKING DIRECTORY first (the repo root
+# while working in the checkout, /app in the container), then next to this file.
+# It is merged over this one at runtime (Helper.update_deep), just like
+# config.local.yaml over config.yaml.
+
+broadlink:
+  # RM4 IR/RF blasters, addressed by the key ("broadlinkhelper send Lounge off").
+  # The key is independent of the name the device carries itself (see `rename`).
+  #
+  # devtype  hardware revision; selects the class (0x648D -> rm4mini,
+  #          0x649B -> rm4pro) and goes into every packet. No constant exists
+  #          for it and it cannot be guessed -- take it from `discover`.
+  #          A bare 0x649B is parsed as an int by YAML; "0x649B" works as well.
+  # host     IP address; the only field that moves on its own (DHCP).
+  # port     optional, defaults to 80 -- which is what every RM4 uses.
+  # mac      lower-case hex without separators; stable, and what a moved device
+  #          is re-found by after the broadcast fallback.
+  #
+  # No devices at all -> every command falls back to a broadcast search.
+  devices: {}
+  # devices:
+  #   Lounge:
+  #     devtype: 0x649B   # RM4 pro
+  #     host: "192.168.1.173"
+  #     port: 80
+  #     mac: "a043b0543a36"
