@@ -42,12 +42,13 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 
 | Module                       | Purpose                                                     |
 |------------------------------|-------------------------------------------------------------|
+| `broadlinkstuff/`            | Broadlink RM4 IR/RF blaster: device fleet, IR/RF learning, Coolix (Midea) climate codec, Typer CLI (`broadlinkhelper`; own `broadlink.yaml` + `broadlink.local.yaml`, not the repo-wide config) |
 | `dhcpstuff/dhcp_discover.py` | DHCP Discover sender with PXE/Proxy DHCP support            |
 | `dnsstuff/spf_ipset_updater.py` | SPF record crawler → ipset updater for SMTP allowlisting |
 | `ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
 | `gcalstuff/gcal_event.py`   | Google Calendar event creation CLI (OAuth2)                 |
 | `hydromailstuff/hydromail.py`| Assembles status emails from MQTT/Netatmo data              |
-| `k3shelperstuff/`           | K3s kubeconfig credential sync via SSH                      |
+| `k3shelperstuff/`           | K3s kubeconfig credential sync via SSH (`update_local_k3s_keys`), user client certificates via the CSR API (`k8s_user_cert`, Typer CLI, `K8S_USER_CERT_*` env) + Keel image-drift checker (`keel_drift`, Typer CLI, `KEEL_*` env) |
 | `llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
 | `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
 | `sipstuff/`                 | **Moved** to [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) |

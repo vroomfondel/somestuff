@@ -14,12 +14,13 @@ Quick links:
 - CI: mypy + pytest, and a multi‑arch Docker build/push workflow (see badges above)
 
 Contents overview (Python packages/modules):
+- `broadlinkstuff`: Broadlink RM4 IR/RF blaster — learn/send codes and compute the full Coolix (Midea) climate matrix
 - `dinogame`: pathfinding/visualization playground inspired by "The Farmer Was Replaced"
 - `dnsstuff`: SPF resolution helper and ipset updater for allow‑listing email senders (e.g. pcbway.com)
 - `ecowittstuff`: simple client/types for Ecowitt weather station API
 - `gcalstuff`: CLI tool for creating Google Calendar events with day‑view confirmation
 - `hydromailstuff`: assemble and send "hydro"/weather summary emails, pulling data from MQTT/Netatmo
-- `k3shelperstuff`: K3s kubeconfig credential synchronization utility
+- `k3shelperstuff`: K3s kubeconfig credential synchronization, user-certificate issuing and a Keel image-drift checker
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
@@ -85,6 +86,23 @@ sudo python -m dhcpstuff -i eth0 -a efi64
 - The bash script `diagnose-dhcp.sh` checks cloud-init, netplan, systemd-networkd, NetworkManager, kernel cmdline, leases, and hooks for unwanted DHCP sources.
 - No external dependencies (stdlib only).
 - Usefulness: quickly identify all DHCP/PXE servers on a network segment, or diagnose why a Linux host is unexpectedly obtaining a DHCP lease.
+
+
+### broadlinkstuff
+Talk to Broadlink RM4 IR/RF blasters: address devices without a broadcast, learn IR/RF codes, send stored or raw codes, and compute Midea/Coolix air-conditioner codes instead of learning all 280 mode x fan x temperature combinations by hand.
+
+- Entrypoint: `broadlinkstuff/broadlinkhelper.py`
+- CLI usage:
+```bash
+python -m broadlinkstuff.broadlinkhelper devices
+python -m broadlinkstuff.broadlinkhelper learn-ir Lounge
+python -m broadlinkstuff.broadlinkhelper climate Lounge --mode heat --temp 23
+python -m broadlinkstuff.broadlinkhelper special Lounge swing
+```
+- Config: own YAML files, independent of the repo-wide `config.yaml` — `broadlinkstuff/broadlink.yaml` (documented sample, committed) with `broadlink.local.yaml` (real devices, gitignored, canonically in the repo root) merged over it. No devices configured means every command falls back to a broadcast search; `discover` prints a ready-made YAML block to paste in.
+- Logs go to stderr, payload (learned hex, config line, code listings) to stdout, so `learn-ir` can be piped.
+- `selftest` verifies the Coolix generator against the learned reference codes; `decode` analyses any packet without touching hardware.
+- Usefulness: script IR/RF devices (air conditioning, TVs) from Python or a shell without the vendor cloud, and generate every climate code instead of learning it.
 
 
 ### dinogame
@@ -174,17 +192,21 @@ Read Netatmo measurements and provide a deployment example.
 
 
 ### k3shelperstuff
-K3s kubeconfig credential synchronization utility. Fetches the kubeconfig from a remote K3s server via SSH, compares user credentials and cluster CA data against the local `~/.kube/config`, and interactively updates any differences.
+Helpers around a K3s/Kubernetes cluster: kubeconfig credential synchronization and a Keel image-drift checker.
 
-- Entrypoint: `k3shelperstuff/update_local_k3s_keys.py`
+- Entrypoints: `k3shelperstuff/update_local_k3s_keys.py`, `k3shelperstuff/k8s_user_cert.py`, `k3shelperstuff/keel_drift.py`
 - CLI usage:
 ```
 python -m k3shelperstuff.update_local_k3s_keys
 python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
+python -m k3shelperstuff.keel_drift --drift-only --fix-command
+python -m k3shelperstuff.k8s_user_cert extern-admin --role view -o /tmp/extern.yaml
 ```
-- Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
-- Docker: mount `~/.kube` into the container (read‑write, since the script updates the local kubeconfig). The `dstart` Makefile target already includes this mount. The script SSHs to the remote host, so `~/.ssh` must also be accessible.
-- Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation.
+- `update_local_k3s_keys`: fetches the kubeconfig from a remote K3s server via SSH, compares user credentials and cluster CA data against the local `~/.kube/config`, and interactively updates any differences. Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
+- `k8s_user_cert`: generates an RSA key + CSR, gets it signed by the cluster CA via the `certificates.k8s.io` API, optionally creates the RoleBinding/ClusterRoleBinding, and merges cluster/user/context into a kubeconfig (mode `0600`). By default the certificate carries no group, so `--role`/`--namespace` actually govern what the user may do; `--group system:masters` is opt-in and would bypass RBAC entirely.
+- `keel_drift`: compares the digest a pod is actually running against the digest its tag currently points at — the comparison Keel itself never makes (it only diffs registry-vs-remembered-digest, and that memory is re-seeded on every restart). Also flags initContainers Keel ignores and `imagePullPolicy != Always`, where a restart cannot help. Exit code 1 on drift, so it works as a pipeline gate. Options double as `KEEL_*` env vars.
+- Docker: mount `~/.kube` into the container (read‑write, since `update_local_k3s_keys` updates the local kubeconfig). The `dstart` Makefile target already includes this mount. That script SSHs to the remote host, so `~/.ssh` must also be accessible; `keel_drift` falls back to the in-cluster service account and can run as a `Job`/`CronJob`.
+- Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation, and catch workloads that silently stayed on an old image.
 
 
 ### sipstuff (moved)

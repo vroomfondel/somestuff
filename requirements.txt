@@ -65,3 +65,11 @@ gtfs-realtime-bindings
 # mqttwebstuff (live web view onto MQTT streams)
 fastapi
 uvicorn
+
+# k3shelperstuff (keel drift checker, k8s user certificates)
+kubernetes
+rich
+cryptography
+
+# broadlinkstuff (Broadlink RM4 IR/RF blaster)
+broadlink
