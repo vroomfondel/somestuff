@@ -28,9 +28,9 @@ from mqttwebstuff.plugin_api import ViewEvent
 
 TITLE = "ÖPNV Live"
 
-#: Root of the publisher's topic tree — deliberately the SAME environment
-#: variable oepnvstuff's --mqtt-base-topic reads, so publisher and board can
-#: share one env value. Multi-level bases ("home/oepnv") work too.
+# Root of the publisher's topic tree — deliberately the SAME environment
+# variable oepnvstuff's --mqtt-base-topic reads, so publisher and board can
+# share one env value. Multi-level bases ("home/oepnv") work too.
 BASE_TOPIC = os.getenv("OEPNV_MQTT_BASE_TOPIC", "oepnv").strip("/")
 
 SUBSCRIPTIONS = [f"{BASE_TOPIC}/#"]
@@ -46,12 +46,12 @@ PANELS = {
     "alerts": "Meldungen",
 }
 
-#: The publisher polls every ~20 s and re-publishes every group each cycle;
-#: 180 s tolerates a few missed cycles before a vanished group leaves the board.
+# The publisher polls every ~20 s and re-publishes every group each cycle;
+# 180 s tolerates a few missed cycles before a vanished group leaves the board.
 _CYCLE_TTL = 180.0
 
-#: Alerts are edge-triggered (published once, deduplicated upstream), so they
-#: need to linger much longer than cycle-refreshed items.
+# Alerts are edge-triggered (published once, deduplicated upstream), so they
+# need to linger much longer than cycle-refreshed items.
 _ALERT_TTL = 6 * 3600.0
 
 

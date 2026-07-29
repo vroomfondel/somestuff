@@ -37,10 +37,10 @@ from mqttwebstuff.webapp import build_environment, create_app
 
 logger = logging.getLogger(__name__)
 
-#: Optional env files (gitignored via ``*.local.*``), searched in the current
-#: working directory AND next to this module. ``load_dotenv`` never overrides
-#: variables that are already set, so loading the CWD file first yields the
-#: precedence: real environment > ``$CWD/mqttweb.local.env`` > module-dir file.
+# Optional env files (gitignored via ``*.local.*``), searched in the current
+# working directory AND next to this module. ``load_dotenv`` never overrides
+# variables that are already set, so loading the CWD file first yields the
+# precedence: real environment > ``$CWD/mqttweb.local.env`` > module-dir file.
 CREDS_FILES = (Path.cwd() / "mqttweb.local.env", Path(__file__).parent / "mqttweb.local.env")
 for _creds_file in CREDS_FILES:
     load_dotenv(_creds_file)

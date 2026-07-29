@@ -36,8 +36,8 @@ _PACKAGE_DIR = Path(__file__).parent
 TEMPLATES_DIR = _PACKAGE_DIR / "templates"
 STATIC_DIR = _PACKAGE_DIR / "static"
 
-#: Seconds between SSE keepalive comments — well below common proxy/ingress
-#: idle timeouts (usually 60 s).
+# Seconds between SSE keepalive comments — well below common proxy/ingress
+# idle timeouts (usually 60 s).
 _KEEPALIVE_SECONDS = 15.0
 
 

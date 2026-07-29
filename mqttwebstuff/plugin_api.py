@@ -41,12 +41,12 @@ from typing import Any, TypeAlias
 
 logger = logging.getLogger(__name__)
 
-#: Fallback template used when a :class:`ViewEvent` names none — a generic
-#: card showing the payload as pretty-printed JSON.
+# Fallback template used when a :class:`ViewEvent` names none — a generic
+# card showing the payload as pretty-printed JSON.
 GENERIC_TEMPLATE = "generic_item.html.j2"
 
-#: Built-in template for the hierarchical generic view: one indented row per
-#: topic segment (branch rows for structure, leaf rows with the value).
+# Built-in template for the hierarchical generic view: one indented row per
+# topic segment (branch rows for structure, leaf rows with the value).
 GENERIC_TREE_TEMPLATE = "generic_tree_item.html.j2"
 
 
@@ -86,8 +86,8 @@ class ViewEvent:
     ttl: float | None = 300.0
 
 
-#: What ``map_message`` may return: one item, several items (e.g. a leaf plus
-#: synthesized ancestor rows for a tree view), or ``None`` to drop the message.
+# What ``map_message`` may return: one item, several items (e.g. a leaf plus
+# synthesized ancestor rows for a tree view), or ``None`` to drop the message.
 MapResult: TypeAlias = "ViewEvent | Sequence[ViewEvent] | None"
 
 

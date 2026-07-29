@@ -36,8 +36,8 @@ from mqttwebstuff.plugin_api import GENERIC_TEMPLATE, LoadedPlugin, ViewEvent
 
 logger = logging.getLogger(__name__)
 
-#: German umlauts/eszett → ASCII digraphs, applied before the generic
-#: accent-stripping so "Straße" slugs to "strasse", not "strae".
+# German umlauts/eszett → ASCII digraphs, applied before the generic
+# accent-stripping so "Straße" slugs to "strasse", not "strae".
 _UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
 
 
@@ -57,9 +57,9 @@ def anchor_slug(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower() or "x"
 
 
-#: Per-subscriber queue depth; a browser that cannot drain this many panel
-#: updates gets the oldest ones dropped (the next update repaints the panel
-#: fully anyway, so drops only cost intermediate states).
+# Per-subscriber queue depth; a browser that cannot drain this many panel
+# updates gets the oldest ones dropped (the next update repaints the panel
+# fully anyway, so drops only cost intermediate states).
 _QUEUE_MAXSIZE = 256
 
 
