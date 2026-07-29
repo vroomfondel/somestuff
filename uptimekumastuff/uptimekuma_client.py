@@ -123,7 +123,7 @@ class KumaClient:
         timeout: Seconds to wait for responses and pushes.
     """
 
-    #: Events the server pushes on its own that we capture.
+    # Events the server pushes on its own that we capture.
     PUSHED_EVENTS = ("monitorList", "notificationList")
 
     def __init__(self, url: str, timeout: int = 30) -> None:

@@ -52,15 +52,16 @@ python3 -m k3shelperstuff.k8s_user_cert extern-admin
 python3 -m k3shelperstuff.k8s_user_cert extern-admin -o /tmp/extern-kubeconfig.yaml
 python3 -m k3shelperstuff.k8s_user_cert extern-admin --cluster-nickname prod \
     --external-url https://k8s.example.com:6443
-python3 -m k3shelperstuff.k8s_user_cert reader --role view --group ''       # ClusterRoleBinding
-python3 -m k3shelperstuff.k8s_user_cert dev1 --role edit -n dev --group ''  # RoleBinding in 'dev'
-python3 -m k3shelperstuff.k8s_user_cert someone --no-rbac --group ''        # certificate only
+python3 -m k3shelperstuff.k8s_user_cert reader --role view             # ClusterRoleBinding
+python3 -m k3shelperstuff.k8s_user_cert dev1 --role edit -n dev        # RoleBinding in 'dev'
+python3 -m k3shelperstuff.k8s_user_cert someone --no-rbac --group ops  # certificate only
+python3 -m k3shelperstuff.k8s_user_cert breakglass --group system:masters   # see below
 ```
 
 | Option                 | Env var                          | Description                                                                             |
 |------------------------|----------------------------------|-----------------------------------------------------------------------------------------|
 | `USERNAME` (argument)  | —                                | Name of the new user; becomes the certificate's `CN`                                    |
-| `-g`, `--group G`      | `K8S_USER_CERT_GROUPS`           | Group membership, repeatable, becomes an `O`; `''` for none (default: `system:masters`) |
+| `-g`, `--group G`      | `K8S_USER_CERT_GROUPS`           | Group membership, repeatable, becomes an `O` (default: none — the binding decides)      |
 | `-i`, `--input PATH`   | `K8S_USER_CERT_INPUT`            | Admin kubeconfig used to talk to the cluster (default: `~/.kube/config`)                |
 | `-o`, `--output PATH`  | `K8S_USER_CERT_OUTPUT`           | Target kubeconfig (default: same as `--input`)                                          |
 | `--validity SECONDS`   | `K8S_USER_CERT_VALIDITY`         | Requested lifetime (default: one year)                                                  |
@@ -71,16 +72,22 @@ python3 -m k3shelperstuff.k8s_user_cert someone --no-rbac --group ''        # ce
 | `--no-rbac`            | `K8S_USER_CERT_NO_RBAC`          | Do not create any RBAC binding                                                          |
 | `-v`, `--verbose`      | `K8S_USER_CERT_VERBOSE`          | DEBUG logging                                                                           |
 
-### ⚠ `system:masters` cannot be restricted
+### Groups, and why `system:masters` is not the default
 
 A client certificate's identity is entirely its subject: `CN` is the user name,
-every `O` is a group. The default group here is **`system:masters`**, which the
-API server hard-wires to full cluster-admin **before RBAC is consulted**.
+every `O` is a group. **By default no group is set**, so what the user may do is
+decided solely by the RBAC binding — `--role` and `--namespace` mean what they
+say.
 
-So `--role view`, `-n dev` and even `--no-rbac` do *not* restrict such a
-certificate — they only decide which (then redundant) binding gets written. For a
-user that can actually be limited, pass `--group ''` and let the RBAC binding do
-the work. The tool logs a warning whenever the two contradict each other.
+`--group system:masters` is the exception you have to ask for explicitly: the API
+server hard-wires that group to full cluster-admin **before RBAC is consulted**.
+Such a certificate cannot be restricted by `--role`, `-n` or `--no-rbac` (those
+then only decide which redundant binding gets written), and it cannot be revoked
+through RBAC either — a short `--validity` is the only lever left. The tool warns
+when it is used, and louder when it contradicts a requested restriction.
+
+It also warns about the opposite mistake: no group *and* `--no-rbac` yields a
+certificate that authenticates but is allowed to do nothing.
 
 ### Other things worth knowing
 
