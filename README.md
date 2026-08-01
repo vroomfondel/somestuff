@@ -99,7 +99,7 @@ python -m broadlinkstuff.broadlinkhelper learn-ir Lounge
 python -m broadlinkstuff.broadlinkhelper climate Lounge --mode heat --temp 23
 python -m broadlinkstuff.broadlinkhelper special Lounge swing
 ```
-- Config: own YAML files, independent of the repo-wide `config.yaml` — `broadlinkstuff/broadlink.yaml` (documented sample, committed) with `broadlink.local.yaml` (real devices, gitignored, canonically in the repo root) merged over it. No devices configured means every command falls back to a broadcast search; `discover` prints a ready-made YAML block to paste in.
+- Config: own YAML files, independent of the repo-wide `config.yaml` — `broadlinkstuff/broadlink.yaml` (documented sample, committed) with `broadlink.local.yaml` (real devices, gitignored, taken from the current working directory) merged over it. No devices configured means every command falls back to a broadcast search; `discover` prints a ready-made YAML block to paste in.
 - Logs go to stderr, payload (learned hex, config line, code listings) to stdout, so `learn-ir` can be piped.
 - `selftest` verifies the Coolix generator against the learned reference codes; `decode` analyses any packet without touching hardware.
 - Usefulness: script IR/RF devices (air conditioning, TVs) from Python or a shell without the vendor cloud, and generate every climate code instead of learning it.
@@ -192,7 +192,7 @@ Read Netatmo measurements and provide a deployment example.
 
 
 ### k3shelperstuff
-Helpers around a K3s/Kubernetes cluster: kubeconfig credential synchronization and a Keel image-drift checker.
+Helpers around a K3s/Kubernetes cluster: kubeconfig credential synchronization, client certificates for new users, and a Keel image-drift checker.
 
 - Entrypoints: `k3shelperstuff/update_local_k3s_keys.py`, `k3shelperstuff/k8s_user_cert.py`, `k3shelperstuff/keel_drift.py`
 - CLI usage:
@@ -205,8 +205,8 @@ python -m k3shelperstuff.k8s_user_cert extern-admin --role view -o /tmp/extern.y
 - `update_local_k3s_keys`: fetches the kubeconfig from a remote K3s server via SSH, compares user credentials and cluster CA data against the local `~/.kube/config`, and interactively updates any differences. Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
 - `k8s_user_cert`: generates an RSA key + CSR, gets it signed by the cluster CA via the `certificates.k8s.io` API, optionally creates the RoleBinding/ClusterRoleBinding, and merges cluster/user/context into a kubeconfig (mode `0600`). By default the certificate carries no group, so `--role`/`--namespace` actually govern what the user may do; `--group system:masters` is opt-in and would bypass RBAC entirely.
 - `keel_drift`: compares the digest a pod is actually running against the digest its tag currently points at — the comparison Keel itself never makes (it only diffs registry-vs-remembered-digest, and that memory is re-seeded on every restart). Also flags initContainers Keel ignores and `imagePullPolicy != Always`, where a restart cannot help. Exit code 1 on drift, so it works as a pipeline gate. Options double as `KEEL_*` env vars.
-- Docker: mount `~/.kube` into the container (read‑write, since `update_local_k3s_keys` updates the local kubeconfig). The `dstart` Makefile target already includes this mount. That script SSHs to the remote host, so `~/.ssh` must also be accessible; `keel_drift` falls back to the in-cluster service account and can run as a `Job`/`CronJob`.
-- Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation, and catch workloads that silently stayed on an old image.
+- Docker: mount `~/.kube` into the container (read‑write, since `update_local_k3s_keys` updates the local kubeconfig). The `dstart` Makefile target already includes this mount. That script SSHs to the remote host, so `~/.ssh` must also be accessible; `k8s_user_cert` writes its result wherever `-o` points; `keel_drift` falls back to the in-cluster service account and can run as a `Job`/`CronJob`.
+- Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation, hand someone a scoped kubeconfig without touching the CA by hand, and catch workloads that silently stayed on an old image.
 
 
 ### sipstuff (moved)
