@@ -63,7 +63,7 @@ python3 -m oepnvstuff.check_realtime --show-stops --station Blankenese --near 53
 python3 -m oepnvstuff.check_realtime --near "53.5633,9.8144,2;53.647,9.892,3"
 
 # poll loop, one compact status line per cycle
-python3 -m oepnvstuff.check_realtime --watch --interval 20
+python3 -m oepnvstuff.check_realtime --watch --interval 180
 
 # several stations at once (';'-separated — stop names contain commas/spaces)
 python3 -m oepnvstuff.check_realtime --station "Blankenese;Ellerbek" --lines "1,189,195"
@@ -110,7 +110,7 @@ $EDITOR oepnvstuff/oepnv.local.env
 | `OEPNV_CACHE_DIR`      | `--cache-dir`      | `.gtfs_cache`                               |
 | `OEPNV_FORCE_REFRESH`  | `--force-refresh`  | off                                         |
 | `OEPNV_WATCH`          | `--watch`, `-w`    | off                                         |
-| `OEPNV_INTERVAL`       | `--interval`       | `20` s (gtfs.de updates every ~10 s)        |
+| `OEPNV_INTERVAL`       | `--interval`       | `180` s — see [Bandbreite](#bandbreite)     |
 | `OEPNV_MAX_AGE`        | `--max-age`        | `120` s (`0` = off)                         |
 | `OEPNV_STALE_CYCLES`   | `--stale-cycles`   | `6`                                         |
 | `OEPNV_STOP_ON_STALE`  | `--stop-on-stale`  | off                                         |
@@ -126,6 +126,37 @@ $EDITOR oepnvstuff/oepnv.local.env
 | `OEPNV_MQTT_TLS_KEY`   | `--mqtt-tls-key`   | *(off)* — client key for mutual TLS         |
 | `OEPNV_MQTT_TLS_INSECURE` | `--mqtt-tls-insecure` | off — skip hostname verification (self-signed certs) |
 | `OEPNV_VERBOSE`        | `--verbose`, `-v`  | off                                         |
+
+### Bandbreite
+
+`OEPNV_INTERVAL` ist der einzige Hebel auf das Datenvolumen, und zwar aus einem
+Grund, der nicht auf der Hand liegt:
+
+* `RealtimeFetcher` schickt Conditional Requests (`If-None-Match` /
+  `If-Modified-Since`) und gtfs.de beantwortet sie korrekt mit `304`.
+* gtfs.de baut `realtime-free.pb` aber **einmal pro Minute** neu
+  (`FeedHeader.timestamp` landet immer auf `:50`). Bei einem Intervall `<= 60 s`
+  ist jeder Poll deshalb ein echter neuer Body — der `304` ist strukturell
+  unerreichbar, nicht etwa kaputt.
+* Der Feed ist **unkomprimiert** (kein `Content-Encoding`, egal ob `gzip`,
+  `br` oder `zstd`), und es gibt **keine kleinere regionale Variante**:
+  `realtime-{nv,fv,rv}.pb` liefern 404, nur der bundesweite Feed existiert.
+
+Das Volumen hängt damit allein daran, wie viele Feed-**Versionen** geholt
+werden — nicht daran, wie oft gepollt wird. Schneller pollen als der Rebuild
+kostet nichts (die Extra-Polls sind `304`), langsamer pollen ist die einzige
+Ersparnis. Gemessen über 360 Zyklen: ⌀ 44 MB pro Version (min 29, max 53).
+
+| Intervall | Versionen/Tag | Volumen/Tag |
+|-----------|---------------|-------------|
+| 20–60 s   | 1440          | ~61 GB      |
+| 180 s (Default) | 480     | ~20 GB      |
+| 300 s     | 288           | ~12 GB      |
+| 600 s     | 144           | ~6 GB       |
+
+`OEPNV_MAX_AGE` muss dabei **nicht** mitwachsen: `age` ist `now - feed_ts` zum
+Fetch-Zeitpunkt und bleibt wegen des Minuten-Rebuilds immer unter 60 s,
+unabhängig vom Intervall.
 
 **k3s notes:** configure everything via env in the Deployment; point
 `OEPNV_CACHE_DIR` at a persistent volume so pod restarts reuse the (large)
@@ -170,7 +201,7 @@ from oepnvstuff.monitor import CycleResult, RealtimeMonitor
 index = build_index(obtain("https://download.gtfs.de/germany/nv_free/latest.zip", ".gtfs_cache"),
                     ["1", "189"], "Blankenese")
 monitor = RealtimeMonitor(RealtimeFetcher("https://realtime.gtfs.de/realtime-free.pb"), index,
-                          interval=20.0, stop_on_stale=True)
+                          interval=180.0, stop_on_stale=True)
 
 def my_handler(cycle: CycleResult) -> None:
     for line, status in cycle.per_line.items():

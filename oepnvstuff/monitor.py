@@ -334,7 +334,7 @@ class RealtimeMonitor:
         fetcher: RealtimeFetcher,
         index: StaticFeedIndex,
         *,
-        interval: float = 20.0,
+        interval: float = 180.0,
         max_age: int = 120,
         stale_cycles: int = 6,
         stop_on_stale: bool = False,
@@ -350,7 +350,10 @@ class RealtimeMonitor:
                 or local file).
             index: The static schedule index to match against.
             interval: Target poll-cycle duration in seconds (fetch time is
-                subtracted from the sleep).
+                subtracted from the sleep). gtfs.de rebuilds the feed once a
+                minute and every version is a ~44 MB download, so this is the
+                only knob on bandwidth — see
+                :class:`~oepnvstuff.gtfs_realtime.RealtimeFetcher`.
             max_age: Feed counts as stale when ``FeedHeader.timestamp`` is
                 older than this many seconds; ``0`` disables the age check.
             stale_cycles: Feed counts as stale after this many consecutive

@@ -39,7 +39,7 @@ Both source options also accept local file paths (for testing).
 Usage::
 
     python3 -m oepnvstuff.check_realtime
-    python3 -m oepnvstuff.check_realtime --watch --interval 20
+    python3 -m oepnvstuff.check_realtime --watch --interval 180
     python3 -m oepnvstuff.check_realtime --watch --mqtt --mqtt-host broker.example.org
     python3 -m oepnvstuff.check_realtime --lines 195,295,781,X95 --station Ellerbek   # non-default station
     python3 -m oepnvstuff.check_realtime --station "Blankenese;Ellerbek"              # several stations
@@ -410,7 +410,10 @@ def main(
         help="look-ahead window for departures in hours (a fresh static feed appears within 48h anyway)",
     ),
     interval: float = typer.Option(
-        20.0, "--interval", envvar="OEPNV_INTERVAL", help="poll interval in seconds (gtfs.de updates every 10s)"
+        180.0,
+        "--interval",
+        envvar="OEPNV_INTERVAL",
+        help="poll interval in seconds; gtfs.de rebuilds the feed once a minute and each version is a ~44 MB download",
     ),
     max_age: int = typer.Option(
         120, "--max-age", envvar="OEPNV_MAX_AGE", help="feed counts as stale when feed_ts is older than N s (0 = off)"

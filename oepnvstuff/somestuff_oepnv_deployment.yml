@@ -85,9 +85,11 @@ spec:
               value: "true"
             - name: OEPNV_STOP_ON_STALE
               value: "true"
-            # Poll interval in seconds (gtfs.de updates every ~10s).
+            # Poll interval in seconds. gtfs.de rebuilds the feed once a minute
+            # and every version is a ~44 MB uncompressed download, so <=60 means
+            # 61 GB/day and a 304 never happens. 180 = every 3rd = ~20 GB/day.
             - name: OEPNV_INTERVAL
-              value: "20"
+              value: "180"
             # Staleness: feed older than N seconds (0 = off) / N unchanged cycles.
             - name: OEPNV_MAX_AGE
               value: "120"

@@ -6,6 +6,17 @@ GTFS-RT is *not* push/WebSocket — it is an HTTP resource that has to be polled
 an unchanged feed costs a ``304 Not Modified`` round-trip instead of a body
 download.
 
+That saves less than it sounds like on gtfs.de: the feed is rebuilt **once per
+minute** (``FeedHeader.timestamp`` always lands on ``:50``), so a poll interval
+at or below 60 s hits a genuinely new body every time and never sees a 304 —
+measured over 360 cycles, ~44 MB each (min 29, max 53), i.e. 61 GB/day. The
+server sends no ``Content-Encoding`` whatever the ``Accept-Encoding``, and
+there is no smaller regional variant (``realtime-{nv,fv,rv}.pb`` → 404), so the
+bandwidth is set purely by how many feed *versions* are downloaded — not by how
+often it is polled. Polling faster than the rebuild is free; polling slower is
+the only way to use less. Hence the 180 s default in
+:class:`~oepnvstuff.monitor.RealtimeMonitor`.
+
 :func:`parse_realtime` decodes the protobuf payload and reduces it to a typed
 :class:`RealtimeSnapshot`: the trip updates matching the target trips/routes
 (with their per-stop delay values) plus the service alerts touching them.
