@@ -8,12 +8,12 @@ declaratively and idempotently — instead of clicking monitors together in the 
 
 ## Which tool for what?
 
-| I want to…                                              | Tool                                          |
-|---------------------------------------------------------|-----------------------------------------------|
-| Apply monitors **and** notifications from a YAML file   | **`uptimekuma_apply.py`** — `SimpleKumaApi`'s idempotent sibling |
-| Manage monitors from an **Ansible** playbook            | **`uptimekuma_monitor.py`** (Ansible module)  |
-| Back up / migrate the complete state to a new instance  | **`uptimekuma_simpleapi.py`** (`SimpleKumaApi`) |
-| Write my own Python against Kuma                        | **`uptimekuma_client.py`** (`KumaClient`)     |
+| I want to…                                             | Tool                                                             |
+|--------------------------------------------------------|------------------------------------------------------------------|
+| Apply monitors **and** notifications from a YAML file  | **`uptimekuma_apply.py`** — `SimpleKumaApi`'s idempotent sibling |
+| Manage monitors from an **Ansible** playbook           | **`uptimekuma_monitor.py`** (Ansible module)                     |
+| Back up / migrate the complete state to a new instance | **`uptimekuma_simpleapi.py`** (`SimpleKumaApi`)                  |
+| Write my own Python against Kuma                       | **`uptimekuma_client.py`** (`KumaClient`)                        |
 
 - **`uptimekuma_client.py`** — `KumaClient`, a direct Socket.IO client with guaranteed-fresh
   reads and idempotent `upsert_monitor` / `upsert_notification`. The library everything else
@@ -31,12 +31,12 @@ The library (1.2.1, last released 2023, declares support up to Kuma 1.23.2) **re
 against Kuma 2.x but **cannot write** — and its reads lie after your own writes. All verified
 against the 2.4.0 server code:
 
-| Call                                                                     | Behaviour against 2.4.0                                          |
-|--------------------------------------------------------------------------|-----------------------------------------------------------------|
-| `login`, `get_monitors`, `get_notifications`, `get_settings`, `get_tags` | work                                                            |
-| `add_monitor()`                                                          | **`NOT NULL constraint failed: monitor.conditions`**            |
-| `delete_monitor()`                                                       | **`"monitor does not exist"`** — although it exists             |
-| `get_status_page()`                                                      | **`KeyError: 'incident'`** — the field is gone in 2.x           |
+| Call                                                                     | Behaviour against 2.4.0                               |
+|--------------------------------------------------------------------------|-------------------------------------------------------|
+| `login`, `get_monitors`, `get_notifications`, `get_settings`, `get_tags` | work                                                  |
+| `add_monitor()`                                                          | **`NOT NULL constraint failed: monitor.conditions`**  |
+| `delete_monitor()`                                                       | **`"monitor does not exist"`** — although it exists   |
+| `get_status_page()`                                                      | **`KeyError: 'incident'`** — the field is gone in 2.x |
 
 **`add_monitor`:** Kuma 2.x added the column `conditions NOT NULL DEFAULT '[]'` (migration
 `2024-08-24-0000-conditions.js`). The library doesn't know the field, so the server writes an
@@ -76,9 +76,27 @@ cp uptimekumastuff/uptimekuma.env.example uptimekumastuff/uptimekuma.local.env
 $EDITOR uptimekumastuff/uptimekuma.local.env
 ```
 
+`uptimekuma.local.env` is looked for **first in the current working directory**, then in the
+package directory — the first hit wins. So a per-deployment file can sit next to the state YAML
+it belongs to, without touching the checkout:
+
+```bash
+cd /srv/kuma-state && $EDITOR uptimekuma.local.env   # beats uptimekumastuff/uptimekuma.local.env
+```
+
+The file also carries **`UPTIME_KUMA_URL`** as the fallback target — then `--url` can be omitted.
+Precedence for the URL is `--url` → `url:` in the state YAML → `UPTIME_KUMA_URL`, so an ambient
+default never silently redirects a run at a different instance than the file names.
+
 > **The Socket.IO login accepts username+password only.** API keys (`uk1_`/`uk2_`/`uk3_`) work
 > exclusively for HTTP basic auth on `/metrics` — never for the socket. The login is also
-> rate-limited: several logins in quick succession → `TimeoutError`.
+> rate-limited to 20 attempts per minute (`server/rate-limiter.js`), which surfaces as
+> `KumaError: login: Too frequently, try again later.` — the limiter runs with
+> `fireImmediately: true` and answers with `ok: false` rather than leaving you hanging.
+
+A **timeout** (`login: no response within 30s`) is something else: no ack at all. The handlers in
+`server.js` have no try/catch, so an exception inside one (DB hiccup) swallows the callback; a
+dropped connection looks identical from the client side. Both are transient — retry.
 
 Requires: `python-socketio`, `python-dotenv`, `typer`, `PyYAML`, `uptime-kuma-api` (the last only
 for the reads in `uptimekuma_simpleapi.py`), plus `loguru` and `tabulate` for logging.
@@ -134,6 +152,10 @@ Output masks secrets (`mqttPassword=<secret>`). The YAML itself holds plaintext 
 python3 -m uptimekumastuff.uptimekuma_simpleapi export \
   --url https://uptimekuma.example.lan --out state.local.json
 
+# ... as YAML, for readable diffs between two exports
+python3 -m uptimekumastuff.uptimekuma_simpleapi export \
+  --url https://uptimekuma.example.lan --out state.local.yml
+
 # see what an import would create — touches nothing, needs no credentials
 python3 -m uptimekumastuff.uptimekuma_simpleapi import \
   --url http://127.0.0.1:3001 --in-file state.local.json --dry-run
@@ -143,6 +165,16 @@ python3 -m uptimekumastuff.uptimekuma_simpleapi import \
   --url http://127.0.0.1:3001 --in-file state.local.json --paused \
   --username admin --password '…'
 ```
+
+The export format follows the extension of `--out` (`.yml`/`.yaml` → YAML, otherwise JSON);
+`--format json|yaml` forces it. `import` swallows both — JSON is parsed as JSON, everything else
+as YAML. That order matters: PyYAML implements YAML 1.1 and resolves a few JSON scalars
+differently (`1e5` becomes a string, not a number), so a JSON file belongs in the JSON parser.
+
+> The YAML here is **not** an `uptimekuma_apply.py` state file. Both use Kuma's field names, but
+> the export references by ID (`parent: 9`, `notificationIDList: [1, 3]`) while apply references
+> by name — and `resolve_parent` passes an `int` through unchanged, so the IDs would be taken as
+> already-resolved and silently point at whatever carries that ID on the target.
 
 Verified: prod → fresh instance → re-export → field-compare = **identical**. `--paused` creates
 every monitor inactive: no checks, no alarms — **mandatory for test instances**, otherwise the

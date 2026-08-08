@@ -171,8 +171,16 @@ class KumaClient:
         self.close()
 
     def connect(self) -> None:
-        """Establishes the Socket.IO connection (websocket, no polling detour)."""
-        self.sio.connect(self.url, transports=["websocket"], wait_timeout=self.timeout)
+        """Establishes the Socket.IO connection (websocket, no polling detour).
+
+        Raises:
+            KumaError: If no connection comes about - wrong URL, instance down, or a proxy
+                that doesn't pass the websocket upgrade through.
+        """
+        try:
+            self.sio.connect(self.url, transports=["websocket"], wait_timeout=self.timeout)
+        except socketio.exceptions.ConnectionError as exc:
+            raise KumaError(f"no connection to {self.url}: {exc}") from None
 
     def close(self) -> None:
         """Disconnects without throwing on an already-dead connection."""
@@ -192,10 +200,20 @@ class KumaClient:
             The server's response.
 
         Raises:
-            KumaError: If the server reports ``ok: false``.
+            KumaError: If the server reports ``ok: false`` or does not answer at all.
         """
         data = args[0] if len(args) == 1 else tuple(args)
-        result = cast(Payload, self.sio.call(event, data, timeout=self.timeout))
+        try:
+            result = cast(Payload, self.sio.call(event, data, timeout=self.timeout))
+        except socketio.exceptions.TimeoutError:
+            # No ack at all. Not a rate limit and not wrong credentials - both of those the
+            # server answers with `ok: false`. The handlers in server.js have no try/catch, so
+            # an exception inside one (DB hiccup) swallows the callback; a dropped connection
+            # looks the same from here. Both are transient, hence the hint to simply retry.
+            raise KumaError(
+                f"{event}: no response within {self.timeout}s - instance overloaded, "
+                f"the handler died server-side, or the connection dropped. Usually transient: retry."
+            ) from None
         if isinstance(result, dict) and result.get("ok") is False:
             raise KumaError(f"{event}: {result.get('msg')}")
         return result
@@ -211,7 +229,8 @@ class KumaClient:
             password: Password.
 
         Raises:
-            KumaError: On wrong credentials.
+            KumaError: On wrong credentials, when rate-limited ("Too frequently, try again
+                later.") or when the server does not answer at all.
         """
         self.call("login", {"username": username, "password": password, "token": None})
 

@@ -11,18 +11,30 @@ import logging
 import os
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from types import FrameType
 from typing import TYPE_CHECKING
 
+from dotenv import load_dotenv
 from loguru import logger as glogger
 from tabulate import tabulate
 
 if TYPE_CHECKING:
     from loguru import Record
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 
-__all__ = ["__version__", "configure_logging", "print_banner"]
+__all__ = [
+    "__version__",
+    "CREDS_FILENAME",
+    "configure_logging",
+    "creds_file_candidates",
+    "env_url",
+    "load_creds_env",
+    "print_banner",
+]
+
+CREDS_FILENAME = "uptimekuma.local.env"
 
 
 def _loguru_skiplog_filter(record: "Record") -> bool:
@@ -92,6 +104,55 @@ def configure_logging(
     # Replace any stdlib handlers with the intercept so all ``logging`` output
     # (this package's and third-party libraries') flows through loguru.
     logging.basicConfig(handlers=[_InterceptHandler()], level=logging.getLevelNamesMapping()[level_name], force=True)
+
+
+def creds_file_candidates() -> list[Path]:
+    """List the ``uptimekuma.local.env`` locations, in precedence order.
+
+    The current working directory comes first so a per-deployment file next to the
+    state YAML wins over the one shipped in the package directory. Duplicates (the
+    CWD *is* the package directory) are collapsed.
+
+    Returns:
+        Candidate paths, highest precedence first. They need not exist.
+    """
+    candidates: list[Path] = []
+    for path in (Path.cwd() / CREDS_FILENAME, Path(__file__).parent / CREDS_FILENAME):
+        resolved = path.resolve()
+        if resolved not in {c.resolve() for c in candidates}:
+            candidates.append(path)
+    return candidates
+
+
+def load_creds_env() -> list[Path]:
+    """Load the credentials files into ``os.environ``.
+
+    ``load_dotenv`` never overwrites an already-set variable, so real environment
+    variables beat every file and the first candidate beats the later ones.
+
+    Returns:
+        The candidate paths that were searched, in precedence order — for error
+        messages naming where the caller looked.
+    """
+    candidates = creds_file_candidates()
+    for candidate in candidates:
+        load_dotenv(candidate)
+    return candidates
+
+
+def env_url() -> str | None:
+    """Read the instance URL from ``UPTIME_KUMA_URL``.
+
+    Loads the creds files first, so the variable may come from the environment or
+    from either ``uptimekuma.local.env``. It is the lowest-precedence source: a URL
+    on the command line or in a state file always wins, so an ambient default can
+    never silently redirect a run at a different instance than the file names.
+
+    Returns:
+        The configured base URL, or ``None`` if unset or empty.
+    """
+    load_creds_env()
+    return os.environ.get("UPTIME_KUMA_URL") or None
 
 
 def print_banner() -> None:

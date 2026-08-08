@@ -5,8 +5,13 @@ Examples::
 
     python3 -m uptimekumastuff.uptimekuma_simpleapi export \\
         --url https://uptimekuma.example.lan --out state.local.json
+    python3 -m uptimekumastuff.uptimekuma_simpleapi export \\
+        --url https://uptimekuma.example.lan --out state.local.yml   # or --format yaml
     python3 -m uptimekumastuff.uptimekuma_simpleapi import \\
         --url http://127.0.0.1:3001 --in-file state.local.json --paused
+
+The export format follows the extension of ``--out``; ``--format json|yaml`` forces it.
+``import`` takes either, detected by content.
 
 Why not just uptime-kuma-api?
     The lib (1.2.1, last released 2023) can read against Kuma 2.x, but not write:
@@ -24,7 +29,9 @@ Why not just uptime-kuma-api?
 Credentials:
     ``uptimekuma.local.env`` (UPTIME_KUMA_USERNAME / UPTIME_KUMA_PASSWORD) or real
     environment variables, which take precedence. For a different target system there are
-    ``--username`` / ``--password``. Template: ``uptimekuma.env.example``.
+    ``--username`` / ``--password``. The file is searched first in the current working
+    directory, then in the package directory; the first hit wins. ``UPTIME_KUMA_URL`` there
+    replaces ``--url``. Template: ``uptimekuma.env.example``.
 
 Warning:
     The export contains plaintext secrets (MQTT passwords, Telegram bot tokens, Gotify
@@ -41,12 +48,10 @@ from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
 import typer
-from dotenv import load_dotenv
+import yaml
 from uptime_kuma_api import UptimeKumaApi
 
-from uptimekumastuff import configure_logging, print_banner
-
-CREDS_FILE = Path(__file__).parent / "uptimekuma.local.env"
+from uptimekumastuff import configure_logging, env_url, load_creds_env, print_banner
 
 # On read Kuma delivers 115 fields, but the monitor table has only 111 columns. These are
 # derived server-side or live in their own tables and would make bean.import() run into
@@ -230,8 +235,71 @@ def jsonable(obj: object) -> object:
     return obj
 
 
+class StateFormat(str, Enum):
+    """Serialization format of the state file.
+
+    Attributes:
+        auto: Derive from the file extension of ``--out`` (.yml/.yaml -> YAML, else JSON).
+        json: Force JSON.
+        yaml: Force YAML.
+    """
+
+    auto = "auto"
+    json = "json"
+    yaml = "yaml"
+
+
+YAML_SUFFIXES: frozenset[str] = frozenset({".yml", ".yaml"})
+
+
+def dump_state(state: KumaState, out: Path, out_format: StateFormat) -> StateFormat:
+    """Writes the state to a file as JSON or YAML.
+
+    Args:
+        state: The exported state.
+        out: Target file.
+        out_format: Desired format; ``auto`` derives it from ``out``'s extension.
+
+    Returns:
+        The format actually used - never ``auto``.
+    """
+    resolved = out_format
+    if resolved is StateFormat.auto:
+        resolved = StateFormat.yaml if out.suffix.lower() in YAML_SUFFIXES else StateFormat.json
+    if resolved is StateFormat.yaml:
+        # sort_keys=False keeps Kuma's field order, so a diff between two exports stays readable.
+        out.write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True, default_flow_style=False))
+    else:
+        out.write_text(json.dumps(state, indent=1))
+    return resolved
+
+
+def load_state(in_file: Path) -> KumaState:
+    """Reads a state file, whether it holds JSON or YAML.
+
+    JSON is tried first on purpose: PyYAML implements YAML 1.1, which resolves a few JSON
+    scalars differently (``1e5`` becomes a string, not a number). For a JSON file the JSON
+    parser is therefore the correct one, and YAML is only the fallback.
+
+    Args:
+        in_file: The file to read.
+
+    Returns:
+        The state contained in it.
+    """
+    text = in_file.read_text()
+    try:
+        return cast(KumaState, json.loads(text))
+    except json.JSONDecodeError:
+        return cast(KumaState, yaml.safe_load(text))
+
+
 def load_creds(username: str | None, password: str | None) -> tuple[str, str]:
     """Determines the credentials from CLI arguments, environment or creds file.
+
+    Searched in this order: CLI arguments, real environment variables,
+    ``uptimekuma.local.env`` in the current working directory, then the one in the
+    package directory.
 
     Args:
         username: Explicitly passed username or ``None``.
@@ -245,13 +313,14 @@ def load_creds(username: str | None, password: str | None) -> tuple[str, str]:
     """
     if username and password:
         return username, password
-    load_dotenv(CREDS_FILE)
+    searched = load_creds_env()
     user = username or os.environ.get("UPTIME_KUMA_USERNAME")
     pw = password or os.environ.get("UPTIME_KUMA_PASSWORD")
     if not user or not pw:
+        locations = " or ".join(str(path) for path in searched)
         sys.exit(
             f"Credentials missing: UPTIME_KUMA_USERNAME/UPTIME_KUMA_PASSWORD "
-            f"(neither in the environment nor in {CREDS_FILE})"
+            f"(neither in the environment nor in {locations})"
         )
     return user, pw
 
@@ -508,34 +577,45 @@ app = typer.Typer(add_completion=False, help=__doc__)
 
 @app.command("export")
 def export_cmd(
-    url: str = typer.Option(..., help="Base URL of the source instance"),
-    out: Path = typer.Option(..., help="Target file for the JSON export"),
+    url: str | None = typer.Option(None, help="Base URL of the source instance; else UPTIME_KUMA_URL"),
+    out: Path = typer.Option(..., help="Target file for the export"),
+    out_format: StateFormat = typer.Option(
+        StateFormat.auto, "--format", help="output format; auto derives it from --out's extension"
+    ),
     username: str | None = typer.Option(None, help="overrides uptimekuma.local.env"),
     password: str | None = typer.Option(None, help="overrides uptimekuma.local.env"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG logging"),
 ) -> None:
-    """Pulls the complete state of an instance into a JSON file.
+    """Pulls the complete state of an instance into a JSON or YAML file.
 
     Args:
-        url: Base URL of the source instance.
-        out: Path of the JSON file to write.
+        url: Base URL of the source instance, otherwise from UPTIME_KUMA_URL.
+        out: Path of the file to write.
+        out_format: JSON, YAML, or auto (from the extension of ``out``).
         username: Optional username, otherwise from environment/creds file.
         password: Optional password, otherwise from environment/creds file.
         verbose: If True, logs at DEBUG level.
+
+    Raises:
+        SystemExit: On a missing URL.
     """
     configure_logging(verbose=verbose)
     print_banner()
 
+    target = url or env_url()
+    if not target:
+        sys.exit("no url - neither via --url nor as UPTIME_KUMA_URL")
+
     user, pw = load_creds(username, password)
-    api = SimpleKumaApi(url, user, pw)
+    api = SimpleKumaApi(target, user, pw)
     try:
         state = api.export_state()
     finally:
         api.close()
 
-    out.write_text(json.dumps(state, indent=1))
+    used = dump_state(state, out, out_format)
     typer.echo(
-        f"export -> {out}: {len(state['monitors'])} monitors, "
+        f"export -> {out} ({used.value}): {len(state['monitors'])} monitors, "
         f"{len(state['notifications'])} notifications, {len(state['tags'])} tags, "
         f"{len(state['status_pages'])} status pages"
     )
@@ -544,29 +624,32 @@ def export_cmd(
 
 @app.command("import")
 def import_cmd(
-    url: str = typer.Option(..., help="Base URL of the target instance"),
-    in_file: Path = typer.Option(..., "--in-file", help="JSON export that gets written"),
+    url: str | None = typer.Option(None, help="Base URL of the target instance; else UPTIME_KUMA_URL"),
+    in_file: Path = typer.Option(..., "--in-file", help="JSON or YAML export that gets written"),
     paused: bool = typer.Option(False, help="create monitors inactive: no checks, no alarms"),
     dry_run: bool = typer.Option(False, help="only show what would be created"),
     username: str | None = typer.Option(None, help="creds of the TARGET instance"),
     password: str | None = typer.Option(None, help="creds of the TARGET instance"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG logging"),
 ) -> None:
-    """Writes a JSON export into an (empty) instance.
+    """Writes a JSON or YAML export into an (empty) instance.
 
     Args:
-        url: Base URL of the target instance.
-        in_file: Path of the JSON export to read in.
+        url: Base URL of the target instance, otherwise from UPTIME_KUMA_URL.
+        in_file: Path of the export to read in; JSON or YAML, detected by content.
         paused: Create monitors inactive.
         dry_run: Write nothing, only print the planned objects.
         username: Optional username of the target instance.
         password: Optional password of the target instance.
         verbose: If True, logs at DEBUG level.
+
+    Raises:
+        SystemExit: On a missing URL.
     """
     configure_logging(verbose=verbose)
     print_banner()
 
-    state = cast(KumaState, json.loads(in_file.read_text()))
+    state = load_state(in_file)
 
     if dry_run:
         groups = [m for m in state["monitors"] if m.get("type") == "group"]
@@ -577,8 +660,12 @@ def import_cmd(
         )
         return
 
+    target = url or env_url()
+    if not target:
+        sys.exit("no url - neither via --url nor as UPTIME_KUMA_URL")
+
     user, pw = load_creds(username, password)
-    api = SimpleKumaApi(url, user, pw)
+    api = SimpleKumaApi(target, user, pw)
     try:
         api.import_state(state, paused=paused)
     finally:

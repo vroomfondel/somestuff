@@ -34,8 +34,10 @@ Structure of the YAML::
 Field names are Kuma's (camelCase), so an export from ``uptimekuma_simpleapi`` drops in here
 without translation.
 
-Credentials: ``uptimekuma.local.env`` or UPTIME_KUMA_USERNAME/UPTIME_KUMA_PASSWORD.
-Template: ``uptimekuma.env.example``.
+Credentials: UPTIME_KUMA_USERNAME/UPTIME_KUMA_PASSWORD from the environment or from
+``uptimekuma.local.env`` - searched first in the current working directory, then in the
+package directory. ``UPTIME_KUMA_URL`` there also serves as the fallback target URL
+(``--url`` and the YAML's ``url:`` win). Template: ``uptimekuma.env.example``.
 
 Warning:
     The YAML usually contains plaintext secrets (MQTT passwords, provider tokens). It does not
@@ -49,12 +51,9 @@ from typing import TypedDict, cast
 
 import typer
 import yaml
-from dotenv import load_dotenv
 
-from uptimekumastuff import configure_logging, print_banner
+from uptimekumastuff import configure_logging, env_url, load_creds_env, print_banner
 from uptimekumastuff.uptimekuma_client import KumaClient, KumaError
-
-CREDS_FILE = Path(__file__).parent / "uptimekuma.local.env"
 
 # On creation the server requires these fields; `conditions` is NOT NULL and an explicit
 # NULL beats the DB default.
@@ -77,7 +76,7 @@ class DesiredState(TypedDict, total=False):
     """The desired state from the YAML.
 
     Attributes:
-        url: Base URL of the instance. Overridable via --url.
+        url: Base URL of the instance. Optional if --url or UPTIME_KUMA_URL is set.
         notifications: Notification providers, flat in Kuma field names.
         monitors: Monitors, in Kuma field names; ``parent``/``notifications`` by name.
     """
@@ -88,7 +87,10 @@ class DesiredState(TypedDict, total=False):
 
 
 def load_creds() -> tuple[str, str]:
-    """Determines the credentials from the environment or the creds file.
+    """Determines the credentials from the environment or a creds file.
+
+    Searched in this order: real environment variables, ``uptimekuma.local.env`` in
+    the current working directory, then the one in the package directory.
 
     Returns:
         Username and password.
@@ -96,11 +98,12 @@ def load_creds() -> tuple[str, str]:
     Raises:
         SystemExit: If both are missing.
     """
-    load_dotenv(CREDS_FILE)
+    searched = load_creds_env()
     user = os.environ.get("UPTIME_KUMA_USERNAME")
     pw = os.environ.get("UPTIME_KUMA_PASSWORD")
     if not user or not pw:
-        sys.exit(f"UPTIME_KUMA_USERNAME/UPTIME_KUMA_PASSWORD missing (neither environment nor {CREDS_FILE})")
+        locations = " or ".join(str(path) for path in searched)
+        sys.exit(f"UPTIME_KUMA_USERNAME/UPTIME_KUMA_PASSWORD missing (neither environment nor {locations})")
     return user, pw
 
 
@@ -143,7 +146,7 @@ def order_parents_first(monitors: list[dict[str, object]]) -> list[dict[str, obj
 
 def apply_cmd(
     file: Path = typer.Option(..., "--file", "-f", help="YAML with the desired state"),
-    url: str | None = typer.Option(None, help="overrides the url from the YAML"),
+    url: str | None = typer.Option(None, help="overrides the url from the YAML/UPTIME_KUMA_URL"),
     check: bool = typer.Option(False, "--check", help="write nothing, only show what would happen"),
     prune: bool = typer.Option(False, "--prune", help="delete monitors the YAML doesn't know"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG logging"),
@@ -152,7 +155,8 @@ def apply_cmd(
 
     Args:
         file: Path of the YAML with the desired state.
-        url: Optional override of the target URL.
+        url: Optional override of the target URL. Precedence: this option, then
+            ``url:`` from the YAML, then ``UPTIME_KUMA_URL``.
         check: If True, nothing is written.
         prune: If True, monitors not declared are deleted.
         verbose: If True, logs at DEBUG level.
@@ -164,9 +168,9 @@ def apply_cmd(
     print_banner()
 
     state = cast(DesiredState, yaml.safe_load(file.read_text()) or {})
-    target = url or state.get("url")
+    target = url or state.get("url") or env_url()
     if not target:
-        sys.exit("no url - neither via --url nor in the YAML")
+        sys.exit("no url - neither via --url, in the YAML nor as UPTIME_KUMA_URL")
 
     user, pw = load_creds()
     changes = 0
@@ -270,4 +274,9 @@ def _fmt(diff: dict[str, dict[str, object]]) -> str:
 
 
 if __name__ == "__main__":
-    typer.run(apply_cmd)
+    # A KumaError is an expected outcome (instance unreachable, ambiguous name, no ack) and
+    # carries its own message - a traceback would only bury it.
+    try:
+        typer.run(apply_cmd)
+    except KumaError as exc:
+        sys.exit(str(exc))
