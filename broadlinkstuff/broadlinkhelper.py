@@ -10,6 +10,8 @@ block to paste into ``broadlink.local.yaml``.
 Usage::
 
     python3 -m broadlinkstuff.broadlinkhelper devices                    # what is reachable
+    python3 -m broadlinkstuff.broadlinkhelper sensors                    # temperature/humidity, all of them
+    python3 -m broadlinkstuff.broadlinkhelper sensors Lounge --json      # one device, machine-readable
     python3 -m broadlinkstuff.broadlinkhelper discover                   # broadcast + config block
     python3 -m broadlinkstuff.broadlinkhelper learn-ir Lounge            # press a button, hex comes out
     python3 -m broadlinkstuff.broadlinkhelper send Lounge off            # code from CODES
@@ -28,6 +30,7 @@ Author: vroomfondel
 Source: https://github.com/vroomfondel/somestuff/blob/main/broadlinkstuff/broadlinkhelper.py
 """
 
+import json
 import logging
 import os
 import time
@@ -133,6 +136,20 @@ class RFLearner(IRLearner, Protocol):
 
     def cancel_sweep_frequency(self) -> None:
         """Abort the frequency search."""
+        ...
+
+
+@runtime_checkable
+class SensorReader(Authenticatable, Protocol):
+    """A device with a temperature/humidity sensor — what sensors() needs.
+
+    Sits on ``broadlink.remote.rm4mini`` and thus covers the whole RM4 line,
+    while the RM3 generation below it has no sensors at all. Asking for the
+    method rather than the model keeps that distinction where it belongs.
+    """
+
+    def check_sensors(self) -> dict[str, float]:
+        """Read the sensors, e.g. ``{'temperature': 25.5, 'humidity': 49.5}``."""
         ...
 
 
@@ -1014,6 +1031,42 @@ class BroadlinkFleet:
                 f"{name!r} not reachable. Available: {', '.join(sorted(self.devices)) or '(none)'}"
             ) from None
 
+    def only(self, name: str) -> "BroadlinkFleet":
+        """A fleet narrowed down to a single configured device.
+
+        :attr:`devices` builds and logs in EVERY entry, because that is what
+        makes a listing trustworthy. For a command that addresses one device
+        that is a ``hello()`` plus an ``auth()`` handshake per configured
+        device, all of it wasted — and worse, a single unreachable entry drags
+        a 5 s broadcast along. Narrowing the configuration keeps the traffic on
+        the device actually asked for.
+
+        The flags are carried over, so ``--no-probe`` and friends keep applying.
+
+        Args:
+            name: Key from the configuration.
+
+        Returns:
+            A second fleet over that one entry, nothing logged in yet.
+
+        Raises:
+            KeyError: No such entry in the configuration.
+        """
+        # Nothing configured means the whole fleet runs off a broadcast search,
+        # where the names only come into being with the answers. There is
+        # nothing to narrow then; get() reports an unknown name itself.
+        if not self.config:
+            return self
+        if name not in self.config:
+            raise KeyError(f"{name!r} is not configured. Configured: {', '.join(sorted(self.config)) or '(none)'}")
+        return BroadlinkFleet(
+            {name: self.config[name]},
+            probe=self.probe,
+            probe_timeout=self.probe_timeout,
+            rediscover=self.rediscover,
+            dry_run=self.dry_run,
+        )
+
     @staticmethod
     def discover(timeout: int = 5) -> list[Device]:
         """Search for devices by broadcast.
@@ -1076,6 +1129,26 @@ class BroadlinkFleet:
                 time.sleep(delay)
             logger.info(f"{name} -> {index + 1}/{repeat} [{meaning}]")
             self.with_auth(dev, lambda: dev.send_data(data))
+
+    def sensors(self, name: str) -> dict[str, float]:
+        """Read the sensors of one device.
+
+        A read, so ``dry_run`` does not apply — there is nothing to suppress.
+
+        Args:
+            name: Device name from the configuration.
+
+        Returns:
+            What the device measures, e.g. ``{'temperature': 25.5,
+            'humidity': 49.5}``.
+
+        Raises:
+            TypeError: The device has no sensors.
+        """
+        dev = self.get(name)
+        if not isinstance(dev, SensorReader):
+            raise TypeError(f"{name} ({dev.model}) has no sensors")
+        return self.with_auth(dev, dev.check_sensors)
 
     def rename(self, name: str, new_name: str) -> bool:
         """Rename a device — the name it carries itself.
@@ -1316,8 +1389,53 @@ def devices(ctx: typer.Context) -> None:
             f"locked={dev.is_locked} IR={isinstance(dev, IRLearner)} "
             f"RF={isinstance(dev, RFLearner)}"
         )
-        if hasattr(dev, "check_sensors"):
+        if isinstance(dev, SensorReader):
             typer.echo(f"{'':12s} sensors: {fleet.with_auth(dev, dev.check_sensors)}")
+
+
+@app.command()
+def sensors(
+    ctx: typer.Context,
+    device: str | None = typer.Argument(None, help="Device name from broadlink.devices; all of them when omitted."),
+    as_json: bool = typer.Option(False, "--json", help="One JSON object, keyed by device name."),
+) -> None:
+    """Read temperature and humidity off the devices that have a sensor.
+
+    With a device name only that one is contacted; without, every configured
+    device is, and those without sensors are skipped.
+    """
+    fleet = _fleet(ctx)
+    readings: dict[str, dict[str, float]] = {}
+
+    if device is not None:
+        try:
+            readings[device] = fleet.only(device).sensors(device)
+        except (KeyError, TypeError) as exc:
+            logger.error(str(exc.args[0] if isinstance(exc, KeyError) else exc))
+            raise typer.Exit(code=1) from exc
+        except e.BroadlinkException as exc:
+            logger.error(f"device error: {exc}")
+            raise typer.Exit(code=1) from exc
+    else:
+        found = fleet.devices
+        if not found:
+            logger.error("no device reachable")
+            raise typer.Exit(code=1)
+        for name, dev in found.items():
+            if isinstance(dev, SensorReader):
+                readings[name] = fleet.with_auth(dev, dev.check_sensors)
+        if not readings:
+            logger.error(f"none of {', '.join(sorted(found))} has sensors")
+            raise typer.Exit(code=1)
+
+    if as_json:
+        # Keyed by name in both cases, so a script does not have to know whether
+        # it asked for one device or all of them.
+        typer.echo(json.dumps(readings))
+        return
+
+    for name, values in readings.items():
+        typer.echo(f"{name:12s} " + "  ".join(f"{key}={value}" for key, value in values.items()))
 
 
 @app.command()

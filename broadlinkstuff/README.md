@@ -54,6 +54,8 @@ With no devices configured, every command falls back to a broadcast search.
 
 ```bash
 python3 -m broadlinkstuff.broadlinkhelper devices                    # what is reachable
+python3 -m broadlinkstuff.broadlinkhelper sensors                    # temperature/humidity, all of them
+python3 -m broadlinkstuff.broadlinkhelper sensors Lounge --json      # one device, machine-readable
 python3 -m broadlinkstuff.broadlinkhelper discover                   # broadcast + config block
 python3 -m broadlinkstuff.broadlinkhelper learn-ir Lounge            # press a button, hex comes out
 python3 -m broadlinkstuff.broadlinkhelper send Lounge off            # code from CODES
@@ -68,8 +70,14 @@ Global options (before the subcommand), each with a `BROADLINK_*` env var:
 `--verbose/-v`, `--quiet/-q`, `--probe/--no-probe`, `--timeout`,
 `--no-rediscover`, `--dry-run`.
 
-**Logs go to stderr, payload to stdout** — so `learn-ir`, `codes --hex` and
-`discover` can be piped without log lines coming along.
+**Logs go to stderr, payload to stdout** — so `learn-ir`, `codes --hex`,
+`sensors --json` and `discover` can be piped without log lines coming along.
+
+`sensors` keys its JSON by device name whether or not a name was given, so a
+script does not have to care: `sensors Lounge --json | jq .Lounge.temperature`.
+Naming a device also keeps the traffic to that device — `devices` and a bare
+`sensors` log in to every configured entry, which is what makes their listing
+complete, but is wasted work when one reading is wanted.
 
 ### Two things worth knowing about `--probe`
 
