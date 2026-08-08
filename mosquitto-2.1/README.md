@@ -23,16 +23,16 @@ This directory contains a custom, production-ready build of **Mosquitto 2.1.2**.
 
 ## 📁 Directory Structure
 
-| File | Description |
-| :--- | :--- |
-| `Dockerfile` | Single-layer build file compiling Mosquitto from source on Ubuntu 24.04. It handles dependency linking for plugins and `mosquitto_ctrl`. |
-| `build.sh` | A utility script for building multi-architecture Docker images and pushing them to a registry. |
-| `mosquitto_test.conf` | The primary configuration file. Includes listeners for MQTT (1883), WebSockets (9001), and the HTTP API (9883). |
-| `mosquitto_test.acl` | Initial Access Control List template. |
-| `mosquitto_test.passwd` | Default password file (Default: `admin:public`). |
-| `mosquitto_dynamic-security_test.json` | Initial state configuration for the Dynamic Security plugin. |
-| `k3s_mosquitto_deployment.yml` | Kubernetes manifest for full-stack deployment including Namespace, Deployment, PVCs, Services, and Traefik IngressRoutes. |
-| `haproxy_test.cfg` | Example HAProxy configuration for testing Proxy Protocol v2 locally. |
+| File                                   | Description                                                                                                                              |
+|:---------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------|
+| `Dockerfile`                           | Single-layer build file compiling Mosquitto from source on Ubuntu 24.04. It handles dependency linking for plugins and `mosquitto_ctrl`. |
+| `build.sh`                             | A utility script for building multi-architecture Docker images and pushing them to a registry.                                           |
+| `mosquitto_test.conf`                  | The primary configuration file. Includes listeners for MQTT (1883), WebSockets (9001), and the HTTP API (9883).                          |
+| `mosquitto_test.acl`                   | Initial Access Control List template.                                                                                                    |
+| `mosquitto_test.passwd`                | Default password file (Default: `admin:public`).                                                                                         |
+| `mosquitto_dynamic-security_test.json` | Initial state configuration for the Dynamic Security plugin.                                                                             |
+| `k3s_mosquitto_deployment.yml`         | Kubernetes manifest for full-stack deployment including Namespace, Deployment, PVCs, Services, and Traefik IngressRoutes.                |
+| `haproxy_test.cfg`                     | Example HAProxy configuration for testing Proxy Protocol v2 locally.                                                                     |
 
 ---
 
