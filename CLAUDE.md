@@ -93,3 +93,12 @@ These subdirectories contain independent Docker image builds with their own `bui
 - Pre-commit hooks: yaml validation, black --check, mypy, gitleaks
 - Secret scanning: `.gitleaks.toml` extends the default gitleaks ruleset; allowlists `.venv`, `.mypy_cache`, `.idea`, `__pycache__`, `*local*` files, and `docker-config`
 - Loguru for logging (configured in config.py with custom format)
+
+### Comments
+
+- Comment only when the *why* is not evident from the code.
+- No comments that restate what the line already says.
+- No docstrings unless explicitly asked for.
+- No section banners (`# ---- Helper ----`).
+- No meta comments about the editing process itself ("newly added", "adjusted as requested").
+- When in doubt: no comment.

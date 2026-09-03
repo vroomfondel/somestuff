@@ -50,9 +50,32 @@ options:
     required: true
     type: str
   name:
-    description: Display name, serves as the idempotency key.
-    required: true
+    description:
+      - Display name, serves as the idempotency key.
+      - Mutually exclusive with I(monitors); exactly one of the two is required.
     type: str
+  monitors:
+    description:
+      - Bulk mode - a list of monitors, each a dict with the same options this module
+        takes for a single monitor.
+      - "Exists because of the server side: Kuma rate-limits logins to 20 per minute
+        (C(loginRateLimiter) in C(server/rate-limiter.js)), and every module invocation
+        opens its own Socket.IO session. A C(loop) over more than ~20 monitors therefore
+        runs into C(login: no response within 30s) - regardless of how fast the machine is.
+        Bulk mode logs in ONCE and reconciles all entries in that session."
+      - Entries are ordered by their I(parent) reference before writing, so a group is
+        created before the monitors pointing at it.
+    type: list
+    elements: dict
+  defaults:
+    description:
+      - Bulk mode only - values merged UNDER every entry, so an entry always wins.
+      - Keeps fleet-wide identical settings (interval, timeout, ...) in one place instead
+        of repeating them per monitor.
+      - "Deliberately NOT applied to C(type=group): timing has no meaning for a group, and
+        Kuma leaves whatever the UI form happened to hold there - merging would rewrite
+        those values on the first run."
+    type: dict
   state:
     description: Whether the monitor should exist.
     type: str
@@ -221,6 +244,14 @@ diff:
   returned: on changes
   type: dict
   sample: {"interval": {"before": 60, "after": 300}}
+results:
+  description:
+    - Per-monitor outcome in bulk mode, in the order they were written.
+    - Each entry carries C(name), C(changed), C(created), C(monitor_id) and C(diff).
+  returned: in bulk mode
+  type: list
+  elements: dict
+  sample: [{"name": "outdoormesh", "changed": false, "created": false, "monitor_id": 44}]
 not_applicable:
   description:
     - Differences in fields the server no longer applies after creation.
@@ -308,6 +339,106 @@ def build_desired(params: dict[str, object]) -> dict[str, object]:
     return desired
 
 
+def params_type_missing(params: dict[str, object]) -> bool:
+    """Whether the single-monitor path was called without ``type``.
+
+    Args:
+        params: The module parameters.
+
+    Returns:
+        True if ``type`` is required but absent.
+    """
+    return bool(params.get("name")) and params.get("state") == "present" and not params.get("type")
+
+
+def order_by_parent(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Sorts monitors so that a group comes before the monitors referencing it.
+
+    ``parent`` is a NAME, and the server can only resolve it once the group exists. A
+    parent that is not part of this batch is assumed to already exist server-side.
+
+    Args:
+        entries: The declared monitors.
+
+    Returns:
+        The same entries, reordered.
+
+    Raises:
+        KumaError: If the parent references form a cycle.
+    """
+    declared = {str(e.get("name")) for e in entries}
+    pending = {str(e.get("name")): e for e in entries}
+    ordered: list[dict[str, object]] = []
+    emitted: set[str] = set()
+
+    while pending:
+        wave = [
+            name
+            for name, e in pending.items()
+            if not e.get("parent") or str(e["parent"]) not in declared or str(e["parent"]) in emitted
+        ]
+        if not wave:
+            raise KumaError("parent cycle among: " + ", ".join(sorted(pending)))
+        for name in wave:
+            ordered.append(pending.pop(name))
+            emitted.add(name)
+    return ordered
+
+
+def upsert_many(
+    client: KumaClient,
+    entries: list[dict[str, object]],
+    defaults: dict[str, object] | None,
+    check_mode: bool,
+) -> tuple[bool, list[dict[str, object]]]:
+    """Reconciles a whole list of monitors within one already-open session.
+
+    Args:
+        client: A logged-in client.
+        entries: The declared monitors, each with this module's option names.
+        defaults: Values merged under every non-group entry; the entry wins.
+        check_mode: If True, nothing is written.
+
+    Returns:
+        ``(changed, results)`` - whether anything changed, plus the per-monitor outcome.
+
+    Raises:
+        KumaError: If an entry has no ``name`` or ``type``.
+    """
+    changed = False
+    results: list[dict[str, object]] = []
+
+    for entry in order_by_parent(entries):
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            raise KumaError("every entry in 'monitors' needs a 'name'")
+        if not entry.get("type"):
+            raise KumaError(f"monitor {name!r} has no 'type'")
+
+        # Groups stay unmerged on purpose - see the `defaults` option docs.
+        merged = entry if entry.get("type") == "group" else {**(defaults or {}), **entry}
+        desired = build_desired(merged)
+        # Defaults only when creating - on an existing monitor they would overwrite
+        # settings the caller never mentioned.
+        if client.monitor_by_name(name) is None:
+            desired = {**CREATE_DEFAULTS, **desired}
+
+        result = client.upsert_monitor(desired, check_mode=check_mode)
+        changed = changed or result["changed"]
+        entry_result: dict[str, object] = {
+            "name": name,
+            "changed": result["changed"],
+            "created": result["created"],
+            "monitor_id": result["object_id"],
+            "diff": result["diff"],
+        }
+        if result.get("not_applicable"):
+            entry_result["not_applicable"] = result["not_applicable"]
+        results.append(entry_result)
+
+    return changed, results
+
+
 def run_module() -> None:
     """Runs the module and terminates it with exit_json/fail_json."""
     module = AnsibleModule(
@@ -315,7 +446,9 @@ def run_module() -> None:
             "url": {"type": "str", "required": True},
             "username": {"type": "str", "required": True},
             "password": {"type": "str", "required": True, "no_log": True},
-            "name": {"type": "str", "required": True},
+            "name": {"type": "str"},
+            "monitors": {"type": "list", "elements": "dict"},
+            "defaults": {"type": "dict"},
             "state": {"type": "str", "choices": ["present", "absent"], "default": "present"},
             "type": {"type": "str"},
             "active": {"type": "bool"},
@@ -346,8 +479,13 @@ def run_module() -> None:
             "extra": {"type": "dict"},
         },
         supports_check_mode=True,
-        required_if=[("state", "present", ("type",), False)],
+        required_one_of=[("name", "monitors")],
+        mutually_exclusive=[("name", "monitors")],
     )
+    # `required_if` cannot express "only when `name` is set" - in bulk mode `type` sits on
+    # the individual entry, so the check happens there (upsert_many).
+    if params_type_missing(module.params):
+        module.fail_json(msg="state=present with 'name' requires 'type'")
 
     params = module.params
     client = KumaClient(params["url"])
@@ -355,6 +493,12 @@ def run_module() -> None:
     try:
         client.connect()
         client.login(params["username"], params["password"])
+
+        if params["monitors"] is not None:
+            if params["state"] == "absent":
+                module.fail_json(msg="state=absent is not supported in bulk mode")
+            changed, results = upsert_many(client, params["monitors"], params["defaults"], module.check_mode)
+            module.exit_json(changed=changed, results=results)
 
         if params["state"] == "absent":
             existing = client.monitor_by_name(params["name"])

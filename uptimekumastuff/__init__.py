@@ -22,7 +22,7 @@ from tabulate import tabulate
 if TYPE_CHECKING:
     from loguru import Record
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "__version__",
