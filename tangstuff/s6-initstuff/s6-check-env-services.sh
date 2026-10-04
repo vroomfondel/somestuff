@@ -1,15 +1,15 @@
 #!/command/with-contenv bash
 
 if [ $USENGINX -eq 1 ] ; then
-    echo creating /etc/s6-overlay/s6-rc.d/user/contents.d/nginx
-    touch /etc/s6-overlay/s6-rc.d/user/contents.d/nginx
+    echo creating /etc/s6-overlay/user-bundles.d/user/contents.d/nginx
+    touch /etc/s6-overlay/user-bundles.d/user/contents.d/nginx
 else
   echo not enabling nginx since USENGINX=$USENGINX
 fi
 
 if [ $USEHAPROXY -eq 1 ] ; then
-    echo creating /etc/s6-overlay/s6-rc.d/user/contents.d/haproxy
-    touch /etc/s6-overlay/s6-rc.d/user/contents.d/haproxy
+    echo creating /etc/s6-overlay/user-bundles.d/user/contents.d/haproxy
+    touch /etc/s6-overlay/user-bundles.d/user/contents.d/haproxy
 else
   echo not enabling haproxy since USEHAPROXY=$USEHAPROXY
 fi

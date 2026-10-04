@@ -10,7 +10,7 @@ if [ -e /etc/nginx/sites-available/tang-local.conf.pre ] ; then
     NGINXACCEPT="proxy_protocol"
   fi
   export NGINXACCEPT
-  cat /etc/nginx/sites-available/tang-local.conf.pre | envsubst > /etc/nginx/sites-enabled/tang-local.conf
+  cat /etc/nginx/sites-available/tang-local.conf.pre | envsubst '${NGINXPORT} ${NGINXACCEPT} ${TANGPORT}' > /etc/nginx/sites-enabled/tang-local.conf
 fi
 
 if [ $USENGINX -eq 0 ] ; then

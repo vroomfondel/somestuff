@@ -96,7 +96,14 @@ These subdirectories contain independent Docker image builds with their own `bui
 
 ### Comments
 
-- Comment only when the *why* is not evident from the code.
+- Default: no comment. A comment has to earn its line.
+- **One line maximum** per comment, except a file header. No multi-line prose blocks.
+- A comment may state a *constraint* (what breaks, which version, which upstream issue).
+  It may NOT explain motivation, history, alternatives considered, or current deployment
+  state. That belongs in the commit message, an issue, or a doc file.
+- Banned openings: "This is how ...", "Without it ...", "We do/don't ...", "Note that ...",
+  "The reason ...".
+- No comment referring to volatile state (current version, current workload, current tag).
 - No comments that restate what the line already says.
 - No docstrings unless explicitly asked for.
 - No section banners (`# ---- Helper ----`).

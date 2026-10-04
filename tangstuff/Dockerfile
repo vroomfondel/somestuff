@@ -3,7 +3,7 @@ ARG debian_version=trixie-slim
 FROM debian:${debian_version}
 
 ARG BPATH=.
-ARG S6_OVERLAY_VERSION=3.2.1.0
+ARG S6_OVERLAY_VERSION=3.2.3.2
 ARG debian_version
 
 # https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
@@ -32,7 +32,9 @@ ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLA
 RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz
 
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/syslogd-overlay-noarch.tar.xz /tmp
-RUN tar -C / -Jxpf /tmp/syslogd-overlay-noarch.tar.xz
+RUN tar -C / -Jxpf /tmp/syslogd-overlay-noarch.tar.xz && \
+    mv /etc/s6-overlay/s6-rc.d/user/contents.d/* /etc/s6-overlay/user-bundles.d/user/contents.d/ && \
+    rm -rf /etc/s6-overlay/s6-rc.d/user
 
 RUN S6_ARCH=x86_64 ; if [ ${TARGETARCH} != amd64 ] ; then S6_ARCH=aarch64 ; fi && \
     echo TARGETARCH: $TARGETARCH && echo S6_ARCH: ${S6_ARCH} \
@@ -50,6 +52,12 @@ ENV GITHUB_SHA=$gh_sha
 ARG buildtime=buildtime_is_undefined
 ENV BUILDTIME=$buildtime
 
+
+COPY <<'EOF' /etc/nginx/conf.d/tang-logformat.conf
+log_format main_ext '$remote_addr - $remote_user [$time_local] "$request" '
+                '$status $body_bytes_sent "$http_referer" '
+                '"$http_user_agent" "$http_x_forwarded_for" "$proxy_protocol_addr"';
+EOF
 
 COPY <<'EOF' /etc/nginx/sites-available/tang-local.conf.pre
 server {
@@ -70,12 +78,6 @@ server {
 
 	server_name _;
 
-    # Diese Header sind für Tang technisch egal, aber gut für Nginx-Logs
-
-    log_format main_ext '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for" "$proxy_protocol_addr"';
-
     access_log /var/log/nginx/tang_access.log main_ext;
 
 	location / {
@@ -83,7 +85,7 @@ server {
         try_files $uri $uri/ @proxy;
     }
     location @proxy {
-        proxy_pass http://${TANGENDPOINT}:${TANGPORT};
+        proxy_pass http://127.0.0.1:${TANGPORT};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
