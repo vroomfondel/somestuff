@@ -175,8 +175,8 @@ runs as a `Job`/`CronJob` inside the cluster.
 
 Counterpart to `keel_drift`: that one checks a rolling tag by digest, this one
 checks a **fixed pin** (`v1.2.3`) against the release list of the project it
-comes from. Read-only — it reads the repo files and the release APIs, nothing
-else.
+comes from. Read-only — it reads the repo files, the release APIs and, if a
+kubeconfig is usable, the pods and nodes of the cluster, nothing else.
 
 The pins are declared in `pin_drift.yml`, searched upwards from the current
 directory (or given via `--config`). Paths in it are relative to the file
@@ -210,11 +210,24 @@ pins:
 | `github` / `forgejo`     | `owner/repo` or `host/owner/repo` the releases come from                        |
 | `source`                 | `releases` (default, drafts/prereleases skipped) or `tags`                      |
 | `tag_pattern`            | Filter for upstream tags (default: `^v?\d+(?:\.\d+)+$`)                         |
+| `running_image`          | Image(s) whose tags in live pods are the running version (default: `image`)     |
+| `running_kubelet`        | `true`: the running version is the nodes' kubelet version (k3s, k8s)            |
 
 Exactly one of `var`/`image`/`pattern` and one of `github`/`forgejo` is required.
 A pin shorter than the upstream version (`5.1` against `5.1.3`) is a floating
 tag and counts as current until a `5.2` appears. Files encrypted with git-crypt
 are reported as `unclear` instead of failing.
+
+### Running column
+
+With a usable kubeconfig (or in-cluster context) the table gets a `running`
+column: the distinct tags of the matching images across all live pods
+(containers and initContainers, finished pods ignored), or the kubelet versions
+for `running_kubelet` pins. Image names are compared normalised (`redis` ==
+`docker.io/library/redis`), tags ignoring a leading `v`. A pin whose running
+version differs is noted as `not rolled out`, or `partially rolled out` if the
+pinned version runs alongside older ones; this does not affect the exit code.
+`-` means no matching pod — expected for pins outside the cluster.
 
 GitHub allows 60 anonymous API requests per hour; a token is taken from
 `GITHUB_TOKEN` / `GH_TOKEN` or `gh auth token`.
@@ -226,13 +239,17 @@ python3 -m k3shelperstuff.pin_drift                        # every declared pin
 python3 -m k3shelperstuff.pin_drift --updates-only         # hide the pins that are current
 python3 -m k3shelperstuff.pin_drift --only mosquitto       # a single pin (repeatable)
 python3 -m k3shelperstuff.pin_drift --config ../pin_drift.yml
+python3 -m k3shelperstuff.pin_drift --context ht@heidk8    # running versions from this context
+python3 -m k3shelperstuff.pin_drift --no-running           # repo against upstream only
 ```
 
 | Option               | Env var                  | Description                                   |
 |----------------------|--------------------------|-----------------------------------------------|
 | `-c`, `--config P`   | `PIN_DRIFT_CONFIG`       | Pin declarations (default: search upwards)    |
 | `-o`, `--only NAME`  | `PIN_DRIFT_ONLY`         | Check only this pin (repeatable)              |
-| `--updates-only`     | `PIN_DRIFT_UPDATES_ONLY` | Hide the pins that are current                |
+| `--updates-only`     | `PIN_DRIFT_UPDATES_ONLY` | Hide the pins that are current and rolled out |
+| `--context CTX`      | `PIN_DRIFT_CONTEXT`      | kubeconfig context (default: active one)      |
+| `--no-running`       | `PIN_DRIFT_NO_RUNNING`   | Do not query the cluster                      |
 | `-q`, `--quiet`      | `PIN_DRIFT_QUIET`        | Suppress the table, print the summary only    |
 | `-v`, `--verbose`    | `PIN_DRIFT_VERBOSE`      | DEBUG logging                                 |
 
@@ -242,4 +259,4 @@ python3 -m k3shelperstuff.pin_drift --config ../pin_drift.yml
 |------|------------------------------------------------------------------|
 | `0`  | No update available (pins current or unclear)                    |
 | `1`  | At least one pin has a major/minor/patch update — pipeline gate  |
-| `2`  | No usable `pin_drift.yml`, or an unknown `--only` name           |
+| `2`  | No usable `pin_drift.yml`, an unknown `--only` name, or an unusable explicit `--context` |

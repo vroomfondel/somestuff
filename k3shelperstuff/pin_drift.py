@@ -14,6 +14,12 @@ is ever written: the tool reads the repo and the release APIs only.
 A pin shorter than the upstream version (``5.1`` against ``5.1.3``) is a
 floating tag and counts as current until a newer ``5.2`` appears.
 
+With a usable kubeconfig the table gains a ``running`` column: the tags of the
+matching container images in the cluster's pods (``image`` pins match by
+default, ``running_image`` overrides, ``running_kubelet`` reads the nodes'
+kubelet version). A running version that differs from the pin is flagged as
+not (or only partially) rolled out; it does not change the exit code.
+
 GitHub allows 60 anonymous API requests per hour, so a token is picked up from
 ``GITHUB_TOKEN`` / ``GH_TOKEN`` or, failing that, from ``gh auth token``.
 
@@ -24,7 +30,8 @@ Exit codes:
     * ``0`` — every pin is current (or unclear).
     * ``1`` — at least one pin has an update available, so the tool doubles as
       a pipeline gate.
-    * ``2`` — no usable ``pin_drift.yml`` or an unknown ``--only`` name.
+    * ``2`` — no usable ``pin_drift.yml``, an unknown ``--only`` name or an
+      unusable explicit ``--context``.
 
 Examples:
     Typical invocations::
@@ -33,6 +40,8 @@ Examples:
         python3 -m k3shelperstuff.pin_drift --updates-only         # hide the pins that are current
         python3 -m k3shelperstuff.pin_drift --only mosquitto       # a single pin (repeatable)
         python3 -m k3shelperstuff.pin_drift --config ../pin_drift.yml
+        python3 -m k3shelperstuff.pin_drift --context ht@heidk8    # running versions from this context
+        python3 -m k3shelperstuff.pin_drift --no-running           # repo against upstream only
 
 Author: vroomfondel
 Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/pin_drift.py
@@ -45,29 +54,35 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Final, Literal, Self, TypedDict
 
 import requests
 import typer
+import urllib3
 import yaml
+from kubernetes import client, config
+from kubernetes.client.rest import ApiException
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator, model_validator
 from rich.console import Console
 from rich.table import Table
 
 from k3shelperstuff import configure_logging, print_banner
+from k3shelperstuff.keel_drift import parse_image
 
 type VersionKey = tuple[int, ...]
 type UpstreamKind = Literal["github", "forgejo"]
 type TagSource = Literal["releases", "tags"]
+type ImageRepo = tuple[str, str]
 
 CONFIG_NAME: Final[str] = "pin_drift.yml"
 GITHUB_API_HOST: Final[str] = "api.github.com"
 GITCRYPT_MAGIC: Final[bytes] = b"\x00GITCRYPT"
 DEFAULT_TAG_PATTERN: Final[str] = r"^v?\d+(?:\.\d+)+$"
 REQUEST_TIMEOUT_SECONDS: Final[int] = 20
+FINISHED_POD_PHASES: Final[frozenset[str]] = frozenset({"Succeeded", "Failed"})
 MAX_WORKERS: Final[int] = 8
 # GitHub caps a page at 100 entries, Forgejo/Gitea at 50 by default.
 PAGE_SIZE: Final[Mapping[UpstreamKind, tuple[str, int]]] = {"github": ("per_page", 100), "forgejo": ("limit", 50)}
@@ -191,6 +206,9 @@ class PinSpec(BaseModel):
         forgejo: Upstream as ``host/owner/repo`` on a Forgejo/Gitea instance.
         source: Whether to compare against ``releases`` or ``tags``.
         tag_pattern: Regular expression an upstream tag must match to count.
+        running_image: Image names whose tags in the cluster's pods are the
+            running version; defaults to ``image``.
+        running_kubelet: Take the running version from the nodes' kubelet.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -205,6 +223,21 @@ class PinSpec(BaseModel):
     forgejo: str | None = None
     source: TagSource = "releases"
     tag_pattern: str = DEFAULT_TAG_PATTERN
+    running_image: tuple[str, ...] = ()
+    running_kubelet: bool = False
+
+    @field_validator("running_image", mode="before")
+    @classmethod
+    def _single_image(cls, value: object) -> object:
+        """Accept a single image name in place of a list.
+
+        Args:
+            value: The configured value.
+
+        Returns:
+            ``value`` wrapped in a tuple if it is a string, else unchanged.
+        """
+        return (value,) if isinstance(value, str) else value
 
     @field_validator("pattern", "tag_pattern")
     @classmethod
@@ -246,7 +279,22 @@ class PinSpec(BaseModel):
             raise ValueError("needs exactly one of 'github', 'forgejo'")
         if self.pattern is not None and re.compile(self.pattern).groups != 1:
             raise ValueError("'pattern' needs exactly one capture group")
+        if self.running_image and self.running_kubelet:
+            raise ValueError("'running_image' and 'running_kubelet' exclude each other")
         return self
+
+    @property
+    def running_repos(self) -> frozenset[ImageRepo]:
+        """Normalised image repositories that carry the running version.
+
+        Returns:
+            ``(registry, repository)`` pairs from ``running_image``, else from
+            ``image``; empty for kubelet pins and pins without either.
+        """
+        if self.running_kubelet:
+            return frozenset()
+        names = self.running_image or ((self.image,) if self.image else ())
+        return frozenset(image_repo(name) for name in names)
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -312,6 +360,37 @@ class PinConfig(BaseModel):
 
 
 @dataclass(frozen=True)
+class ClusterSnapshot:
+    """Versions currently running in the cluster.
+
+    Attributes:
+        context: kubeconfig context the snapshot was taken from, ``None`` for
+            the active one.
+        images: Tags of every image repository in a live pod.
+        kubelet: Kubelet versions of all nodes.
+    """
+
+    context: str | None
+    images: Mapping[ImageRepo, frozenset[str]]
+    kubelet: frozenset[str]
+
+    def running(self, spec: PinSpec) -> tuple[str, ...]:
+        """Running versions of one pin.
+
+        Args:
+            spec: The pin declaration.
+
+        Returns:
+            The distinct versions, oldest first; empty if nothing matches.
+        """
+        if spec.running_kubelet:
+            found: set[str] = set(self.kubelet)
+        else:
+            found = {tag for repo in spec.running_repos for tag in self.images.get(repo, ())}
+        return tuple(sorted(found, key=lambda tag: (version_key(tag), tag)))
+
+
+@dataclass(frozen=True)
 class TagLookup:
     """Result of querying one upstream.
 
@@ -335,6 +414,7 @@ class Finding:
         latest: Newest matching upstream tag, ``None`` if unknown.
         status: Outcome of the comparison.
         note: Additional explanation, e.g. why the status is ``UNCLEAR``.
+        running: Versions running in the cluster, oldest first.
     """
 
     spec: PinSpec
@@ -342,6 +422,44 @@ class Finding:
     latest: str | None
     status: PinStatus
     note: str = ""
+    running: tuple[str, ...] = ()
+
+    @property
+    def rolled_out(self) -> bool:
+        """Whether the cluster runs exactly the pinned version.
+
+        Returns:
+            ``True`` if nothing runs, the pin is unknown, or every running
+            version equals the pin (a leading ``v`` aside).
+        """
+        pinned = self.pinned
+        return pinned is None or all(same_version(tag, pinned) for tag in self.running)
+
+
+def image_repo(image: str) -> ImageRepo:
+    """Normalise an image name to registry and repository, dropping tag and digest.
+
+    Args:
+        image: Reference such as ``redis``, ``prom/prometheus:v3`` or ``quay.io/ceph/ceph``.
+
+    Returns:
+        ``(registry, repository)`` with Docker Hub aliases folded together.
+    """
+    ref = parse_image(image)
+    return ref.registry, ref.repository
+
+
+def same_version(left: str, right: str) -> bool:
+    """Compare two tags, ignoring a leading ``v``.
+
+    Args:
+        left: A tag such as ``0.40.0``.
+        right: A tag such as ``v0.40.0``.
+
+    Returns:
+        Whether both name the same version.
+    """
+    return left.removeprefix("v") == right.removeprefix("v")
 
 
 def version_key(text: str) -> VersionKey:
@@ -548,13 +666,85 @@ def evaluate(spec: PinSpec, root: Path, lookup: TagLookup) -> Finding:
     return Finding(spec, pinned, latest, status, "; ".join(notes))
 
 
-def analyse(specs: Sequence[PinSpec], root: Path, token: str | None) -> list[Finding]:
+def load_cluster(context: str | None) -> ClusterSnapshot | None:
+    """Read the image tags of all live pods and the nodes' kubelet versions.
+
+    Args:
+        context: kubeconfig context to use, ``None`` for the active one.
+
+    Returns:
+        The snapshot, or ``None`` if no cluster is reachable and no context was
+        named explicitly.
+
+    Raises:
+        typer.Exit: With code 2 if an explicitly named context is unusable.
+    """
+    try:
+        config.load_kube_config(context=context)
+    except (config.ConfigException, OSError) as exc:
+        if context:
+            err_console.print(f"[red]context '{context}' not usable:[/] {exc}")
+            raise typer.Exit(code=2) from exc
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            err_console.print("[yellow]No kubeconfig and no in-cluster context, skipping the running column.[/]")
+            return None
+
+    core = client.CoreV1Api()
+    try:
+        pods = core.list_pod_for_all_namespaces(_request_timeout=REQUEST_TIMEOUT_SECONDS).items
+        nodes = core.list_node(_request_timeout=REQUEST_TIMEOUT_SECONDS).items
+    except (ApiException, urllib3.exceptions.HTTPError) as exc:
+        if context:
+            err_console.print(f"[red]cluster of context '{context}' not usable:[/] {exc}")
+            raise typer.Exit(code=2) from exc
+        err_console.print(f"[yellow]Cluster not reachable, skipping the running column:[/] {exc}")
+        return None
+
+    images: dict[ImageRepo, set[str]] = {}
+    for pod in pods:
+        if pod.status and pod.status.phase in FINISHED_POD_PHASES:
+            continue
+        for container in (*(pod.spec.containers or ()), *(pod.spec.init_containers or ())):
+            if container.image:
+                ref = parse_image(container.image)
+                images.setdefault((ref.registry, ref.repository), set()).add(ref.tag)
+    kubelet = frozenset(
+        node.status.node_info.kubelet_version for node in nodes if node.status and node.status.node_info
+    )
+    return ClusterSnapshot(context, {repo: frozenset(tags) for repo, tags in images.items()}, kubelet)
+
+
+def with_running(finding: Finding, cluster: ClusterSnapshot) -> Finding:
+    """Attach the running versions to a finding and note an incomplete rollout.
+
+    Args:
+        finding: Result of :func:`evaluate`.
+        cluster: Snapshot from :func:`load_cluster`.
+
+    Returns:
+        A copy of ``finding`` with ``running`` set.
+    """
+    running = cluster.running(finding.spec)
+    result = replace(finding, running=running)
+    if result.rolled_out:
+        return result
+    pinned = finding.pinned or ""
+    rollout = "partially rolled out" if any(same_version(tag, pinned) for tag in running) else "not rolled out"
+    return replace(result, note="; ".join(filter(None, (finding.note, rollout))))
+
+
+def analyse(
+    specs: Sequence[PinSpec], root: Path, token: str | None, cluster: ClusterSnapshot | None = None
+) -> list[Finding]:
     """Check all pins, querying each distinct upstream once in parallel.
 
     Args:
         specs: Pin declarations to check.
         root: Directory the pins' file paths are relative to.
         token: GitHub API token, or ``None`` for anonymous access.
+        cluster: Running versions to attach, or ``None`` to leave them out.
 
     Returns:
         One finding per pin, ordered by severity, then by name.
@@ -566,32 +756,57 @@ def analyse(specs: Sequence[PinSpec], root: Path, token: str | None) -> list[Fin
                 zip(upstreams, pool.map(lambda item: fetch_tags(item, token), upstreams))
             )
     findings = [evaluate(spec, root, lookups[spec.upstream]) for spec in specs]
+    if cluster is not None:
+        findings = [with_running(finding, cluster) for finding in findings]
     findings.sort(key=lambda item: (STATUS_ORDER.index(item.status), item.spec.name))
     return findings
 
 
-def render(findings: Sequence[Finding], updates_only: bool) -> None:
+def running_cell(finding: Finding) -> str:
+    """Format the running versions, highlighting those that differ from the pin.
+
+    Args:
+        finding: Result carrying the running versions.
+
+    Returns:
+        Rich markup for the ``running`` column.
+    """
+    if not finding.running:
+        return "[dim]-[/]"
+    style = "green" if finding.rolled_out else "yellow"
+    return ", ".join(
+        f"[{'green' if same_version(tag, finding.pinned or "") else style}]{tag}[/]" for tag in finding.running
+    )
+
+
+def render(findings: Sequence[Finding], updates_only: bool, show_running: bool = False) -> None:
     """Print the findings as a table to stdout.
 
     Args:
         findings: Results to show.
-        updates_only: Hide pins whose status is ``CURRENT``.
+        updates_only: Hide pins whose status is ``CURRENT`` and that are
+            rolled out.
+        show_running: Add the ``running`` column.
     """
-    table = Table(title="Pin drift: pinned version against upstream release")
+    title = "Pin drift: pinned version against upstream release"
+    table = Table(title=f"{title} and cluster" if show_running else title)
     table.add_column("Pin")
     table.add_column("Upstream")
     table.add_column("pinned", justify="right")
+    if show_running:
+        table.add_column("running", justify="right")
     table.add_column("latest", justify="right")
     table.add_column("Status")
     table.add_column("Note", overflow="fold")
 
     for finding in findings:
-        if updates_only and finding.status is PinStatus.CURRENT:
+        if updates_only and finding.status is PinStatus.CURRENT and finding.rolled_out:
             continue
         table.add_row(
             finding.spec.name,
             finding.spec.upstream.display,
             finding.pinned or "-",
+            *((running_cell(finding),) if show_running else ()),
             finding.latest or "-",
             f"[{STATUS_STYLE[finding.status]}]{finding.status}[/]",
             finding.note,
@@ -619,6 +834,20 @@ def main(
         bool,
         typer.Option("--updates-only", envvar="PIN_DRIFT_UPDATES_ONLY", help="Hide the pins that are current."),
     ] = False,
+    context: Annotated[
+        str | None,
+        typer.Option(
+            "--context",
+            envvar="PIN_DRIFT_CONTEXT",
+            help="kubeconfig context for the running column (default: the active one).",
+        ),
+    ] = None,
+    no_running: Annotated[
+        bool,
+        typer.Option(
+            "--no-running", envvar="PIN_DRIFT_NO_RUNNING", help="Do not ask the cluster for running versions."
+        ),
+    ] = False,
     quiet: Annotated[
         bool,
         typer.Option("--quiet", "-q", envvar="PIN_DRIFT_QUIET", help="Suppress the table, print only the summary."),
@@ -634,12 +863,15 @@ def main(
             directory if ``None``.
         only: Restrict the check to these pin names.
         updates_only: Hide pins that are current.
+        context: kubeconfig context for the running versions.
+        no_running: Skip the cluster entirely.
         quiet: Print only the summary line, not the table.
         verbose: Enable DEBUG logging.
 
     Raises:
         typer.Exit: Always. Code 0 if no pin has an update, 1 if at least one
-            has, 2 for a missing/invalid config or an unknown ``--only`` name.
+            has, 2 for a missing/invalid config, an unknown ``--only`` name or
+            an unusable explicit ``--context``.
     """
     configure_logging(verbose=verbose)
     print_banner("pin_drift")
@@ -662,9 +894,13 @@ def main(
     access = "authenticated" if token else "anonymous, 60 requests/h"
     err_console.print(f"[cyan]Checking {len(specs)} pins from {path} (GitHub API: {access}).[/]")
 
-    findings = analyse(specs, path.resolve().parent, token)
+    cluster = None if no_running else load_cluster(context)
+    if cluster is not None:
+        err_console.print(f"[cyan]Running versions from cluster context {cluster.context or '(active)'}.[/]")
+
+    findings = analyse(specs, path.resolve().parent, token, cluster)
     if not quiet:
-        render(findings, updates_only)
+        render(findings, updates_only, show_running=cluster is not None)
 
     counts: dict[PinStatus, int] = {status: sum(item.status is status for item in findings) for status in PinStatus}
     console.print(
@@ -673,6 +909,7 @@ def main(
         f"[bold yellow]{counts[PinStatus.MINOR]} minor[/], "
         f"[yellow]{counts[PinStatus.PATCH]} patch[/], "
         f"[magenta]{counts[PinStatus.UNCLEAR]} unclear[/]"
+        + (f", [yellow]{sum(not item.rolled_out for item in findings)} not rolled out[/]" if cluster else "")
     )
 
     raise typer.Exit(code=1 if any(counts[status] for status in UPDATE_STATUSES) else 0)
