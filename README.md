@@ -20,7 +20,7 @@ Contents overview (Python packages/modules):
 - `ecowittstuff`: simple client/types for Ecowitt weather station API
 - `gcalstuff`: CLI tool for creating Google Calendar events with day‑view confirmation
 - `hydromailstuff`: assemble and send "hydro"/weather summary emails, pulling data from MQTT/Netatmo
-- `k3shelperstuff`: K3s kubeconfig credential synchronization, user-certificate issuing and a Keel image-drift checker
+- `k3shelperstuff`: K3s kubeconfig credential synchronization, user-certificate issuing, a Keel image-drift checker and a version-pin drift checker
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
 - `netatmostuff`: Netatmo data fetch helper and deployment example
@@ -192,19 +192,21 @@ Read Netatmo measurements and provide a deployment example.
 
 
 ### k3shelperstuff
-Helpers around a K3s/Kubernetes cluster: kubeconfig credential synchronization, client certificates for new users, and a Keel image-drift checker.
+Helpers around a K3s/Kubernetes cluster: kubeconfig credential synchronization, client certificates for new users, a Keel image-drift checker, and a version-pin drift checker.
 
-- Entrypoints: `k3shelperstuff/update_local_k3s_keys.py`, `k3shelperstuff/k8s_user_cert.py`, `k3shelperstuff/keel_drift.py`
+- Entrypoints: `k3shelperstuff/update_local_k3s_keys.py`, `k3shelperstuff/k8s_user_cert.py`, `k3shelperstuff/keel_drift.py`, `k3shelperstuff/pin_drift.py`
 - CLI usage:
 ```
 python -m k3shelperstuff.update_local_k3s_keys
 python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
 python -m k3shelperstuff.keel_drift --drift-only --fix-command
+python -m k3shelperstuff.pin_drift --updates-only
 python -m k3shelperstuff.k8s_user_cert extern-admin --role view -o /tmp/extern.yaml
 ```
 - `update_local_k3s_keys`: fetches the kubeconfig from a remote K3s server via SSH, compares user credentials and cluster CA data against the local `~/.kube/config`, and interactively updates any differences. Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
 - `k8s_user_cert`: generates an RSA key + CSR, gets it signed by the cluster CA via the `certificates.k8s.io` API, optionally creates the RoleBinding/ClusterRoleBinding, and merges cluster/user/context into a kubeconfig (mode `0600`). By default the certificate carries no group, so `--role`/`--namespace` actually govern what the user may do; `--group system:masters` is opt-in and would bypass RBAC entirely.
 - `keel_drift`: compares the digest a pod is actually running against the digest its tag currently points at — the comparison Keel itself never makes (it only diffs registry-vs-remembered-digest, and that memory is re-seeded on every restart). Also flags initContainers Keel ignores and `imagePullPolicy != Always`, where a restart cannot help. Exit code 1 on drift, so it works as a pipeline gate. Options double as `KEEL_*` env vars.
+- `pin_drift`: compares fixed version pins declared in `pin_drift.yml` (extracted from repo files via `var`, `image` or a regex) against the newest GitHub/Forgejo release or tag. Read-only, exit code 1 when an update is available. Options double as `PIN_DRIFT_*` env vars.
 - Docker: mount `~/.kube` into the container (read‑write, since `update_local_k3s_keys` updates the local kubeconfig). The `dstart` Makefile target already includes this mount. That script SSHs to the remote host, so `~/.ssh` must also be accessible; `k8s_user_cert` writes its result wherever `-o` points; `keel_drift` falls back to the in-cluster service account and can run as a `Job`/`CronJob`.
 - Usefulness: keep local kubeconfig credentials in sync with a remote K3s server after certificate rotation, hand someone a scoped kubeconfig without touching the CA by hand, and catch workloads that silently stayed on an old image.
 

@@ -6,6 +6,8 @@ Bundles several standalone tools:
   credentials with a remote K3s server via SSH
 * :mod:`k3shelperstuff.keel_drift` — find Keel-tracked workloads whose running
   image lags behind the digest their tag points at
+* :mod:`k3shelperstuff.pin_drift` — find fixed version pins in a repo that lag
+  behind their upstream GitHub/Forgejo release
 
 Central logging setup lives here (loguru), mirroring ucmstuff's setup. The
 modules in this package (and third-party libraries such as ``kubernetes``,

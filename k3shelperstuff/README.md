@@ -9,6 +9,7 @@ whose running image silently lags behind the tag it was deployed from.
 | `update_local_k3s_keys.py` | Sync local `~/.kube/config` credentials with a remote K3s server via SSH |
 | `k8s_user_cert.py`         | Issue a client certificate for a new user and write it into a kubeconfig |
 | `keel_drift.py`            | Find Keel-tracked workloads whose running image is out of date           |
+| `pin_drift.py`             | Find version pins in a repo that lag behind their upstream release       |
 
 Logging setup is shared via `k3shelperstuff.configure_logging` / `print_banner`
 (loguru, with a stdlib-`logging` intercept), mirroring the other packages in this
@@ -169,3 +170,76 @@ runs as a `Job`/`CronJob` inside the cluster.
 | `0`  | Nothing stale (or no tracked workloads at all)              |
 | `1`  | At least one container is stale — usable as a pipeline gate |
 | `2`  | No usable kubeconfig and no in-cluster context              |
+
+## pin_drift
+
+Counterpart to `keel_drift`: that one checks a rolling tag by digest, this one
+checks a **fixed pin** (`v1.2.3`) against the release list of the project it
+comes from. Read-only — it reads the repo files and the release APIs, nothing
+else.
+
+The pins are declared in `pin_drift.yml`, searched upwards from the current
+directory (or given via `--config`). Paths in it are relative to the file
+itself.
+
+```yaml
+pins:
+  - name: mosquitto
+    file: mosquitto-2.1/Dockerfile
+    pattern: 'mosquitto/archive/refs/tags/v([\d.]+)\.tar\.gz'
+    github: eclipse-mosquitto/mosquitto
+    source: tags
+  - name: some-chart
+    files: [values.yaml, values-prod.yaml]
+    var: app_version                 # matches `app_version: 1.4.2`
+    forgejo: git.example.com/owner/repo
+  - name: grafana
+    file: deploy/grafana.yaml
+    image: grafana/grafana           # matches `grafana/grafana:11.2.0`
+    github: grafana/grafana
+    tag_pattern: '^v\d+\.\d+\.\d+$'
+```
+
+| Key                      | Meaning                                                                         |
+|--------------------------|---------------------------------------------------------------------------------|
+| `name`                   | Unique name, used by `--only`                                                   |
+| `file` / `files`         | File(s) carrying the pin; several files must agree on the same value            |
+| `var`                    | Extract from a `key: value` line                                                |
+| `image`                  | Extract the tag after `image:`                                                  |
+| `pattern`                | Raw regex with exactly one capture group                                        |
+| `github` / `forgejo`     | `owner/repo` or `host/owner/repo` the releases come from                        |
+| `source`                 | `releases` (default, drafts/prereleases skipped) or `tags`                      |
+| `tag_pattern`            | Filter for upstream tags (default: `^v?\d+(?:\.\d+)+$`)                         |
+
+Exactly one of `var`/`image`/`pattern` and one of `github`/`forgejo` is required.
+A pin shorter than the upstream version (`5.1` against `5.1.3`) is a floating
+tag and counts as current until a `5.2` appears. Files encrypted with git-crypt
+are reported as `unclear` instead of failing.
+
+GitHub allows 60 anonymous API requests per hour; a token is taken from
+`GITHUB_TOKEN` / `GH_TOKEN` or `gh auth token`.
+
+### Usage
+
+```bash
+python3 -m k3shelperstuff.pin_drift                        # every declared pin
+python3 -m k3shelperstuff.pin_drift --updates-only         # hide the pins that are current
+python3 -m k3shelperstuff.pin_drift --only mosquitto       # a single pin (repeatable)
+python3 -m k3shelperstuff.pin_drift --config ../pin_drift.yml
+```
+
+| Option               | Env var                  | Description                                   |
+|----------------------|--------------------------|-----------------------------------------------|
+| `-c`, `--config P`   | `PIN_DRIFT_CONFIG`       | Pin declarations (default: search upwards)    |
+| `-o`, `--only NAME`  | `PIN_DRIFT_ONLY`         | Check only this pin (repeatable)              |
+| `--updates-only`     | `PIN_DRIFT_UPDATES_ONLY` | Hide the pins that are current                |
+| `-q`, `--quiet`      | `PIN_DRIFT_QUIET`        | Suppress the table, print the summary only    |
+| `-v`, `--verbose`    | `PIN_DRIFT_VERBOSE`      | DEBUG logging                                 |
+
+### Exit codes
+
+| Code | Meaning                                                          |
+|------|------------------------------------------------------------------|
+| `0`  | No update available (pins current or unclear)                    |
+| `1`  | At least one pin has a major/minor/patch update — pipeline gate  |
+| `2`  | No usable `pin_drift.yml`, or an unknown `--only` name           |
