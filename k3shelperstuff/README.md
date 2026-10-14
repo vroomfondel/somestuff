@@ -10,6 +10,7 @@ whose running image silently lags behind the tag it was deployed from.
 | `k8s_user_cert.py`         | Issue a client certificate for a new user and write it into a kubeconfig |
 | `keel_drift.py`            | Find Keel-tracked workloads whose running image is out of date           |
 | `pin_drift.py`             | Find version pins in a repo that lag behind their upstream release       |
+| `drift.py`                 | `pin_drift` and `keel_drift` as subcommands `pin`/`keel` of one CLI      |
 
 Logging setup is shared via `k3shelperstuff.configure_logging` / `print_banner`
 (loguru, with a stdlib-`logging` intercept), mirroring the other packages in this
@@ -150,9 +151,9 @@ python3 -m k3shelperstuff.keel_drift --fix-command            # emit rollout-res
 | Option                   | Env var                     | Description                                      |
 |--------------------------|-----------------------------|--------------------------------------------------|
 | `-n`, `--namespace NS`   | `KEEL_NAMESPACE`            | Only check this namespace                        |
-| `--context CTX`          | `KEEL_CONTEXT`              | kubeconfig context instead of the active one     |
-| `--drift-only`           | `KEEL_DRIFT_ONLY`           | Only show stale and unknown workloads            |
-| `--fix-command`          | `KEEL_FIX_COMMAND`          | Emit `kubectl rollout restart` commands          |
+| `-c`, `--context CTX`    | `KEEL_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context instead of the active one  |
+| `--drift-only`           | `KEEL_DRIFT_ONLY`           | Only show stale and unclear workloads            |
+| `--fix-command`          | `KEEL_FIX_COMMAND`          | Emit `kubectl rollout restart` commands (with `--context`, if given) |
 | `-q`, `--quiet`          | `KEEL_QUIET`                | Suppress the table, print the summary only       |
 | `-v`, `--verbose`        | `KEEL_VERBOSE`              | Log every workload and registry access (DEBUG)   |
 | `--no-local-credentials` | `KEEL_NO_LOCAL_CREDENTIALS` | Ignore the local Docker login, query anonymously |
@@ -169,7 +170,7 @@ runs as a `Job`/`CronJob` inside the cluster.
 |------|-------------------------------------------------------------|
 | `0`  | Nothing stale (or no tracked workloads at all)              |
 | `1`  | At least one container is stale — usable as a pipeline gate |
-| `2`  | No usable kubeconfig and no in-cluster context              |
+| `2`  | Unusable `--context` (the available ones are listed), or no kubeconfig and no in-cluster context |
 
 ## pin_drift
 
@@ -248,10 +249,10 @@ python3 -m k3shelperstuff.pin_drift --no-running           # repo against upstre
 | `-c`, `--config P`   | `PIN_DRIFT_CONFIG`       | Pin declarations (default: search upwards)    |
 | `-o`, `--only NAME`  | `PIN_DRIFT_ONLY`         | Check only this pin (repeatable)              |
 | `--updates-only`     | `PIN_DRIFT_UPDATES_ONLY` | Hide the pins that are current and rolled out |
-| `--context CTX`      | `PIN_DRIFT_CONTEXT`      | kubeconfig context (default: active one)      |
+| `--context CTX`      | `PIN_DRIFT_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context (default: active one) |
 | `--no-running`       | `PIN_DRIFT_NO_RUNNING`   | Do not query the cluster                      |
 | `-q`, `--quiet`      | `PIN_DRIFT_QUIET`        | Suppress the table, print the summary only    |
-| `-v`, `--verbose`    | `PIN_DRIFT_VERBOSE`      | DEBUG logging                                 |
+| `-v`, `--verbose`    | `PIN_DRIFT_VERBOSE`      | DEBUG logging, third-party libraries included |
 
 ### Exit codes
 
@@ -260,3 +261,17 @@ python3 -m k3shelperstuff.pin_drift --no-running           # repo against upstre
 | `0`  | No update available (pins current or unclear)                    |
 | `1`  | At least one pin has a major/minor/patch update — pipeline gate  |
 | `2`  | No usable `pin_drift.yml`, an unknown `--only` name, or an unusable explicit `--context` |
+
+## drift
+
+Both checks behind one CLI, so `--help` lists them side by side instead of only
+showing the options of whichever tool happens to be the default.
+
+```bash
+python3 -m k3shelperstuff.drift --help                # lists pin and keel
+python3 -m k3shelperstuff.drift pin [pin options]     # same options as pin_drift
+python3 -m k3shelperstuff.drift keel [keel options]   # same options as keel_drift
+```
+
+`DRIFT_PROG_NAME` overrides the program name shown in `--help`, for wrapper
+scripts (`./drift.sh`, `scripts/check_pin_drift.sh`) that call the module.

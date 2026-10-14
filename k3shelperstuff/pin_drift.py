@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Find version pins in a repo that have fallen behind their upstream release.
+"""Find version pins in the repo that have fallen behind their upstream release.
 
-Counterpart to :mod:`k3shelperstuff.keel_drift`: that one compares the digest of
-a rolling tag, this one compares a fixed pin (``v1.2.3``) against the release
-list of the project it comes from.
+Counterpart to :mod:`k3shelperstuff.keel_drift`: that one compares the
+digest of a rolling tag, this one compares a fixed pin (``v1.2.3``) against the
+release list of the project it comes from.
 
 The pins are declared in ``pin_drift.yml``, searched upwards from the current
 directory. Each entry names the files carrying the pin, how to extract it
 (``var``, ``image`` or a raw ``pattern`` with one capture group) and where the
 releases live (``github: owner/repo`` or ``forgejo: host/owner/repo``). Nothing
-is ever written: the tool reads the repo and the release APIs only.
+is ever written: the script reads the repo and the release APIs only.
 
 A pin shorter than the upstream version (``5.1`` against ``5.1.3``) is a
 floating tag and counts as current until a newer ``5.2`` appears.
@@ -23,48 +23,69 @@ not (or only partially) rolled out; it does not change the exit code.
 GitHub allows 60 anonymous API requests per hour, so a token is picked up from
 ``GITHUB_TOKEN`` / ``GH_TOKEN`` or, failing that, from ``gh auth token``.
 
-Every option can also be given as a ``PIN_DRIFT_*`` environment variable (the
-CLI option wins).
-
-Exit codes:
-    * ``0`` — every pin is current (or unclear).
-    * ``1`` — at least one pin has an update available, so the tool doubles as
-      a pipeline gate.
-    * ``2`` — no usable ``pin_drift.yml``, an unknown ``--only`` name or an
-      unusable explicit ``--context``.
+Run as ``python3 -m k3shelperstuff.pin_drift``.
 
 Examples:
-    Typical invocations::
+    python3 -m k3shelperstuff.pin_drift                        # every declared pin
+    python3 -m k3shelperstuff.pin_drift --updates-only         # hide the pins that are current
+    python3 -m k3shelperstuff.pin_drift --only hermes-agent    # a single pin (repeatable)
+    python3 -m k3shelperstuff.pin_drift --config ../pin_drift.yml
+    python3 -m k3shelperstuff.pin_drift --context ht@dgxarley  # running versions from this context
+    python3 -m k3shelperstuff.pin_drift --no-running           # repo against upstream only
 
-        python3 -m k3shelperstuff.pin_drift                        # every declared pin
-        python3 -m k3shelperstuff.pin_drift --updates-only         # hide the pins that are current
-        python3 -m k3shelperstuff.pin_drift --only mosquitto       # a single pin (repeatable)
-        python3 -m k3shelperstuff.pin_drift --config ../pin_drift.yml
-        python3 -m k3shelperstuff.pin_drift --context ht@heidk8    # running versions from this context
-        python3 -m k3shelperstuff.pin_drift --no-running           # repo against upstream only
+Every option can also be given as a ``PIN_DRIFT_*`` environment variable (the
+CLI option wins); ``--context`` additionally reads ``KUBE_CONTEXT``.
+
+Exit codes:
+    * ``0`` -- every pin is current (or unclear).
+    * ``1`` -- at least one pin has an update available, so the tool doubles as
+      a gate.
+    * ``2`` -- no usable ``pin_drift.yml``, an unknown ``--only`` name or an
+      unusable explicit ``--context``.
+
+Attributes:
+    CONFIG_NAME: File name of the pin declarations, searched upwards from the
+        current directory.
+    GITHUB_API_HOST: Host of the GitHub REST API.
+    GITCRYPT_MAGIC: Leading bytes of a file that git-crypt has not decrypted.
+    DEFAULT_TAG_PATTERN: Regular expression a release tag must match to count
+        as a version (``1.2``, ``v1.2.3``, ...).
+    REQUEST_TIMEOUT_SECONDS: Timeout of a single release or cluster API request.
+    FINISHED_POD_PHASES: Pod phases whose images no longer count as running.
+    MAX_WORKERS: Number of upstream projects queried concurrently.
+    PAGE_SIZE: Per upstream kind, the query parameter name and the largest page
+        size the API accepts.
+    console: Rich console for the result table and the summary (stdout).
+    err_console: Rich console for progress and error messages (stderr).
+    CLI_HELP: Help text of the ``pin_drift`` command.
+    app: Typer application exposing :func:`main`.
+    UPDATE_STATUSES: Statuses that mean an update is available.
+    STATUS_ORDER: Sort order of the findings, most urgent first.
+    STATUS_STYLE: Rich style per status in the result table.
 
 Author: vroomfondel
 Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/pin_drift.py
 """
 
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Final, Literal, Self, TypedDict
+from typing import Final, Literal, Self, TypedDict
 
 import requests
 import typer
 import urllib3
 import yaml
 from kubernetes import client, config
-from kubernetes.client.rest import ApiException
+from kubernetes.client.exceptions import ApiException
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator, model_validator
 from rich.console import Console
 from rich.table import Table
@@ -74,7 +95,7 @@ from k3shelperstuff.keel_drift import parse_image
 
 type VersionKey = tuple[int, ...]
 type UpstreamKind = Literal["github", "forgejo"]
-type TagSource = Literal["releases", "tags"]
+type UpstreamSource = Literal["releases", "tags"]
 type ImageRepo = tuple[str, str]
 
 CONFIG_NAME: Final[str] = "pin_drift.yml"
@@ -85,7 +106,7 @@ REQUEST_TIMEOUT_SECONDS: Final[int] = 20
 FINISHED_POD_PHASES: Final[frozenset[str]] = frozenset({"Succeeded", "Failed"})
 MAX_WORKERS: Final[int] = 8
 # GitHub caps a page at 100 entries, Forgejo/Gitea at 50 by default.
-PAGE_SIZE: Final[Mapping[UpstreamKind, tuple[str, int]]] = {"github": ("per_page", 100), "forgejo": ("limit", 50)}
+PAGE_SIZE: Final[dict[UpstreamKind, tuple[str, int]]] = {"github": ("per_page", 100), "forgejo": ("limit", 50)}
 
 _WIDE: Final[int] = 200
 
@@ -95,26 +116,29 @@ err_console: Final[Console] = Console(stderr=True, width=None if sys.stderr.isat
 CLI_HELP: Final[str] = """Check whether version pins in the repo lag behind their upstream release.
 
 Reads the pins declared in pin_drift.yml from the repo files and compares each
-against the release list of its upstream project. Read-only.
+against the release list of its upstream project. With a usable kubeconfig the
+versions running in the cluster are shown alongside. Read-only.
 
 The exit code is 1 as soon as at least one pin has an update available, so the
-tool works as a gate in a pipeline.
+script works as a gate in a pipeline.
 """
 
 app: Final[typer.Typer] = typer.Typer(add_completion=False)
 
 
 class ReleaseEntry(TypedDict, total=False):
-    """One element of a release or tag listing from the GitHub/Forgejo API.
+    """One entry of a release or tag listing, reduced to the fields used here.
 
-    Only the fields the tool reads are declared; everything else in the
-    payload is dropped during validation.
+    The same shape covers both endpoints of both forges: a ``releases`` entry
+    carries ``tag_name`` (plus ``name`` as a free-form title), a ``tags`` entry
+    carries the tag in ``name``. Every key is optional because each endpoint
+    fills only its own subset.
 
     Attributes:
-        tag_name: Git tag of a release (``/releases`` endpoint only).
-        name: Tag name on the ``/tags`` endpoint; free-form title (possibly
-            ``null``) on the ``/releases`` endpoint.
-        prerelease: Whether the release is flagged as a pre-release.
+        tag_name: Git tag of a release.
+        name: Release title (``releases``, may be null on GitHub) or the tag
+            itself (``tags``).
+        prerelease: Whether the release is marked as a pre-release.
         draft: Whether the release is an unpublished draft.
     """
 
@@ -124,18 +148,18 @@ class ReleaseEntry(TypedDict, total=False):
     draft: bool
 
 
-_RELEASE_LIST: Final[TypeAdapter[list[ReleaseEntry]]] = TypeAdapter(list[ReleaseEntry])
+_RELEASE_LISTING: Final[TypeAdapter[list[ReleaseEntry]]] = TypeAdapter(list[ReleaseEntry])
 
 
 class PinStatus(StrEnum):
-    """Outcome of comparing one pin against its upstream.
+    """Outcome of comparing a pin with the newest upstream version.
 
     Attributes:
-        CURRENT: The pin covers the newest upstream version.
-        PATCH: A newer patch release exists.
-        MINOR: A newer minor release exists.
-        MAJOR: A newer major release exists.
-        UNCLEAR: The pin or the upstream could not be determined.
+        CURRENT: The pin is at (or ahead of) the newest upstream version.
+        PATCH: A newer version differs from the pin beyond the minor component.
+        MINOR: A newer version differs from the pin in the minor component.
+        MAJOR: A newer version differs from the pin in the major component.
+        UNCLEAR: The pin or the upstream list could not be evaluated.
     """
 
     CURRENT = "current"
@@ -147,7 +171,7 @@ class PinStatus(StrEnum):
 
 UPDATE_STATUSES: Final[tuple[PinStatus, ...]] = (PinStatus.MAJOR, PinStatus.MINOR, PinStatus.PATCH)
 STATUS_ORDER: Final[tuple[PinStatus, ...]] = (*UPDATE_STATUSES, PinStatus.UNCLEAR, PinStatus.CURRENT)
-STATUS_STYLE: Final[Mapping[PinStatus, str]] = {
+STATUS_STYLE: Final[dict[PinStatus, str]] = {
     PinStatus.CURRENT: "green",
     PinStatus.PATCH: "yellow",
     PinStatus.MINOR: "bold yellow",
@@ -156,26 +180,28 @@ STATUS_STYLE: Final[Mapping[PinStatus, str]] = {
 }
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True)
 class Upstream:
-    """The project whose releases a pin is compared against.
+    """An upstream project whose release list a pin is compared against.
+
+    Hashable, so pins sharing an upstream share a single API request.
 
     Attributes:
-        kind: Forge flavour, decides the API layout.
+        kind: Which forge API to talk to.
         repo: ``owner/repo`` for GitHub, ``host/owner/repo`` for Forgejo.
-        source: Whether to list ``releases`` or plain ``tags``.
+        source: Whether to read the ``releases`` or the ``tags`` endpoint.
     """
 
     kind: UpstreamKind
     repo: str
-    source: TagSource
+    source: UpstreamSource
 
     @property
     def url(self) -> str:
-        """API endpoint that lists the releases or tags of the project.
+        """API URL of the release or tag listing.
 
         Returns:
-            Absolute HTTPS URL of the listing endpoint.
+            The listing URL on ``api.github.com`` or on the Forgejo host.
         """
         if self.kind == "github":
             return f"https://{GITHUB_API_HOST}/repos/{self.repo}/{self.source}"
@@ -184,27 +210,30 @@ class Upstream:
 
     @property
     def display(self) -> str:
-        """Human-readable label for the result table.
+        """Human-readable name for the result table.
 
         Returns:
-            The repo path, suffixed with ``(forgejo)`` for non-GitHub upstreams.
+            The repo path, suffixed with ``(forgejo)`` for a Forgejo upstream.
         """
         return self.repo if self.kind == "github" else f"{self.repo} (forgejo)"
 
 
 class PinSpec(BaseModel):
-    """One pin declaration from ``pin_drift.yml``.
+    """One pin as declared in ``pin_drift.yml``.
+
+    Exactly one extraction method (``var``, ``image``, ``pattern``) and exactly
+    one upstream (``github``, ``forgejo``) must be set, plus at least one file.
 
     Attributes:
-        name: Unique name of the pin, used for ``--only`` and in the output.
-        file: Single file carrying the pin, relative to the config directory.
+        name: Unique name of the pin, used by ``--only`` and in the table.
+        file: A single file carrying the pin, relative to the config file.
         files: Further files carrying the same pin; all must agree.
-        var: YAML-style key whose value is the pin (``key: value``).
-        image: Image name whose tag is the pin (``image:tag``).
-        pattern: Raw regular expression with exactly one capture group.
-        github: Upstream as ``owner/repo`` on GitHub.
-        forgejo: Upstream as ``host/owner/repo`` on a Forgejo/Gitea instance.
-        source: Whether to compare against ``releases`` or ``tags``.
+        var: YAML key whose scalar value is the pin.
+        image: Container image reference whose tag is the pin.
+        pattern: Regular expression with exactly one capture group for the pin.
+        github: GitHub ``owner/repo`` of the upstream.
+        forgejo: Forgejo ``host/owner/repo`` of the upstream.
+        source: Whether upstream versions come from releases or from tags.
         tag_pattern: Regular expression an upstream tag must match to count.
         running_image: Image names whose tags in the cluster's pods are the
             running version; defaults to ``image``.
@@ -221,7 +250,7 @@ class PinSpec(BaseModel):
     pattern: str | None = None
     github: str | None = None
     forgejo: str | None = None
-    source: TagSource = "releases"
+    source: UpstreamSource = "releases"
     tag_pattern: str = DEFAULT_TAG_PATTERN
     running_image: tuple[str, ...] = ()
     running_kubelet: bool = False
@@ -242,7 +271,7 @@ class PinSpec(BaseModel):
     @field_validator("pattern", "tag_pattern")
     @classmethod
     def _compiles(cls, value: str | None) -> str | None:
-        """Reject regular expressions that do not compile.
+        """Reject a regular expression that does not compile.
 
         Args:
             value: The configured expression, or ``None`` if unset.
@@ -262,14 +291,16 @@ class PinSpec(BaseModel):
 
     @model_validator(mode="after")
     def _exactly_one_of_each(self) -> Self:
-        """Enforce the mutually exclusive option groups.
+        """Enforce the either/or rules between the fields.
 
         Returns:
             The validated model.
 
         Raises:
-            ValueError: If no file is given, not exactly one extractor or
-                upstream is set, or ``pattern`` lacks exactly one capture group.
+            ValueError: If no file is given, if not exactly one extraction
+                method or not exactly one upstream is set, if ``pattern``
+                does not have exactly one capture group, or if both
+                ``running_image`` and ``running_kubelet`` are set.
         """
         if not self.paths:
             raise ValueError("needs 'file' or 'files'")
@@ -307,11 +338,11 @@ class PinSpec(BaseModel):
 
     @property
     def extractor(self) -> re.Pattern[str]:
-        """Compiled expression that captures the pinned version.
+        """Compiled expression that captures the pin from a file's text.
 
         Returns:
             A pattern with exactly one capture group, built from ``var``,
-            ``image`` or ``pattern``, whichever is set.
+            ``image`` or ``pattern`` (whichever is set).
         """
         if self.var is not None:
             return re.compile(rf"^\s*{re.escape(self.var)}:\s*[\"']?([^\"'\s#]+)", re.MULTILINE)
@@ -321,10 +352,10 @@ class PinSpec(BaseModel):
 
     @property
     def upstream(self) -> Upstream:
-        """The upstream project the pin is compared against.
+        """The upstream project of this pin.
 
         Returns:
-            An :class:`Upstream` built from ``github`` or ``forgejo``.
+            An :class:`Upstream` for whichever of ``github`` / ``forgejo`` is set.
         """
         if self.github is not None:
             return Upstream("github", self.github, self.source)
@@ -332,10 +363,10 @@ class PinSpec(BaseModel):
 
 
 class PinConfig(BaseModel):
-    """Root of ``pin_drift.yml``.
+    """Top-level structure of ``pin_drift.yml``.
 
     Attributes:
-        pins: All declared pins.
+        pins: All declared pins, in file order.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -344,13 +375,13 @@ class PinConfig(BaseModel):
 
     @model_validator(mode="after")
     def _unique_names(self) -> Self:
-        """Reject duplicate pin names.
+        """Reject two pins with the same name.
 
         Returns:
             The validated model.
 
         Raises:
-            ValueError: If two pins share a name.
+            ValueError: If a pin name occurs more than once.
         """
         names = [spec.name for spec in self.pins]
         duplicates = sorted({name for name in names if names.count(name) > 1})
@@ -364,14 +395,13 @@ class ClusterSnapshot:
     """Versions currently running in the cluster.
 
     Attributes:
-        context: kubeconfig context the snapshot was taken from, ``None`` for
-            the active one.
+        context: Description of the kubeconfig context the snapshot was taken from.
         images: Tags of every image repository in a live pod.
         kubelet: Kubelet versions of all nodes.
     """
 
-    context: str | None
-    images: Mapping[ImageRepo, frozenset[str]]
+    context: str
+    images: dict[ImageRepo, frozenset[str]]
     kubelet: frozenset[str]
 
     def running(self, spec: PinSpec) -> tuple[str, ...]:
@@ -392,12 +422,11 @@ class ClusterSnapshot:
 
 @dataclass(frozen=True)
 class TagLookup:
-    """Result of querying one upstream.
+    """Result of querying one upstream: either its tags or an error.
 
     Attributes:
-        tags: Tag names of the usable releases (or tags), newest first as
-            delivered by the API.
-        error: Reason the lookup failed; empty on success.
+        tags: Published version tags (drafts and pre-releases excluded).
+        error: Short reason why the lookup failed; empty on success.
     """
 
     tags: tuple[str, ...] = ()
@@ -406,14 +435,14 @@ class TagLookup:
 
 @dataclass(frozen=True)
 class Finding:
-    """Comparison result for one pin.
+    """The evaluated state of one pin.
 
     Attributes:
         spec: The pin declaration.
-        pinned: Version read from the repo, ``None`` if it could not be read.
-        latest: Newest matching upstream tag, ``None`` if unknown.
-        status: Outcome of the comparison.
-        note: Additional explanation, e.g. why the status is ``UNCLEAR``.
+        pinned: The version read from the repo, ``None`` if unreadable.
+        latest: The newest matching upstream version, ``None`` if unknown.
+        status: How far the pin lags behind ``latest``.
+        note: Extra explanation for the table (problem, floating tag, ...).
         running: Versions running in the cluster, oldest first.
     """
 
@@ -430,7 +459,7 @@ class Finding:
 
         Returns:
             ``True`` if nothing runs, the pin is unknown, or every running
-            version equals the pin (a leading ``v`` aside).
+            version equals the pin.
         """
         pinned = self.pinned
         return pinned is None or all(same_version(tag, pinned) for tag in self.running)
@@ -449,42 +478,66 @@ def image_repo(image: str) -> ImageRepo:
     return ref.registry, ref.repository
 
 
-def same_version(left: str, right: str) -> bool:
-    """Compare two tags, ignoring a leading ``v``.
+def same_version(running: str, pinned: str) -> bool:
+    """Compare a running tag with a pin.
 
     Args:
-        left: A tag such as ``0.40.0``.
-        right: A tag such as ``v0.40.0``.
+        running: A tag from the cluster such as ``v4.3.1-thick``.
+        pinned: The pin such as ``v4.3.1``.
 
     Returns:
-        Whether both name the same version.
+        Whether both are equal ignoring a leading ``v``, or carry the same
+        non-empty version number (a flavour suffix such as ``-thick`` aside).
+
+    Examples:
+        >>> same_version("0.40.0", "v0.40.0")
+        True
+        >>> same_version("v4.3.1-thick", "v4.3.1")
+        True
     """
-    return left.removeprefix("v") == right.removeprefix("v")
+    if running.removeprefix("v") == pinned.removeprefix("v"):
+        return True
+    key = version_key(pinned)
+    return bool(key) and version_key(running) == key
 
 
 def version_key(text: str) -> VersionKey:
-    """Turn a version string into a sortable tuple of numbers.
+    """Turn a version string into a comparable tuple of integers.
 
     Args:
-        text: A tag or pin such as ``v1.2.3`` or ``v1.31.4+k3s1``.
+        text: A tag or pin such as ``v1.2.3`` or ``13.2.0-ubuntu``.
 
     Returns:
-        The numeric components, e.g. ``(1, 2, 3)``; empty if there are none.
+        The numeric components in order, e.g. ``(1, 2, 3)``; empty if the text
+        carries no version number.
+
+    Examples:
+        >>> version_key("v1.2.3")
+        (1, 2, 3)
+        >>> version_key("k3s-1.30")
+        (1, 30)
     """
     # A number running into a letter belongs to a word ("k3s"), not to the version.
     return tuple(int(part) for part in re.findall(r"\d+(?![A-Za-z\d])", text))
 
 
 def classify(pinned: VersionKey, candidate: VersionKey) -> PinStatus:
-    """Classify how far a candidate version is ahead of the pin.
+    """Classify how far ``candidate`` is ahead of ``pinned``.
 
     Args:
         pinned: Version key of the pin.
         candidate: Version key of an upstream release.
 
     Returns:
-        ``CURRENT`` if the candidate is not newer at the pin's precision,
-        otherwise ``MAJOR``, ``MINOR`` or ``PATCH`` by the first differing part.
+        :attr:`PinStatus.CURRENT` if the candidate is not newer at the pin's
+        precision, otherwise the first differing component as MAJOR, MINOR or
+        PATCH.
+
+    Examples:
+        >>> classify((5, 1), (5, 1, 3))
+        <PinStatus.CURRENT: 'current'>
+        >>> classify((1, 2, 3), (1, 3, 0))
+        <PinStatus.MINOR: 'minor'>
     """
     # Truncating to the pin's precision makes a floating "5.1" cover every 5.1.x.
     head = candidate[: len(pinned)]
@@ -495,13 +548,14 @@ def classify(pinned: VersionKey, candidate: VersionKey) -> PinStatus:
 
 
 def find_config(start: Path) -> Path | None:
-    """Search for ``pin_drift.yml`` in a directory and its parents.
+    """Search ``start`` and its parents for the pin declarations.
 
     Args:
         start: Directory to start the search in.
 
     Returns:
-        Path of the first config file found, or ``None``.
+        The first ``pin_drift.yml`` found, or ``None`` if there is none up to
+        the filesystem root.
     """
     for directory in (start, *start.parents):
         candidate = directory / CONFIG_NAME
@@ -514,14 +568,14 @@ def load_config(path: Path) -> PinConfig:
     """Read and validate the pin declarations.
 
     Args:
-        path: Location of ``pin_drift.yml``.
+        path: Path of ``pin_drift.yml``.
 
     Returns:
         The validated configuration.
 
     Raises:
-        typer.Exit: With code 2 if the file is unreadable, not YAML, or fails
-            validation.
+        typer.Exit: With code 2 if the file cannot be read, is not valid YAML
+            or does not match the schema.
     """
     try:
         raw: object = yaml.safe_load(path.read_text())
@@ -534,13 +588,14 @@ def load_config(path: Path) -> PinConfig:
 def github_token() -> str | None:
     """Find a GitHub API token.
 
+    Checks ``GITHUB_TOKEN`` and ``GH_TOKEN`` first, then asks the ``gh`` CLI.
+
     Returns:
-        The value of ``GITHUB_TOKEN`` or ``GH_TOKEN``, else the output of
-        ``gh auth token``, else ``None``.
+        The token, or ``None`` to fall back to anonymous access.
     """
     for name in ("GITHUB_TOKEN", "GH_TOKEN"):
-        if token := os.environ.get(name):
-            return token
+        if os.environ.get(name):
+            return os.environ[name]
     gh = shutil.which("gh")
     if gh is None:
         return None
@@ -552,17 +607,17 @@ def github_token() -> str | None:
 
 
 def fetch_tags(upstream: Upstream, token: str | None) -> TagLookup:
-    """Fetch the first page of releases or tags of an upstream.
+    """Fetch the first page of an upstream's releases or tags.
 
-    Pre-releases and drafts are skipped when listing releases.
+    Never raises on network or API problems; those end up in
+    :attr:`TagLookup.error` so one broken upstream does not stop the run.
 
     Args:
-        upstream: Project to query.
-        token: GitHub API token; ignored for Forgejo.
+        upstream: The project to query.
+        token: GitHub token, sent only to GitHub; ``None`` for anonymous access.
 
     Returns:
-        The tag names, or a :class:`TagLookup` with ``error`` set if the
-        request failed or the response was not a release/tag list.
+        The published tags (drafts and pre-releases skipped), or an error.
     """
     headers = {"Accept": "application/json"}
     if upstream.kind == "github" and token:
@@ -578,7 +633,7 @@ def fetch_tags(upstream: Upstream, token: str | None) -> TagLookup:
         detail = response.text.strip()[:80].replace("\n", " ")
         return TagLookup(error=f"HTTP {response.status_code} {detail}")
     try:
-        entries = _RELEASE_LIST.validate_json(response.content)
+        entries = _RELEASE_LISTING.validate_json(response.content)
     except ValidationError as exc:
         if any(error["type"] == "json_invalid" for error in exc.errors()):
             return TagLookup(error="no JSON in the response")
@@ -596,15 +651,16 @@ def fetch_tags(upstream: Upstream, token: str | None) -> TagLookup:
 
 
 def read_pin(spec: PinSpec, root: Path) -> tuple[str | None, str]:
-    """Extract the pinned version from every file of a pin.
+    """Read the pinned version from all files of a pin.
 
     Args:
         spec: The pin declaration.
         root: Directory the pin's file paths are relative to.
 
     Returns:
-        ``(version, "")`` on success, or ``(None, problem)`` if a file is
-        unreadable, git-crypt locked, lacks the pin, or the files disagree.
+        ``(version, "")`` if every file carries the same pin, otherwise
+        ``(None, problem)`` describing the first unreadable, git-crypt-locked
+        or pin-less file, or the conflicting values.
     """
     found: set[str] = set()
     for relative in spec.paths:
@@ -624,16 +680,16 @@ def read_pin(spec: PinSpec, root: Path) -> tuple[str | None, str]:
 
 
 def evaluate(spec: PinSpec, root: Path, lookup: TagLookup) -> Finding:
-    """Compare one pin against the tags of its upstream.
+    """Compare one pin against its upstream's tags.
 
     Args:
         spec: The pin declaration.
         root: Directory the pin's file paths are relative to.
-        lookup: Result of :func:`fetch_tags` for the pin's upstream.
+        lookup: The already fetched tags of the pin's upstream.
 
     Returns:
-        The finding for this pin, including the newest matching upstream tag
-        and, for a major update, the newest tag within the pinned major.
+        The finding, with a note for a floating tag, a pin ahead of upstream
+        or a newer release within the pinned major.
     """
     pinned, problem = read_pin(spec, root)
     if pinned is None:
@@ -680,31 +736,39 @@ def load_cluster(context: str | None) -> ClusterSnapshot | None:
         typer.Exit: With code 2 if an explicitly named context is unusable.
     """
     try:
-        config.load_kube_config(context=context)
+        config.load_kube_config(context=context)  # type: ignore[no-untyped-call]
+        if context is not None:
+            where = f"context {context}"
+        else:
+            _, active = config.list_kube_config_contexts()  # type: ignore[no-untyped-call]
+            where = f"current context {(active or {}).get('name', '?')}"
     except (config.ConfigException, OSError) as exc:
-        if context:
-            err_console.print(f"[red]context '{context}' not usable:[/] {exc}")
+        if context is not None:
+            err_console.print(f"[red]Context {context!r} not usable: {exc}[/]")
             raise typer.Exit(code=2) from exc
         try:
-            config.load_incluster_config()
+            config.load_incluster_config()  # type: ignore[no-untyped-call]
         except config.ConfigException:
             err_console.print("[yellow]No kubeconfig and no in-cluster context, skipping the running column.[/]")
             return None
+        where = "in-cluster service account"
 
     core = client.CoreV1Api()
     try:
         pods = core.list_pod_for_all_namespaces(_request_timeout=REQUEST_TIMEOUT_SECONDS).items
         nodes = core.list_node(_request_timeout=REQUEST_TIMEOUT_SECONDS).items
     except (ApiException, urllib3.exceptions.HTTPError) as exc:
-        if context:
-            err_console.print(f"[red]cluster of context '{context}' not usable:[/] {exc}")
+        if context is not None:
+            err_console.print(f"[red]Cluster of context {context!r} not usable: {exc}[/]")
             raise typer.Exit(code=2) from exc
-        err_console.print(f"[yellow]Cluster not reachable, skipping the running column:[/] {exc}")
+        err_console.print(f"[yellow]Cluster not reachable, skipping the running column: {exc}[/]")
         return None
 
     images: dict[ImageRepo, set[str]] = {}
     for pod in pods:
         if pod.status and pod.status.phase in FINISHED_POD_PHASES:
+            continue
+        if pod.spec is None:
             continue
         for container in (*(pod.spec.containers or ()), *(pod.spec.init_containers or ())):
             if container.image:
@@ -713,7 +777,7 @@ def load_cluster(context: str | None) -> ClusterSnapshot | None:
     kubelet = frozenset(
         node.status.node_info.kubelet_version for node in nodes if node.status and node.status.node_info
     )
-    return ClusterSnapshot(context, {repo: frozenset(tags) for repo, tags in images.items()}, kubelet)
+    return ClusterSnapshot(where, {repo: frozenset(tags) for repo, tags in images.items()}, kubelet)
 
 
 def with_running(finding: Finding, cluster: ClusterSnapshot) -> Finding:
@@ -738,18 +802,18 @@ def with_running(finding: Finding, cluster: ClusterSnapshot) -> Finding:
 def analyse(
     specs: Sequence[PinSpec], root: Path, token: str | None, cluster: ClusterSnapshot | None = None
 ) -> list[Finding]:
-    """Check all pins, querying each distinct upstream once in parallel.
+    """Evaluate all pins, querying each distinct upstream once in parallel.
 
     Args:
-        specs: Pin declarations to check.
+        specs: The pins to check.
         root: Directory the pins' file paths are relative to.
-        token: GitHub API token, or ``None`` for anonymous access.
+        token: GitHub token, or ``None`` for anonymous access.
         cluster: Running versions to attach, or ``None`` to leave them out.
 
     Returns:
-        One finding per pin, ordered by severity, then by name.
+        One finding per pin, most urgent status first, then by name.
     """
-    upstreams = sorted({spec.upstream for spec in specs})
+    upstreams = sorted({spec.upstream for spec in specs}, key=lambda item: (item.kind, item.repo, item.source))
     with err_console.status(f"[cyan]asking {len(upstreams)} upstream projects...[/]"):
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             lookups: dict[Upstream, TagLookup] = dict(
@@ -773,18 +837,16 @@ def running_cell(finding: Finding) -> str:
     """
     if not finding.running:
         return "[dim]-[/]"
-    style = "green" if finding.rolled_out else "yellow"
-    return ", ".join(
-        f"[{'green' if same_version(tag, finding.pinned or "") else style}]{tag}[/]" for tag in finding.running
-    )
+    pinned = finding.pinned or ""
+    return ", ".join(f"[{'green' if same_version(tag, pinned) else 'yellow'}]{tag}[/]" for tag in finding.running)
 
 
 def render(findings: Sequence[Finding], updates_only: bool, show_running: bool = False) -> None:
-    """Print the findings as a table to stdout.
+    """Print the findings as a table.
 
     Args:
-        findings: Results to show.
-        updates_only: Hide pins whose status is ``CURRENT`` and that are
+        findings: The evaluated pins, already sorted.
+        updates_only: Skip the pins whose status is current and that are
             rolled out.
         show_running: Add the ``running`` column.
     """
@@ -817,52 +879,42 @@ def render(findings: Sequence[Finding], updates_only: bool, show_running: bool =
 
 @app.command(help=CLI_HELP)
 def main(
-    config_path: Annotated[
-        Path | None,
-        typer.Option(
-            "--config",
-            "-c",
-            envvar="PIN_DRIFT_CONFIG",
-            help=f"Pin declarations (default: {CONFIG_NAME}, searched upwards from the current directory).",
-        ),
-    ] = None,
-    only: Annotated[
-        list[str] | None,
-        typer.Option("--only", "-o", envvar="PIN_DRIFT_ONLY", help="Check only this pin (repeatable)."),
-    ] = None,
-    updates_only: Annotated[
-        bool,
-        typer.Option("--updates-only", envvar="PIN_DRIFT_UPDATES_ONLY", help="Hide the pins that are current."),
-    ] = False,
-    context: Annotated[
-        str | None,
-        typer.Option(
-            "--context",
-            envvar="PIN_DRIFT_CONTEXT",
-            help="kubeconfig context for the running column (default: the active one).",
-        ),
-    ] = None,
-    no_running: Annotated[
-        bool,
-        typer.Option(
-            "--no-running", envvar="PIN_DRIFT_NO_RUNNING", help="Do not ask the cluster for running versions."
-        ),
-    ] = False,
-    quiet: Annotated[
-        bool,
-        typer.Option("--quiet", "-q", envvar="PIN_DRIFT_QUIET", help="Suppress the table, print only the summary."),
-    ] = False,
-    verbose: Annotated[
-        bool, typer.Option("--verbose", "-v", envvar="PIN_DRIFT_VERBOSE", help="DEBUG logging.")
-    ] = False,
+    config_path: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        envvar="PIN_DRIFT_CONFIG",
+        help=f"Pin declarations (default: {CONFIG_NAME}, searched upwards from the current directory).",
+    ),
+    only: list[str] | None = typer.Option(
+        None, "--only", "-o", envvar="PIN_DRIFT_ONLY", help="Check only this pin (repeatable)."
+    ),
+    updates_only: bool = typer.Option(
+        False, "--updates-only", envvar="PIN_DRIFT_UPDATES_ONLY", help="Hide the pins that are current and rolled out."
+    ),
+    context: str | None = typer.Option(
+        None,
+        "--context",
+        envvar=["PIN_DRIFT_CONTEXT", "KUBE_CONTEXT"],
+        help="kubeconfig context for the running column (default: the current context).",
+    ),
+    no_running: bool = typer.Option(
+        False, "--no-running", envvar="PIN_DRIFT_NO_RUNNING", help="Do not ask the cluster for running versions."
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", envvar="PIN_DRIFT_QUIET", help="Suppress the table, print only the summary."
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", envvar="PIN_DRIFT_VERBOSE", help="DEBUG logging, third-party libraries included."
+    ),
 ) -> None:
-    """CLI entry point: check the declared pins and report the drift.
+    """Check the declared pins and print the drift.
 
     Args:
-        config_path: Explicit config file; searched upwards from the current
-            directory if ``None``.
+        config_path: Pin declarations; ``None`` searches upwards from the
+            current directory.
         only: Restrict the check to these pin names.
-        updates_only: Hide pins that are current.
+        updates_only: Hide the pins that are current and rolled out.
         context: kubeconfig context for the running versions.
         no_running: Skip the cluster entirely.
         quiet: Print only the summary line, not the table.
@@ -870,17 +922,17 @@ def main(
 
     Raises:
         typer.Exit: Always. Code 0 if no pin has an update, 1 if at least one
-            has, 2 for a missing/invalid config, an unknown ``--only`` name or
-            an unusable explicit ``--context``.
+            has, 2 if the configuration is missing, invalid, ``--only``
+            names an unknown pin, or an explicit ``--context`` is unusable.
     """
     configure_logging(verbose=verbose)
-    print_banner("pin_drift")
+    print_banner(Path(__file__).stem)
 
     path = config_path or find_config(Path.cwd())
     if path is None:
         err_console.print(f"[red]No {CONFIG_NAME} found in {Path.cwd()} or any parent directory.[/]")
         raise typer.Exit(code=2)
-    specs: list[PinSpec] = list(load_config(path).pins)
+    specs = list(load_config(path).pins)
 
     if only:
         unknown = sorted(set(only) - {spec.name for spec in specs})
@@ -896,7 +948,7 @@ def main(
 
     cluster = None if no_running else load_cluster(context)
     if cluster is not None:
-        err_console.print(f"[cyan]Running versions from cluster context {cluster.context or '(active)'}.[/]")
+        err_console.print(f"[cyan]Running versions from {cluster.context}.[/]")
 
     findings = analyse(specs, path.resolve().parent, token, cluster)
     if not quiet:

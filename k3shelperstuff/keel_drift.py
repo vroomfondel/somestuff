@@ -1,35 +1,37 @@
 #!/usr/bin/env python3
-"""Find Keel-tracked workloads whose running image is out of date.
+"""Find Keel-tracked workloads whose running image has fallen behind its tag.
 
-On every poll Keel compares ONLY the registry digest of right now against the
-digest it memorised during its previous poll (``trigger/poll/
-single_tag_watcher.go``). That memo lives in memory alone and is seeded from the
-registry at startup (``trigger/poll/watcher.go``, ``addJob``).
+On every poll, Keel compares the registry digest of right now against the digest
+it memorised during the previous poll (``trigger/poll/single_tag_watcher.go``).
+That memo lives in memory only and is seeded from the registry at startup
+(``trigger/poll/watcher.go``, ``addJob``).
 
-Which means: what actually runs in the cluster never enters Keel's decision. If
-a tag is moved while Keel restarts, Keel sets its baseline to the new digest
-without ever touching the corresponding deployment — the change is invisible for
-good, until the next push.
+It follows that what actually runs in the cluster never enters Keel's decision.
+If a tag is moved while Keel restarts, Keel sets its baseline to the new digest
+without ever touching the corresponding Deployment, so the change stays
+invisible forever, until the next push.
 
-This tool makes exactly the comparison Keel does not: running pod digest against
-the digest the tag currently points at.
+This script performs exactly the comparison Keel does not: the digest of the
+running pod against the digest the tag currently points at. A mismatch alone is
+not proof of staleness, so index drift is separated from image drift -- see
+:func:`child_digests`.
 
-Usage::
+Run as ``python3 -m k3shelperstuff.keel_drift``.
 
-    python3 -m k3shelperstuff.keel_drift                          # all tracked workloads
+Examples:
+    python3 -m k3shelperstuff.keel_drift                          # every tracked workload
+    python3 -m k3shelperstuff.keel_drift --context ht@dgxarley    # a specific kubeconfig context
     python3 -m k3shelperstuff.keel_drift --namespace somestuff    # a single namespace
-    python3 -m k3shelperstuff.keel_drift --drift-only --quiet     # only deviations, terse
-    python3 -m k3shelperstuff.keel_drift --fix-command            # emit rollout-restart commands
+    python3 -m k3shelperstuff.keel_drift --drift-only --quiet     # drift only, terse
+    python3 -m k3shelperstuff.keel_drift --fix-command            # print rollout-restart commands
 
 Every option can also be given as a ``KEEL_*`` environment variable (the CLI
-option wins), so the same container image can be pointed at another cluster or
-namespace without changing the command line.
+option wins); ``--context`` additionally reads ``KUBE_CONTEXT``.
 
 Exit codes:
-
-* ``0`` — nothing stale (or no tracked workloads at all).
-* ``1`` — at least one container is stale, so the tool doubles as a pipeline gate.
-* ``2`` — no usable kubeconfig / in-cluster context.
+    * ``0`` -- nothing stale (or no tracked workloads at all).
+    * ``1`` -- at least one container is stale, so the tool doubles as a gate.
+    * ``2`` -- no usable kubeconfig / in-cluster context.
 
 Author: vroomfondel
 Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/keel_drift.py
@@ -37,19 +39,19 @@ Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/keel_d
 
 import base64
 import json
-import logging
 import os
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 import requests
 import typer
 from kubernetes import client, config
-from kubernetes.client.rest import ApiException
+from kubernetes.client.exceptions import ApiException
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -64,34 +66,38 @@ from rich.table import Table
 
 from k3shelperstuff import configure_logging, print_banner
 
-logger = logging.getLogger(__name__)
-
 DOCKER_HUB_REGISTRY = "index.docker.io"
-# The very same registry shows up in manifests under several names. Without
-# normalising, a request ends up at https://docker.io/v2/... — but there is no
-# registry API there, and the result would be a silent false hit.
+# The same registry shows up in manifests under several names. Without
+# normalisation a request ends up at https://docker.io/v2/... -- which serves no
+# registry API, so the result would be a silent false hit.
 DOCKER_HUB_ALIASES = frozenset({"docker.io", "registry-1.docker.io", "index.docker.io"})
 # The host that actually serves the registry API.
 DOCKER_HUB_API_HOST = "registry-1.docker.io"
 KEEL_POLICY_KEY = "keel.sh/policy"
 # Keel reads the policy from the annotations first, then from the labels
 # (internal/policy/policy.go, GetPolicyFromLabelsOrAnnotations) and treats
-# "never" like a missing entry, i.e. as NilPolicy. Mirror both here, otherwise
-# the selection silently diverges from the one Keel itself makes.
+# "never" like a missing entry, as a NilPolicy. Mirror both here, otherwise the
+# selection silently diverges from the one Keel itself makes.
 KEEL_INACTIVE_POLICIES = frozenset({"", "never"})
 # initContainer tracking is opt-in in Keel and defaults to false. We check them
-# regardless — a stale initContainer is a fact, and that Keel does not touch it
-# is precisely the interesting information.
+# regardless -- a stale initContainer is a fact, and the very information worth
+# having is that Keel will not touch it.
 KEEL_INIT_CONTAINERS_KEY = "keel.sh/initContainers"
 REQUEST_TIMEOUT_SECONDS = 20
 
-# The three resource kinds Keel can update by polling. They share metadata,
-# spec.selector and spec.template — the comparison needs no more than that, and a
-# union instead of object keeps the type checking sharp.
+# The three resource kinds Keel can update via poll. They share metadata,
+# spec.selector and spec.template -- the comparison needs no more than that, and
+# a union instead of object keeps type checking sharp.
 type Workload = client.V1Deployment | client.V1StatefulSet | client.V1DaemonSet
 
-# Without these Accept headers the registry serves the old v1 manifest type and
-# therefore a different digest than the one containerd carries in the imageID.
+# Identity of one registry lookup: registry host, repository path, tag.
+type DigestCacheKey = tuple[str, str, str]
+
+# Identity of one index resolution: registry host, repository path, digest.
+type ChildCacheKey = tuple[str, str, str]
+
+# Without these Accept headers the registry returns the old v1 manifest type,
+# and with it a different digest than the one containerd carries in the imageID.
 MANIFEST_ACCEPT = ", ".join(
     (
         "application/vnd.oci.image.index.v1+json",
@@ -102,12 +108,88 @@ MANIFEST_ACCEPT = ", ".join(
 )
 
 # In a pipe rich would otherwise fall back to 80 columns and mangle both the
-# table and the progress lines — for a tool one likes to push into less or into a
-# log, a fixed, generous width is more usable.
+# table and the progress lines -- for a tool one likes to push into less or into
+# a log file, a fixed generous width is more usable.
 _WIDE = 200
 
 console = Console(width=None if sys.stdout.isatty() else _WIDE)
 err_console = Console(stderr=True, width=None if sys.stderr.isatty() else _WIDE)
+
+# Typer would otherwise render the whole docstring of main(), Args and Raises
+# sections included, into --help. The prose belongs there, the sections do not.
+CLI_HELP = """Check whether Keel-tracked workloads lag behind their tag.
+
+Keel memorises digests in memory only and seeds them from the registry at
+startup. A push during a Keel restart is therefore never recognised as a change.
+This script finds the cases left behind that way -- useful before and after
+every Keel rollout.
+
+The exit code is 1 as soon as at least one workload is stale, so the script
+works as a gate in a pipeline.
+"""
+
+app = typer.Typer(add_completion=False)
+
+
+class DockerAuthEntry(TypedDict, total=False):
+    """One ``auths`` entry of a Docker config.
+
+    Attributes:
+        username: Plaintext user name, if present.
+        password: Plaintext password, if present.
+        auth: Base64 of ``user:password``, the usual alternative to the two
+            fields above.
+    """
+
+    username: str
+    password: str
+    auth: str
+
+
+class DockerConfig(TypedDict, total=False):
+    """The subset of ``config.json`` / ``.dockerconfigjson`` used here.
+
+    Attributes:
+        auths: Registry key mapped to its credentials entry.
+        credsStore: Name of a credential helper holding all credentials.
+        credHelpers: Per-registry credential helpers.
+    """
+
+    auths: dict[str, DockerAuthEntry]
+    credsStore: str
+    credHelpers: dict[str, str]
+
+
+class ManifestChild(TypedDict, total=False):
+    """One per-platform manifest referenced by a multi-arch index.
+
+    Attributes:
+        digest: Digest of the platform-specific manifest.
+    """
+
+    digest: str
+
+
+class ManifestIndex(TypedDict, total=False):
+    """The manifest body returned for a tag.
+
+    Attributes:
+        manifests: Child manifests, present only for a multi-arch index.
+    """
+
+    manifests: list[ManifestChild]
+
+
+class TokenResponse(TypedDict, total=False):
+    """Body of a registry token endpoint response.
+
+    Attributes:
+        token: The bearer token, as named by the Docker token spec.
+        access_token: The same value, as named by some OAuth2 implementations.
+    """
+
+    token: str
+    access_token: str
 
 
 class DriftStatus(StrEnum):
@@ -116,7 +198,7 @@ class DriftStatus(StrEnum):
     CURRENT = "current"
     STALE = "STALE"
     PINNED = "pinned"
-    UNKNOWN = "unknown"
+    UNKNOWN = "unclear"
 
 
 @dataclass(frozen=True)
@@ -125,10 +207,10 @@ class ImageRef:
 
     Attributes:
         registry: Registry host, e.g. ``index.docker.io`` or ``ghcr.io``.
-        repository: Repository path including the namespace, e.g. ``library/redis``.
+        repository: Repository path including namespace, e.g. ``library/redis``.
         tag: Tag name, e.g. ``latest``.
         digest: Hard-referenced digest, if the image is pinned via ``@sha256:``.
-            In that case Keel has no effect on it anyway.
+            In that case Keel is without effect anyway.
     """
 
     registry: str
@@ -138,10 +220,31 @@ class ImageRef:
 
     @property
     def display(self) -> str:
-        """Return the reference in the form it appears in the manifest."""
+        """Return the reference in the form it takes in the manifest.
+
+        Returns:
+            ``repository@sha256:...`` for a pinned image, ``repository:tag``
+            otherwise.
+        """
         if self.digest:
             return f"{self.repository}@{self.digest[:19]}"
         return f"{self.repository}:{self.tag}"
+
+
+@dataclass(frozen=True)
+class RegistryLookup:
+    """Result of asking a registry where a tag currently points.
+
+    Attributes:
+        index_digest: The canonical digest of the tag, or ``None`` on failure.
+        acceptable: Every digest that counts as a match, i.e. the index digest
+            plus, for a multi-arch tag, each per-platform manifest digest.
+        error: Human-readable failure reason, empty on success.
+    """
+
+    index_digest: str | None
+    acceptable: frozenset[str]
+    error: str
 
 
 @dataclass
@@ -159,10 +262,12 @@ class Finding:
         status: Outcome of the comparison.
         note: Additional explanation, mostly for ``UNKNOWN``.
         pull_policy: ``imagePullPolicy`` of the container. Anything but
-            ``Always`` renders Keel's force policy on an unchanged tag
-            ineffective — the kubelet then takes the locally present layer.
-        is_init: Whether this container is an initContainer.
-        keel_tracks: Whether Keel would act on this container at all.
+            ``Always`` renders Keel's force policy useless on an unchanged tag,
+            because the kubelet then takes the layer it already has locally.
+        is_init: Whether this is an initContainer rather than a regular one.
+        keel_tracks: Whether Keel would act on this container at all. Always
+            ``True`` for regular containers, and for initContainers only with
+            an explicit ``keel.sh/initContainers`` opt-in.
     """
 
     namespace: str
@@ -180,7 +285,11 @@ class Finding:
 
     @property
     def label(self) -> str:
-        """Container name, with initContainers made recognisable."""
+        """Return the container name with initContainers made recognisable.
+
+        Returns:
+            The name, prefixed with ``init:`` for an initContainer.
+        """
         return f"init:{self.container}" if self.is_init else self.container
 
     @property
@@ -189,8 +298,7 @@ class Finding:
 
         Returns:
             ``True`` only for ``imagePullPolicy: Always``. Otherwise the kubelet
-            does not re-pull the unchanged tag and a restart just spins in
-            circles.
+            does not re-fetch the unchanged tag and a restart goes in circles.
         """
         return self.pull_policy == "Always"
 
@@ -200,7 +308,7 @@ class RegistryAuth:
     """Credentials per registry.
 
     Attributes:
-        by_registry: Mapping of registry key to ``(user, password)``.
+        by_registry: Registry key mapped to ``(user, password)``.
         fallback: Optional second source, consulted when this one yields
             nothing. That lets the local Docker login step in where the cluster
             brings no ``imagePullSecret``.
@@ -216,18 +324,18 @@ class RegistryAuth:
             registry: Registry host, e.g. ``index.docker.io``.
 
         Returns:
-            A ``(username, password)`` pair, or ``None`` when neither this
-            instance nor its ``fallback`` matches.
+            A ``(username, password)`` pair, or ``None`` if neither this
+            instance nor its ``fallback`` has a match.
         """
         if registry in self.by_registry:
             return self.by_registry[registry]
-        # In dockerconfigjson, Docker Hub is traditionally keyed by the fully
+        # In dockerconfigjson, Docker Hub is traditionally written as a fully
         # qualified v1 URL rather than a bare host.
         if registry == DOCKER_HUB_REGISTRY:
             for key in ("https://index.docker.io/v1/", "docker.io", "https://docker.io"):
                 if key in self.by_registry:
                     return self.by_registry[key]
-        # Other registries may be noted with a scheme as well.
+        # Other registries may carry a scheme as well.
         for prefix in ("https://", "http://"):
             if f"{prefix}{registry}" in self.by_registry:
                 return self.by_registry[f"{prefix}{registry}"]
@@ -243,8 +351,8 @@ def parse_image(image: str) -> ImageRef:
         image: Reference such as ``ghcr.io/foo/bar:1.2`` or ``redis:8.6``.
 
     Returns:
-        The parsed reference. A missing tag defaults to ``latest``, a missing
-        registry to Docker Hub.
+        The parsed reference. A missing tag is assumed to be ``latest``, a
+        missing registry to be Docker Hub.
     """
     remainder = image
     digest: str | None = None
@@ -272,8 +380,13 @@ def parse_image(image: str) -> ImageRef:
     return ImageRef(registry=registry, repository=path, tag=tag, digest=digest)
 
 
-def _authenticated_get(url: str, credentials: tuple[str, str] | None, *, method: str = "GET") -> requests.Response:
-    """Perform a registry request including the bearer-token handshake.
+def _authenticated_get(
+    url: str,
+    credentials: tuple[str, str] | None,
+    *,
+    method: str = "GET",
+) -> requests.Response:
+    """Run a registry request including the bearer token handshake.
 
     Registries answer the first attempt with a 401 and a ``WWW-Authenticate``
     header naming the token endpoint and the scope. Only with the token fetched
@@ -285,7 +398,7 @@ def _authenticated_get(url: str, credentials: tuple[str, str] | None, *, method:
         method: HTTP method, ``GET`` or ``HEAD``.
 
     Returns:
-        The response of the second, authorised request — or that of the first,
+        The response of the second, authorised request -- or that of the first,
         if it already succeeded.
     """
     headers = {"Accept": MANIFEST_ACCEPT}
@@ -305,12 +418,20 @@ def _authenticated_get(url: str, credentials: tuple[str, str] | None, *, method:
             params[key] = match.group(1)
 
     token_response = requests.get(
-        realm_match.group(1), params=params, auth=credentials, timeout=REQUEST_TIMEOUT_SECONDS
+        realm_match.group(1),
+        params=params,
+        auth=credentials,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
     if not token_response.ok:
         return response
 
-    token = token_response.json().get("token") or token_response.json().get("access_token")
+    try:
+        body = cast(TokenResponse, token_response.json())
+    except ValueError:
+        return response
+
+    token = body.get("token") or body.get("access_token")
     if not token:
         return response
 
@@ -318,34 +439,34 @@ def _authenticated_get(url: str, credentials: tuple[str, str] | None, *, method:
     return requests.request(method, url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
 
-def registry_digests(image: ImageRef, credentials: tuple[str, str] | None) -> tuple[str | None, set[str], str]:
+def registry_digests(image: ImageRef, credentials: tuple[str, str] | None) -> RegistryLookup:
     """Determine the digests a tag currently points at.
 
-    A multi-arch tag points at an index which in turn references one manifest
+    A multi-arch tag points at an index, which in turn references one manifest
     per platform. Which of the two digests the container runtime carries in the
-    ``imageID`` is not uniform — hence this function returns both levels, and the
-    comparison counts as satisfied as soon as the running digest matches either.
+    ``imageID`` is not consistent -- hence this function returns both levels,
+    and the comparison counts as satisfied as soon as the running digest matches
+    any of them.
 
     Args:
         image: The image reference to check.
         credentials: Optional ``(username, password)`` pair.
 
     Returns:
-        A tuple of the index digest (the tag's canonical value), the set of all
-        acceptable digests and an error message. On success the error message is
-        empty, on failure the index digest is ``None``.
+        The lookup result. On failure its ``index_digest`` is ``None`` and its
+        ``error`` explains why.
     """
     host = DOCKER_HUB_API_HOST if image.registry == DOCKER_HUB_REGISTRY else image.registry
     base = f"https://{host}/v2/{image.repository}/manifests"
     try:
         response = _authenticated_get(f"{base}/{image.tag}", credentials)
     except requests.exceptions.RequestException as exc:
-        # A hanging or unreachable registry must not tear down the whole run —
-        # the affected image becomes "unknown", the rest keeps going.
-        return None, set(), f"unreachable: {type(exc).__name__}"
+        # A hanging or unreachable registry must not tear down the whole run --
+        # the affected image becomes "unclear", the rest keeps going.
+        return RegistryLookup(None, frozenset(), f"unreachable: {type(exc).__name__}")
     if not response.ok:
         detail = response.text.strip()[:120].replace("\n", " ")
-        return None, set(), f"HTTP {response.status_code} {detail}"
+        return RegistryLookup(None, frozenset(), f"HTTP {response.status_code} {detail}")
 
     index_digest = response.headers.get("Docker-Content-Digest")
     acceptable: set[str] = set()
@@ -353,53 +474,55 @@ def registry_digests(image: ImageRef, credentials: tuple[str, str] | None) -> tu
         acceptable.add(index_digest)
 
     try:
-        manifest = response.json()
+        manifest = cast(ManifestIndex, response.json())
     except ValueError:
-        return index_digest, acceptable, ""
+        return RegistryLookup(index_digest, frozenset(acceptable), "")
 
     for child in manifest.get("manifests", []):
         child_digest = child.get("digest")
         if child_digest:
             acceptable.add(child_digest)
 
-    return index_digest, acceptable, ""
+    return RegistryLookup(index_digest, frozenset(acceptable), "")
 
 
-def child_digests(image: ImageRef, digest: str, credentials: tuple[str, str] | None) -> set[str]:
-    """Resolve a concrete digest and return its platform manifests.
+def child_digests(image: ImageRef, digest: str, credentials: tuple[str, str] | None) -> frozenset[str]:
+    """Resolve a concrete digest and return the platform manifests below it.
 
     Needed when the running digest does not match the current tag. Registries
-    occasionally re-push a tag's index — because attestation entries change, for
-    instance — without the platform manifests underneath moving at all. The index
-    digest is then new while the actually running bits are identical. Without
-    this resolution the tool would wrongly report such a case as stale.
+    occasionally re-push the index of a tag -- because attestation entries
+    changed, for instance -- without the platform manifests underneath moving at
+    all. The index digest is new then, but the bits actually running are
+    identical. Without this resolution the tool would report such a case as
+    stale, which is index drift misread as image drift.
 
     Args:
-        image: The image reference (for registry and repository).
-        digest: The digest to resolve, typically taken from the ``imageID``.
+        image: The image reference, for registry and repository.
+        digest: The digest to resolve, typically taken from an ``imageID``.
         credentials: Optional ``(username, password)`` pair.
 
     Returns:
-        The set of referenced platform manifests. Empty when the digest is not
-        an index or cannot be fetched.
+        The platform manifests the digest references. Empty if the digest is not
+        an index or cannot be fetched -- both mean "no evidence of equivalence",
+        which the caller treats as drift.
     """
     host = DOCKER_HUB_API_HOST if image.registry == DOCKER_HUB_REGISTRY else image.registry
     try:
         response = _authenticated_get(f"https://{host}/v2/{image.repository}/manifests/{digest}", credentials)
     except requests.exceptions.RequestException:
-        return set()
+        return frozenset()
     if not response.ok:
-        return set()
+        return frozenset()
 
     try:
-        manifest = response.json()
+        manifest = cast(ManifestIndex, response.json())
     except ValueError:
-        return set()
+        return frozenset()
 
-    return {child["digest"] for child in manifest.get("manifests", []) if child.get("digest")}
+    return frozenset(child["digest"] for child in manifest.get("manifests", []) if child.get("digest"))
 
 
-def load_pull_credentials(core: client.CoreV1Api, namespace: str, secret_names: list[str]) -> RegistryAuth:
+def load_pull_credentials(core: client.CoreV1Api, namespace: str, secret_names: Sequence[str]) -> RegistryAuth:
     """Read ``imagePullSecrets`` and build a registry mapping from them.
 
     Args:
@@ -408,9 +531,8 @@ def load_pull_credentials(core: client.CoreV1Api, namespace: str, secret_names: 
         secret_names: Names of the referenced secrets.
 
     Returns:
-        The credentials found. Unreadable or unsuitably formatted secrets are
-        skipped silently — a missing login surfaces as a visible HTTP 401 later
-        on anyway.
+        The credentials found. Unreadable or badly formatted secrets are skipped
+        silently -- a missing login shows up as a visible HTTP 401 later anyway.
     """
     auth = RegistryAuth()
     for name in secret_names:
@@ -424,7 +546,7 @@ def load_pull_credentials(core: client.CoreV1Api, namespace: str, secret_names: 
             continue
 
         try:
-            parsed = json.loads(base64.b64decode(raw))
+            parsed = cast(DockerConfig, json.loads(base64.b64decode(raw)))
         except (ValueError, json.JSONDecodeError):
             continue
 
@@ -432,24 +554,25 @@ def load_pull_credentials(core: client.CoreV1Api, namespace: str, secret_names: 
     return auth
 
 
-def parse_docker_auths(config_json: dict[str, Any]) -> dict[str, tuple[str, str]]:
-    """Pull the registry logins out of a Docker config structure.
+def parse_docker_auths(config_json: DockerConfig) -> dict[str, tuple[str, str]]:
+    """Extract the registry logins from a Docker config structure.
 
     Args:
-        config_json: Parsed content of a ``config.json`` respectively of a
+        config_json: Parsed contents of a ``config.json`` or a
             ``.dockerconfigjson``.
 
     Returns:
-        Mapping of registry key to ``(user, password)``. Entries without usable
+        Registry key mapped to ``(user, password)``. Entries without usable
         credentials are left out.
     """
     found: dict[str, tuple[str, str]] = {}
     for registry, entry in (config_json.get("auths") or {}).items():
         username = entry.get("username")
         password = entry.get("password")
-        if not username and entry.get("auth"):
+        encoded = entry.get("auth")
+        if not username and encoded:
             try:
-                decoded = base64.b64decode(entry["auth"]).decode()
+                decoded = base64.b64decode(encoded).decode()
                 username, _, password = decoded.partition(":")
             except (ValueError, UnicodeDecodeError):
                 continue
@@ -461,16 +584,16 @@ def parse_docker_auths(config_json: dict[str, Any]) -> dict[str, tuple[str, str]
 def load_local_docker_config() -> tuple[RegistryAuth, str]:
     """Load the local Docker login as a fallback for public images.
 
-    Without a login Docker Hub counts anonymously and per IP — 100 manifest
-    requests per hour, which a single run across all tracked images can already
-    blow through. With a login it counts per account and far more generously.
+    Without a login Docker Hub counts anonymously and per IP -- 100 manifest
+    queries an hour, which a run across all tracked images can already blow
+    through. With a login it counts per account and far more generously.
 
     Honours ``DOCKER_CONFIG`` like the docker CLI does and otherwise falls back
     to ``~/.docker/config.json``.
 
     Returns:
-        The credentials found plus a short provenance description for the
-        output.
+        The credentials found and a short description of where they came from,
+        for display.
     """
     base = os.environ.get("DOCKER_CONFIG")
     path = Path(base) / "config.json" if base else Path.home() / ".docker/config.json"
@@ -479,18 +602,20 @@ def load_local_docker_config() -> tuple[RegistryAuth, str]:
         return RegistryAuth(), f"{path} does not exist"
 
     try:
-        parsed = json.loads(path.read_text())
+        parsed = cast(DockerConfig, json.loads(path.read_text()))
     except (OSError, ValueError) as exc:
         return RegistryAuth(), f"{path} not readable: {exc}"
 
     # With credsStore/credHelpers the password is not in the file but has to be
-    # fetched via docker-credential-<helper>. We do not reimplement that here —
+    # fetched via docker-credential-<helper>. We do not reimplement that here --
     # but silently doing the wrong thing would be worse than saying so.
     helpers = []
-    if parsed.get("credsStore"):
-        helpers.append(f"credsStore={parsed['credsStore']}")
-    if parsed.get("credHelpers"):
-        helpers.append(f"credHelpers={sorted(parsed['credHelpers'])}")
+    creds_store = parsed.get("credsStore")
+    cred_helpers = parsed.get("credHelpers")
+    if creds_store:
+        helpers.append(f"credsStore={creds_store}")
+    if cred_helpers:
+        helpers.append(f"credHelpers={sorted(cred_helpers)}")
 
     auth = RegistryAuth(by_registry=parse_docker_auths(parsed))
     if not auth.by_registry and helpers:
@@ -507,19 +632,20 @@ def running_digests(core: client.CoreV1Api, namespace: str, selector: str) -> di
         selector: Label selector of the workload.
 
     Returns:
-        A mapping of container name to the digest part of the ``imageID``. Only
-        running pods are taken into account — a pod in CrashLoop says nothing
-        about what is being operated regularly.
+        A mapping of container name to the digest part of its ``imageID``,
+        covering regular and init containers alike. Only running pods are
+        considered -- a pod in CrashLoop says nothing about what is being served
+        regularly.
     """
     digests: dict[str, str] = {}
     pods = core.list_namespaced_pod(namespace=namespace, label_selector=selector)
     for pod in pods.items:
-        if pod.status.phase != "Running":
+        pod_status = pod.status
+        if pod_status is None or pod_status.phase != "Running":
             continue
-        # initContainers have long finished by the time we query, but their
-        # status still holds on to the digest that was used.
-        statuses = list(pod.status.container_statuses or [])
-        statuses += list(pod.status.init_container_statuses or [])
+        # By the time we ask, initContainers have long finished, but their
+        # status still carries the digest they ran with.
+        statuses = list(pod_status.container_statuses or []) + list(pod_status.init_container_statuses or [])
         for status in statuses:
             image_id = status.image_id or ""
             if "@" in image_id:
@@ -528,15 +654,16 @@ def running_digests(core: client.CoreV1Api, namespace: str, selector: str) -> di
 
 
 def collect_workloads(apps: client.AppsV1Api, namespace: str | None) -> list[tuple[str, Workload]]:
-    """Collect all workloads carrying a Keel policy.
+    """Collect every workload that carries a Keel policy.
 
     Args:
         apps: Client for the Apps API.
-        namespace: Namespace to restrict to, or ``None`` for all.
+        namespace: Namespace to restrict to, or ``None`` for all of them.
 
     Returns:
         Pairs of resource kind and object.
     """
+    sources: tuple[tuple[str, Sequence[Workload]], ...]
     if namespace:
         sources = (
             ("Deployment", apps.list_namespaced_deployment(namespace).items),
@@ -553,17 +680,17 @@ def collect_workloads(apps: client.AppsV1Api, namespace: str | None) -> list[tup
     found: list[tuple[str, Workload]] = []
     for kind, items in sources:
         for item in items:
-            if keel_policy(item.metadata) is not None:
+            if item.metadata is not None and keel_policy(item.metadata) is not None:
                 found.append((kind, item))
     return found
 
 
 def keel_tracks_init_containers(meta: client.V1ObjectMeta) -> bool:
-    """Tell whether Keel also tracks this workload's initContainers.
+    """Tell whether Keel follows this workload's initContainers.
 
     Mirrors ``getInitContainerTrackingFromMeta``: opt-in, default ``false``, key
-    matched case-insensitively, value must be exactly ``"true"``. Unlike for the
-    policy, the **labels are checked first** here, then the annotations.
+    matched case-insensitively, value has to be exactly ``"true"``. Unlike the
+    policy lookup, this one checks **labels first**, then annotations.
 
     Args:
         meta: Metadata of the workload.
@@ -582,32 +709,32 @@ def keel_tracks_init_containers(meta: client.V1ObjectMeta) -> bool:
 def keel_policy(meta: client.V1ObjectMeta) -> str | None:
     """Determine the effective Keel policy of a workload.
 
-    Mirrors the order from ``GetPolicyFromLabelsOrAnnotations``: annotations beat
-    labels, and an entry is only found when it is set at all.
+    Mirrors the order used by ``GetPolicyFromLabelsOrAnnotations``: annotations
+    beat labels, and an entry is only found if it is set at all.
 
     Args:
         meta: Metadata of the workload.
 
     Returns:
-        The policy name, or ``None`` when Keel does not touch the workload — that
-        is, when neither annotation nor label is set or the policy reads
-        ``never`` respectively empty.
+        The policy name, or ``None`` if Keel does not touch the workload -- that
+        is, if neither annotation nor label is set, or the policy reads
+        ``never`` or is empty.
     """
     for source in (meta.annotations, meta.labels):
         policy = (source or {}).get(KEEL_POLICY_KEY)
         if policy is not None:
-            return None if policy in KEEL_INACTIVE_POLICIES else str(policy)
+            return None if policy in KEEL_INACTIVE_POLICIES else policy
     return None
 
 
 def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = True) -> list[Finding]:
-    """Compare all tracked workloads against their registries.
+    """Compare every tracked workload against its registry.
 
     Args:
-        namespace: Namespace to restrict to, or ``None`` for all.
-        verbose: When set, log every single step.
-        use_local_credentials: When set, use the local Docker login as a
-            fallback wherever the cluster provides no ``imagePullSecret``.
+        namespace: Namespace to restrict to, or ``None`` for all of them.
+        verbose: If set, log every single step to stderr.
+        use_local_credentials: If set, use the local Docker login as a fallback
+            where the cluster provides no ``imagePullSecret``.
 
     Returns:
         One result per container, sorted by namespace and name.
@@ -620,29 +747,29 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
         candidate, origin = load_local_docker_config()
         if candidate.by_registry:
             local_auth = candidate
-            logger.info(f"local Docker login used as fallback: {origin}")
+            err_console.print(f"[cyan]Local Docker login used as fallback: {origin}[/]")
         else:
-            logger.warning(
-                f"no local Docker login usable: {origin} — public images are queried anonymously (100/h per IP)"
+            err_console.print(
+                f"[yellow]No local Docker login usable: {origin} -- "
+                f"public images are queried anonymously (100/h per IP).[/]"
             )
 
     findings: list[Finding] = []
-    digest_cache: dict[tuple[str, str, str], tuple[str | None, set[str], str]] = {}
+    digest_cache: dict[DigestCacheKey, RegistryLookup] = {}
+    child_cache: dict[ChildCacheKey, frozenset[str]] = {}
 
-    with err_console.status("[cyan]looking for workloads with keel.sh/policy…[/]"):
+    with err_console.status("[cyan]Looking for workloads with keel.sh/policy…[/]"):
         workloads = collect_workloads(apps, namespace)
 
     scope = f"namespace {namespace}" if namespace else "all namespaces"
-    logger.info(f"{len(workloads)} tracked workloads found in {scope}")
+    err_console.print(f"[cyan]{len(workloads)} tracked workloads found in {scope}.[/]")
     if not workloads:
         return findings
 
     seen_namespaces: set[str] = set()
 
-    # The progress display deliberately goes to stderr so stdout stays clean for
-    # a pipe. transient: the bar disappears again once the run is over. Anything
-    # logged WHILE it is live must go through progress.console, otherwise the
-    # loguru sink (stderr as well) would tear the live display apart.
+    # The progress display deliberately goes to stderr so that stdout stays
+    # clean for a pipe. transient: the bar disappears again after the run.
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -652,11 +779,12 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
         console=err_console,
         transient=not verbose,
     ) as progress:
-        task = progress.add_task("checking…", total=len(workloads))
+        task = progress.add_task("Checking…", total=len(workloads))
 
         for kind, workload in workloads:
             meta = workload.metadata
             spec = workload.spec.template.spec
+            assert meta is not None and meta.namespace is not None and meta.name is not None and spec is not None
 
             if meta.namespace not in seen_namespaces:
                 seen_namespaces.add(meta.namespace)
@@ -671,7 +799,7 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
             selector = ",".join(f"{key}={value}" for key, value in selector_pairs)
             actual = running_digests(core, meta.namespace, selector)
 
-            secret_names = [ref.name for ref in (spec.image_pull_secrets or [])]
+            secret_names = [ref.name for ref in (spec.image_pull_secrets or []) if ref.name]
             auth = load_pull_credentials(core, meta.namespace, secret_names)
             auth.fallback = local_auth
             if verbose and secret_names:
@@ -684,6 +812,7 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
                 actual=actual,
                 auth=auth,
                 digest_cache=digest_cache,
+                child_cache=child_cache,
                 findings=findings,
                 progress=progress,
                 task=task,
@@ -702,7 +831,8 @@ def _examine_containers(
     spec: client.V1PodSpec,
     actual: dict[str, str],
     auth: RegistryAuth,
-    digest_cache: dict[tuple[str, str, str], tuple[str | None, set[str], str]],
+    digest_cache: dict[DigestCacheKey, RegistryLookup],
+    child_cache: dict[ChildCacheKey, frozenset[str]],
     findings: list[Finding],
     progress: Progress,
     task: TaskID,
@@ -710,30 +840,38 @@ def _examine_containers(
 ) -> None:
     """Check the containers of one workload and append the results.
 
+    Regular containers and initContainers are examined alike; whether Keel would
+    act on the latter is recorded per finding rather than used to skip them.
+
     Args:
         kind: Resource kind of the workload.
         meta: Metadata of the workload.
         spec: Pod spec of the workload.
         actual: Running digests per container name.
         auth: Credentials for private registries.
-        digest_cache: Shared cache for registry lookups.
+        digest_cache: Shared cache for tag lookups.
+        child_cache: Shared cache for resolving a running digest to its platform
+            manifests.
         findings: List the results are appended to.
-        progress: Progress display whose console is used for logging (the live
-            display owns stderr while it runs).
+        progress: Progress display whose console is logged through.
         task: ID of the progress task whose description is updated.
-        verbose: When set, log every single step.
+        verbose: If set, log every single step.
     """
+    assert meta.namespace is not None and meta.name is not None
     tracks_init = keel_tracks_init_containers(meta)
-    todo = [(c, False) for c in spec.containers]
-    todo += [(c, True) for c in (spec.init_containers or [])]
+    todo: list[tuple[client.V1Container, bool]] = [(container, False) for container in spec.containers]
+    todo += [(container, True) for container in (spec.init_containers or [])]
 
     for container, is_init in todo:
+        if not container.image:
+            continue
         image = parse_image(container.image)
         running = actual.get(container.name)
+        name = f"init:{container.name}" if is_init else container.name
 
         if image.digest:
             if verbose:
-                progress.console.print(f"      [dim]{container.name}: {image.display} pinned by digest, skipped[/]")
+                progress.console.print(f"      [dim]{name}: {image.display} pinned by digest, skipped[/]")
             findings.append(
                 Finding(
                     namespace=meta.namespace,
@@ -752,47 +890,49 @@ def _examine_containers(
             )
             continue
 
-        key = (image.registry, image.repository, image.tag)
+        key: DigestCacheKey = (image.registry, image.repository, image.tag)
         cached = key in digest_cache
         if verbose:
-            source = "cache" if cached else f"asking {image.registry}"
-            progress.console.print(f"      {container.name}: {image.display} [dim]({source})[/]")
+            source = "cache" if cached else f"querying {image.registry}"
+            progress.console.print(f"      {name}: {image.display} [dim]({source})[/]")
         if not cached:
-            progress.update(task, description=f"{meta.namespace}/[bold]{meta.name}[/] [dim]→ {image.registry}[/]")
+            progress.update(
+                task,
+                description=f"{meta.namespace}/[bold]{meta.name}[/] [dim]→ {image.registry}[/]",
+            )
             digest_cache[key] = registry_digests(image, auth.for_registry(image.registry))
-        index_digest, acceptable, error = digest_cache[key]
+        lookup = digest_cache[key]
 
-        if error:
-            status, note = DriftStatus.UNKNOWN, f"registry: {error}"
-        elif not acceptable:
+        if lookup.error:
+            status, note = DriftStatus.UNKNOWN, f"registry: {lookup.error}"
+        elif not lookup.acceptable:
             # Without a value to compare against, "stale" is a claim rather than
-            # a finding — better to report it as unknown.
+            # a finding -- better to report it as unclear.
             status, note = DriftStatus.UNKNOWN, "no digest from the registry"
         elif running is None:
             status, note = DriftStatus.UNKNOWN, "no running pod"
-        elif running in acceptable:
+        elif running in lookup.acceptable:
             status, note = DriftStatus.CURRENT, ""
-        elif child_digests(image, running, auth.for_registry(image.registry)) & acceptable:
+        elif _resolve_children(image, running, auth, child_cache) & lookup.acceptable:
             # The running digest is an older index pointing at the same platform
-            # manifests as the current tag. Content-wise current, then — only the
-            # index shell was pushed anew.
-            status = DriftStatus.CURRENT
-            note = "different index, same platform manifests"
+            # manifests as the current tag. Content-wise it is up to date, only
+            # the index shell was re-pushed -- index drift, not image drift.
+            status, note = DriftStatus.CURRENT, "different index, same platform manifests"
         else:
             status, note = DriftStatus.STALE, "tag points elsewhere"
 
         keel_tracks = tracks_init if is_init else True
         if status is DriftStatus.STALE and not keel_tracks:
-            # Keel only touches initContainers with keel.sh/initContainers:
-            # "true". Without that annotation such a container stays stale for
-            # arbitrarily long without anything showing up anywhere.
+            # Keel only touches initContainers with keel.sh/initContainers set
+            # to "true". Without it such a container can stay stale indefinitely
+            # without anything anywhere drawing attention to it.
             note = f"{note}; initContainer without {KEEL_INIT_CONTAINERS_KEY}, Keel ignores it"
 
         pull_policy = container.image_pull_policy or "Always"
         if status is DriftStatus.STALE and pull_policy != "Always":
-            # No restart helps here: on an unchanged tag the kubelet takes the
-            # locally present layer. Keel's force policy runs into the void as
-            # well and still reports success.
+            # A restart does not help here: on an unchanged tag the kubelet
+            # takes the layer it already has locally. Keel's force policy runs
+            # into the same void and still reports success.
             note = f"{note}; imagePullPolicy={pull_policy} prevents a re-pull"
 
         if verbose:
@@ -804,8 +944,8 @@ def _examine_containers(
             }[status]
             detail = f" {note}" if note else ""
             progress.console.print(
-                f"         running {_short(running)} vs. registry {_short(index_digest)} "
-                f"→ [{colour}]{status}[/]{detail}"
+                f"         running {_short(running)} vs. registry "
+                f"{_short(lookup.index_digest)} → [{colour}]{status}[/]{detail}"
             )
 
         findings.append(
@@ -816,7 +956,7 @@ def _examine_containers(
                 container=container.name,
                 image=image,
                 running=running,
-                registry=index_digest,
+                registry=lookup.index_digest,
                 status=status,
                 note=note,
                 pull_policy=pull_policy,
@@ -826,26 +966,51 @@ def _examine_containers(
         )
 
 
-def _short(digest: str | None) -> str:
-    """Shorten a digest to a length readable in a terminal.
+def _resolve_children(
+    image: ImageRef,
+    running: str,
+    auth: RegistryAuth,
+    child_cache: dict[ChildCacheKey, frozenset[str]],
+) -> frozenset[str]:
+    """Resolve a running digest to its platform manifests, memoised.
 
     Args:
-        digest: The digest to shorten, or ``None``.
+        image: The image reference, for registry and repository.
+        running: The digest the pod actually runs.
+        auth: Credentials for private registries.
+        child_cache: Shared cache across the whole run, so that several
+            workloads running the same stale digest cost one request, not one
+            each.
 
     Returns:
-        The first 12 characters of the hash, or ``"-"`` for a missing digest.
+        The platform manifests below *running*, empty if it is not an index.
+    """
+    key: ChildCacheKey = (image.registry, image.repository, running)
+    if key not in child_cache:
+        child_cache[key] = child_digests(image, running, auth.for_registry(image.registry))
+    return child_cache[key]
+
+
+def _short(digest: str | None) -> str:
+    """Shorten a digest to a length that reads well in a terminal.
+
+    Args:
+        digest: The full digest, or ``None`` if there is none.
+
+    Returns:
+        The first twelve hex characters, or ``-`` for a missing digest.
     """
     if not digest:
         return "-"
     return digest.removeprefix("sha256:")[:12]
 
 
-def render(findings: list[Finding], drift_only: bool) -> None:
+def render(findings: Sequence[Finding], drift_only: bool) -> None:
     """Print the results as a table.
 
     Args:
         findings: The comparison results.
-        drift_only: When set, only show stale and unknown rows.
+        drift_only: If set, show only stale and unclear rows.
     """
     style = {
         DriftStatus.CURRENT: "green",
@@ -854,7 +1019,7 @@ def render(findings: list[Finding], drift_only: bool) -> None:
         DriftStatus.UNKNOWN: "yellow",
     }
 
-    table = Table(title="Keel drift: running image vs. registry tag")
+    table = Table(title="Keel drift: running image against registry tag")
     table.add_column("Namespace")
     table.add_column("Workload")
     table.add_column("Container")
@@ -881,78 +1046,126 @@ def render(findings: list[Finding], drift_only: bool) -> None:
     console.print(table)
 
 
+def load_cluster_config(context: str | None) -> str:
+    """Point the Kubernetes client at a cluster.
+
+    With an explicit *context* there is deliberately no in-cluster fallback: a
+    named context cannot be honoured from inside a pod, and silently checking a
+    different cluster than the one asked for is the worst possible outcome for a
+    tool whose whole job is comparing against the right cluster.
+
+    Args:
+        context: Name of the kubeconfig context to use, or ``None`` for the
+            current context (and, failing that, the in-cluster service account).
+
+    Returns:
+        A short description of what was loaded, for display.
+
+    Raises:
+        typer.Exit: With code 2 if no usable configuration was found. For an
+            unknown context name the available ones are listed first.
+    """
+    try:
+        config.load_kube_config(context=context)  # type: ignore[no-untyped-call]
+    except config.ConfigException as exc:
+        if context is not None:
+            err_console.print(f"[red]Context {context!r} not usable: {exc}[/]")
+            err_console.print(f"[yellow]Available: {', '.join(available_contexts()) or 'none'}[/]")
+            raise typer.Exit(code=2) from exc
+        try:
+            config.load_incluster_config()  # type: ignore[no-untyped-call]
+        except config.ConfigException as incluster_exc:
+            err_console.print(f"[red]Neither a kubeconfig nor an in-cluster context: {incluster_exc}[/]")
+            raise typer.Exit(code=2) from incluster_exc
+        return "in-cluster service account"
+
+    if context is not None:
+        return f"context {context}"
+    _, active = config.list_kube_config_contexts()  # type: ignore[no-untyped-call]
+    return f"current context {(active or {}).get('name', '?')}"
+
+
+def available_contexts() -> list[str]:
+    """List the context names the kubeconfig offers.
+
+    Returns:
+        Every context name found, or an empty list if the kubeconfig cannot be
+        read at all -- this only ever feeds an error message, so an unreadable
+        file must not raise on top of the failure being reported.
+    """
+    try:
+        contexts, _ = config.list_kube_config_contexts()  # type: ignore[no-untyped-call]
+    except config.ConfigException:
+        return []
+    return [str(entry["name"]) for entry in contexts or []]
+
+
+@app.command(help=CLI_HELP)
 def main(
     namespace: str | None = typer.Option(
-        None, "--namespace", "-n", envvar="KEEL_NAMESPACE", help="only check this namespace"
+        None, "--namespace", "-n", envvar="KEEL_NAMESPACE", help="Check only this namespace."
+    ),
+    context: str | None = typer.Option(
+        None,
+        "--context",
+        "-c",
+        envvar=["KEEL_CONTEXT", "KUBE_CONTEXT"],
+        help="kubeconfig context to use (default: the current context).",
     ),
     drift_only: bool = typer.Option(
-        False, "--drift-only", envvar="KEEL_DRIFT_ONLY", help="only show stale and unknown workloads"
+        False, "--drift-only", envvar="KEEL_DRIFT_ONLY", help="Show only stale and unclear workloads."
     ),
     fix_command: bool = typer.Option(
-        False, "--fix-command", envvar="KEEL_FIX_COMMAND", help="emit kubectl rollout restart commands"
+        False, "--fix-command", envvar="KEEL_FIX_COMMAND", help="Print kubectl rollout restart commands."
     ),
     quiet: bool = typer.Option(
-        False, "--quiet", "-q", envvar="KEEL_QUIET", help="suppress the table, print the summary only"
+        False, "--quiet", "-q", envvar="KEEL_QUIET", help="Suppress the table, print only the summary."
     ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
         "-v",
         envvar="KEEL_VERBOSE",
-        help="log every namespace, workload and registry access individually (DEBUG logging)",
+        help="Log every namespace, workload and registry access individually (DEBUG logging).",
     ),
     no_local_credentials: bool = typer.Option(
         False,
         "--no-local-credentials",
         envvar="KEEL_NO_LOCAL_CREDENTIALS",
-        help="ignore the local Docker login and query everything anonymously",
-    ),
-    context: str | None = typer.Option(
-        None,
-        "--context",
-        envvar="KEEL_CONTEXT",
-        help="kubeconfig context to use instead of the currently active one (e.g. ht@dgxarley)",
+        help="Ignore the local Docker login and query everything anonymously.",
     ),
 ) -> None:
     """Check whether Keel-tracked workloads lag behind their tag.
 
     Keel memorises digests in memory only and seeds them from the registry at
     startup. A push during a Keel restart is therefore never recognised as a
-    change. This tool finds the cases that are left behind — worth running
-    before and after every Keel rollout.
+    change. This script finds the cases left behind that way -- useful before
+    and after every Keel rollout.
 
-    \f
-    Everything below the ``\\f`` is hidden from ``--help`` (click convention).
+    The exit code is 1 as soon as at least one workload is stale, so the script
+    works as a gate in a pipeline.
 
-    The exit code is 1 as soon as at least one workload is stale, so the tool
-    can serve as a gate in a pipeline.
+    Args:
+        namespace: Restrict the check to this namespace.
+        context: kubeconfig context to check against, ``None`` for the current
+            one. Also readable from ``KEEL_CONTEXT`` or ``KUBE_CONTEXT``.
+        drift_only: Show only stale and unclear workloads.
+        fix_command: Print the kubectl commands that would straighten things out.
+        quiet: Suppress the table and print only the summary line.
+        verbose: Log every namespace, workload and registry access.
+        no_local_credentials: Ignore the local Docker login.
 
     Raises:
-        typer.Exit: Always — with the module docstring's exit codes.
+        typer.Exit: Always -- with code 2 when no Kubernetes context could be
+            loaded, 1 when at least one workload is stale, 0 otherwise.
     """
     configure_logging(verbose=verbose)
-    print_banner("keel_drift")
-
-    try:
-        config.load_kube_config(context=context)
-    except config.ConfigException as first:
-        if context:
-            # An explicitly named context that does not exist is a typo — silently
-            # falling back to the in-cluster context would then check the wrong
-            # cluster.
-            logger.error(f"context '{context}' not usable: {first}")
-            raise typer.Exit(code=2) from first
-        try:
-            config.load_incluster_config()
-        except config.ConfigException as exc:
-            logger.error(f"neither a kubeconfig nor an in-cluster context: {exc}")
-            raise typer.Exit(code=2) from exc
-
-    logger.info(f"cluster: {context or 'active context'}")
+    print_banner(Path(__file__).stem)
+    err_console.print(f"[cyan]Checking against {load_cluster_config(context)}.[/]")
 
     findings = analyse(namespace, verbose, not no_local_credentials)
     if not findings:
-        logger.warning("no workloads with keel.sh/policy found")
+        console.print("[yellow]No workloads with keel.sh/policy found.[/]")
         raise typer.Exit(code=0)
 
     if not quiet:
@@ -962,12 +1175,17 @@ def main(
     unknown = [item for item in findings if item.status == DriftStatus.UNKNOWN]
 
     console.print(
-        f"{len(findings)} containers checked, [bold red]{len(stale)} stale[/], [yellow]{len(unknown)} unknown[/]"
+        f"{len(findings)} containers checked, "
+        f"[bold red]{len(stale)} stale[/], "
+        f"[yellow]{len(unknown)} unclear[/]"
     )
 
     if fix_command and stale:
         restartable = [item for item in stale if item.restart_helps]
         blocked = [item for item in stale if not item.restart_helps]
+        # The printed commands must target the same cluster that was checked --
+        # without this the user would paste them against their current context.
+        context_flag = f" --context={context}" if context else ""
 
         if restartable:
             console.print("\n[bold]To straighten out:[/]")
@@ -977,21 +1195,25 @@ def main(
                 if key in seen:
                     continue
                 seen.add(key)
-                console.print(f"  kubectl rollout restart -n {item.namespace} {item.kind.lower()}/{item.name}")
+                console.print(
+                    f"  kubectl{context_flag} rollout restart -n {item.namespace} {item.kind.lower()}/{item.name}"
+                )
 
         if blocked:
             console.print(
-                "\n[bold yellow]A restart does not help here[/] — with imagePullPolicy != Always the kubelet "
-                "does not re-pull the unchanged tag. Fix the policy first:"
+                "\n[bold yellow]A restart does not help here[/] -- the kubelet "
+                "does not re-fetch the unchanged tag with imagePullPolicy != "
+                "Always. Fix the policy first:"
             )
             for item in blocked:
                 console.print(
-                    f"  kubectl set image ... [dim]# {item.namespace}/{item.name} container {item.label}: "
-                    f"imagePullPolicy={item.pull_policy} → Always[/]"
+                    f"  kubectl{context_flag} set image ... [dim]# {item.namespace}/{item.name} "
+                    f"container {item.label}: imagePullPolicy="
+                    f"{item.pull_policy} → Always[/]"
                 )
 
     raise typer.Exit(code=1 if stale else 0)
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()
