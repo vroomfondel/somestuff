@@ -212,6 +212,8 @@ class K8sUserCertCreator:
 
         logger.info("approving CSR")
         csr_object = certs_api.read_certificate_signing_request(name=csr_name)
+        if csr_object.status is None:
+            csr_object.status = client.V1CertificateSigningRequestStatus()
         csr_object.status.conditions = [
             client.V1CertificateSigningRequestCondition(
                 type="Approved",
@@ -225,7 +227,7 @@ class K8sUserCertCreator:
         logger.info("waiting for the certificate")
         for _ in range(SIGN_WAIT_ATTEMPTS):
             csr_resp = certs_api.read_certificate_signing_request(name=csr_name)
-            if csr_resp.status.certificate:
+            if csr_resp.status is not None and csr_resp.status.certificate:
                 return str(base64.b64decode(csr_resp.status.certificate).decode("utf-8"))
             time.sleep(SIGN_WAIT_SECONDS)
         return None
@@ -247,7 +249,7 @@ class K8sUserCertCreator:
         else:
             binding_name = f"{self.username}-cluster-{self.cluster_role}"
 
-        subjects = [client.V1Subject(kind="User", name=self.username, api_group="rbac.authorization.k8s.io")]
+        subjects = [client.RbacV1Subject(kind="User", name=self.username, api_group="rbac.authorization.k8s.io")]
         role_ref = client.V1RoleRef(kind="ClusterRole", name=self.cluster_role, api_group="rbac.authorization.k8s.io")
 
         if self.rbac_namespace:
