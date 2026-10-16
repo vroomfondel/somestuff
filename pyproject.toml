@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "somestuff"
-version = "0.1.1"
+version = "0.1.2"
 description = "Collection of Python utilities for IoT data aggregation, weather monitoring, and DNS automation."
 requires-python = ">=3.13"
 dynamic = ["dependencies"]

@@ -42,7 +42,10 @@ import json
 import os
 import re
 import sys
+import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -84,6 +87,13 @@ KEEL_INACTIVE_POLICIES = frozenset({"", "never"})
 # having is that Keel will not touch it.
 KEEL_INIT_CONTAINERS_KEY = "keel.sh/initContainers"
 REQUEST_TIMEOUT_SECONDS = 20
+# GHCR answers bursts with a shared limiter that names a sub-millisecond wait;
+# Docker Hub sends a plain Retry-After header instead.
+REGISTRY_MAX_ATTEMPTS = 4
+REGISTRY_RETRY_BASE_SECONDS = 0.5
+REGISTRY_RETRY_MAX_WAIT_SECONDS = 30.0
+_BODY_RETRY_AFTER_RE = re.compile(r"retry-after:\s*([0-9.]+)\s*(µs|us|ms|s)\b")
+_DURATION_UNIT_SECONDS = {"µs": 1e-6, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 
 # The three resource kinds Keel can update via poll. They share metadata,
 # spec.selector and spec.template -- the comparison needs no more than that, and
@@ -380,6 +390,73 @@ def parse_image(image: str) -> ImageRef:
     return ImageRef(registry=registry, repository=path, tag=tag, digest=digest)
 
 
+def retry_wait_seconds(response: requests.Response, attempt: int) -> float:
+    """Work out how long to wait before repeating a request answered with 429.
+
+    The registry's own hint wins -- a ``Retry-After`` header (seconds or HTTP
+    date), else GHCR's ``retry-after: <duration>`` in the body -- but never less
+    than an exponential backoff, since a sub-millisecond hint retried at once
+    tends to hit the same burst again.
+
+    Args:
+        response: The 429 response.
+        attempt: Zero-based number of the attempt that just failed.
+
+    Returns:
+        Seconds to sleep, capped at ``REGISTRY_RETRY_MAX_WAIT_SECONDS``.
+    """
+    backoff = REGISTRY_RETRY_BASE_SECONDS * 2.0**attempt
+    hint = 0.0
+
+    header = response.headers.get("Retry-After", "").strip()
+    if header:
+        try:
+            hint = float(header)
+        except ValueError:
+            try:
+                hint = (parsedate_to_datetime(header) - datetime.now(UTC)).total_seconds()
+            except (TypeError, ValueError):
+                hint = 0.0
+    else:
+        match = _BODY_RETRY_AFTER_RE.search(response.text)
+        if match:
+            hint = float(match.group(1)) * _DURATION_UNIT_SECONDS[match.group(2)]
+
+    return min(max(hint, backoff), REGISTRY_RETRY_MAX_WAIT_SECONDS)
+
+
+def _request(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    params: dict[str, str] | None = None,
+    auth: tuple[str, str] | None = None,
+) -> requests.Response:
+    """Send one registry request, repeating it while the registry answers 429.
+
+    Args:
+        method: HTTP method.
+        url: Full URL.
+        headers: Request headers.
+        params: Query parameters.
+        auth: Optional HTTP basic credentials.
+
+    Returns:
+        The first non-429 response, or the last 429 once
+        ``REGISTRY_MAX_ATTEMPTS`` is used up.
+    """
+    attempt = 0
+    while True:
+        response = requests.request(
+            method, url, headers=headers, params=params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        if response.status_code != 429 or attempt + 1 >= REGISTRY_MAX_ATTEMPTS:
+            return response
+        time.sleep(retry_wait_seconds(response, attempt))
+        attempt += 1
+
+
 def _authenticated_get(
     url: str,
     credentials: tuple[str, str] | None,
@@ -402,7 +479,7 @@ def _authenticated_get(
         if it already succeeded.
     """
     headers = {"Accept": MANIFEST_ACCEPT}
-    response = requests.request(method, url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    response = _request(method, url, headers=headers)
     if response.status_code != 401:
         return response
 
@@ -417,12 +494,7 @@ def _authenticated_get(
         if match:
             params[key] = match.group(1)
 
-    token_response = requests.get(
-        realm_match.group(1),
-        params=params,
-        auth=credentials,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    token_response = _request("GET", realm_match.group(1), params=params, auth=credentials)
     if not token_response.ok:
         return response
 
@@ -436,7 +508,7 @@ def _authenticated_get(
         return response
 
     headers["Authorization"] = f"Bearer {token}"
-    return requests.request(method, url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    return _request(method, url, headers=headers)
 
 
 def registry_digests(image: ImageRef, credentials: tuple[str, str] | None) -> RegistryLookup:
