@@ -6,8 +6,8 @@ set -euo pipefail
 #=============================================================================
 readonly SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 readonly INCLUDE_SH="scripts/include.sh"
-# Directory or config.json path; takes precedence over the docker-config auto-detection
-readonly DOCKER_CONFIG_OVERRIDE="${DOCKER_CONFIG_OVERRIDE:-}"
+# Directory or config.json path; takes precedence over the docker-config auto-detection; made readonly after sourcing include.sh
+DOCKER_CONFIG_OVERRIDE="${DOCKER_CONFIG_OVERRIDE:-}"
 readonly PODMAN_VM_INIT_DISK_SIZE=100
 readonly PYTHON_VERSION=3.14
 readonly DEBIAN_VERSION=slim-trixie
@@ -83,6 +83,9 @@ setup_environment() {
   if [ -e "${INCLUDE_SH}" ] ; then
     source "${INCLUDE_SH}"
   fi
+
+  # Lock DOCKER_CONFIG_OVERRIDE after include.sh (and include.local.sh) had a chance to set it
+  readonly DOCKER_CONFIG_OVERRIDE
 
   if [[ -n "${DOCKER_CONFIG_OVERRIDE}" ]]; then
     [[ -e "${DOCKER_CONFIG_OVERRIDE}" ]] || die "DOCKER_CONFIG_OVERRIDE='${DOCKER_CONFIG_OVERRIDE}' does not exist"
