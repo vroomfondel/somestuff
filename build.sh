@@ -6,6 +6,8 @@ set -euo pipefail
 #=============================================================================
 readonly SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 readonly INCLUDE_SH="scripts/include.sh"
+# Directory or config.json path; takes precedence over the docker-config auto-detection
+readonly DOCKER_CONFIG_OVERRIDE="${DOCKER_CONFIG_OVERRIDE:-}"
 readonly PODMAN_VM_INIT_DISK_SIZE=100
 readonly PYTHON_VERSION=3.14
 readonly DEBIAN_VERSION=slim-trixie
@@ -13,12 +15,13 @@ readonly DOCKER_IMAGE="docker.io/xomoxcc/somestuff:python-${PYTHON_VERSION}-${DE
 readonly DOCKER_IMAGE_LATEST="${DOCKER_IMAGE%:*}:latest"
 readonly PLATFORMS=("linux/amd64" "linux/arm64")
 readonly DOCKERFILE=Dockerfile
-readonly BUILDER_NAME=mbuilder
-readonly ENABLE_PARALLEL_BUILDS=1
+readonly DOCKER_BUILD_CONTEXT=$(dirname "$(realpath --relative-to="${SCRIPT_DIR}" "${SCRIPT_DIR}/${DOCKERFILE}")")
 REMOTE_ARM64_CONNECTION="${REMOTE_ARM64_CONNECTION:-}"  # e.g. "user@rock5b"; made readonly after sourcing include.sh
 # Podman's Go SSH client cannot use the SSH agent or encrypted keys.
 # Use a dedicated unencrypted key (generate with: ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N "")
 REMOTE_ARM64_SSH_IDENTITY="${REMOTE_ARM64_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
+readonly BUILDER_NAME=mbuilder
+readonly ENABLE_PARALLEL_BUILDS=1
 readonly BUILDTIME="$(date +'%Y-%m-%d %H:%M:%S %Z')"
 
 readonly BUILD_BASE_ARGS=(
@@ -28,10 +31,16 @@ readonly BUILD_BASE_ARGS=(
   "--build-arg" "debian_version=${DEBIAN_VERSION}"
   )
 
+# Podman-only: make sure the Dockerfile-specific ignore file is also used for remote builds.
+# Docker buildx picks up <Dockerfile>.dockerignore automatically and has no --ignorefile flag.
+readonly PODMAN_EXTRA_ARGS=("--ignorefile" "${DOCKERFILE}.dockerignore")
+
 # podman machine ssh df -h
 # podman --connection podman-machine-default system prune -a
 # podman --connection podman-machine-default system df
 # podman machine inspect podman-machine-default | grep -i disk
+
+readonly BUILD_SCRIPT_VERSION="2026-10-23_11:00:00"
 
 # Runtime state
 PODMAN_VM_STARTED=0
@@ -75,12 +84,22 @@ setup_environment() {
     source "${INCLUDE_SH}"
   fi
 
-  DOCKER_CONFIG="$(realpath docker-config)"
-  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
-    DOCKER_CONFIG="$(realpath ../docker-config)"
-  fi
-  if ! [ -e  "${DOCKER_CONFIG}" ] ; then
-    DOCKER_CONFIG="${HOME}/.docker"
+  if [[ -n "${DOCKER_CONFIG_OVERRIDE}" ]]; then
+    [[ -e "${DOCKER_CONFIG_OVERRIDE}" ]] || die "DOCKER_CONFIG_OVERRIDE='${DOCKER_CONFIG_OVERRIDE}' does not exist"
+    if [[ -d "${DOCKER_CONFIG_OVERRIDE}" ]]; then
+      DOCKER_CONFIG="$(realpath "${DOCKER_CONFIG_OVERRIDE}")"
+    else
+      DOCKER_CONFIG="$(dirname "$(realpath "${DOCKER_CONFIG_OVERRIDE}")")"
+    fi
+    log "DOCKER_CONFIG override active: ${DOCKER_CONFIG}"
+  else
+    DOCKER_CONFIG="$(realpath docker-config)"
+    if ! [ -e  "${DOCKER_CONFIG}" ] ; then
+      DOCKER_CONFIG="$(realpath ../docker-config)"
+    fi
+    if ! [ -e  "${DOCKER_CONFIG}" ] ; then
+      DOCKER_CONFIG="${HOME}/.docker"
+    fi
   fi
 
   export DOCKER_CONFIG
@@ -179,7 +198,43 @@ copy_image_from_remote() {
   local connection="$1"
   local image="$2"
   log "Copying image from ${connection} to host: ${image}"
-  podman image scp "${connection}::${image}"
+
+  # podman image scp needs a matching podman binary in the remote $PATH; save|load only needs the socket
+  podman image rm "${image}" 2>/dev/null || true
+  podman image rm "docker.io/${image}" 2>/dev/null || true
+  podman image rm "localhost/${image}" 2>/dev/null || true
+
+  local size
+  size=$(podman --connection "${connection}" image inspect \
+          --format '{{.Size}}' "${image}" 2>/dev/null || echo "")
+  if [[ -n "${size}" ]] && command -v numfmt >/dev/null 2>&1; then
+    echo "Transfer target: $(numfmt --to=iec --suffix=B "${size}") (${size} bytes)"
+  elif [[ -n "${size}" ]]; then
+    echo "Transfer target: ${size} bytes"
+  fi
+
+  if command -v pv >/dev/null 2>&1; then
+    local -a pv_args=(-ptebar)
+    [[ -n "${size}" ]] && pv_args+=(-s "${size}")
+    set -o pipefail
+    podman --connection "${connection}" image save "${image}" \
+      | pv "${pv_args[@]}" \
+      | podman image load \
+      || die "streamed image transfer of ${image} failed"
+  else
+    set -o pipefail
+    podman --connection "${connection}" image save "${image}" \
+      | podman image load \
+      || die "streamed image transfer of ${image} failed"
+  fi
+
+  # podman load re-normalizes the RepoTag to localhost/...
+  if podman image exists "localhost/${image}"; then
+    podman tag "localhost/${image}" "${image}"
+  fi
+
+  podman image inspect "${image}" >/dev/null \
+    || die "Image ${image} not present locally after transfer"
 }
 
 #=============================================================================
@@ -193,9 +248,8 @@ build_with_docker() {
   printf -v platforms_csv '%s,' "${PLATFORMS[@]}"
   platforms_csv="${platforms_csv%,}"
 
-  # Add latest tag if not already latest
   local -a build_args=("${BUILD_BASE_ARGS[@]}")
-  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+  if [[ -n "${DOCKER_IMAGE_LATEST}" && "${DOCKER_IMAGE}" != *:latest ]]; then
     build_args+=("-t" "${DOCKER_IMAGE_LATEST}")
   fi
 
@@ -205,18 +259,24 @@ build_with_docker() {
     "${build_args[@]}" \
     --platform "${platforms_csv}" \
     --push \
-    .
+    "${DOCKER_BUILD_CONTEXT}"
 }
 
 build_with_podman() {
   log "Building with Podman manifest workflow..."
 
-  # Remove existing manifest+image if it exists
+  # Remove existing manifest/image if it exists
   echo podman manifest rm "${DOCKER_IMAGE}"
   podman manifest rm "${DOCKER_IMAGE}" 2>/dev/null || true
   echo podman image rm "${DOCKER_IMAGE}"
   podman image rm "${DOCKER_IMAGE}" 2>/dev/null || true
 
+  if [[ -n "${DOCKER_IMAGE_LATEST}" && "${DOCKER_IMAGE}" != *:latest ]]; then
+    echo podman manifest rm "${DOCKER_IMAGE_LATEST}"
+    podman manifest rm "${DOCKER_IMAGE_LATEST}" 2>/dev/null || true
+    echo podman image rm "${DOCKER_IMAGE_LATEST}"
+    podman image rm "${DOCKER_IMAGE_LATEST}" 2>/dev/null || true
+  fi
 
   # Track platform-specific data
   local -a platform_tags=()
@@ -232,8 +292,7 @@ build_with_podman() {
     ensure_remote_arm64_connection
   fi
 
-  # Add latest tag if not already latest
-  local -a build_args=("${BUILD_BASE_ARGS[@]}")
+  local -a build_args=("${BUILD_BASE_ARGS[@]}" "${PODMAN_EXTRA_ARGS[@]}")
 
   # Build for each platform (in parallel)
   for platform in "${PLATFORMS[@]}"; do
@@ -241,7 +300,7 @@ build_with_podman() {
     local platform_tag="${DOCKER_IMAGE}-${arch}"
     local connect_arg=""
 
-    # Check if platform needs remote builder
+    # Check if platform needs remote builder or VM
     if [[ "${arch}" == "arm64" && -n "${REMOTE_ARM64_CONNECTION}" ]]; then
       log "Platform ${platform} delegated to remote: ${REMOTE_ARM64_CONNECTION}"
       connect_arg="--connection ${REMOTE_ARM64_CONNECTION}"
@@ -264,6 +323,7 @@ build_with_podman() {
     # shellcheck disable=SC2086
     if (( ${ENABLE_PARALLEL_BUILDS:-0} == 1 )) ; then
       log "PARALLEL_BUILDS ENABLED"
+
       echo "(podman ${connect_arg} build \"${build_args[@]}\" --platform \"${platform}\" -t \"${platform_tag}\" .) &"
       (
         set -o pipefail
@@ -272,15 +332,16 @@ build_with_podman() {
           "${build_args[@]}" \
           --platform "${platform}" \
           -t "${platform_tag}" \
-          . 2>&1 | sed "s|^|${label} |" || exit 1
+          "${DOCKER_BUILD_CONTEXT}" 2>&1 | sed "s|^|${label} |" || exit 1
         echo $(( SECONDS - build_start )) > "${timing_dir}/${arch}"
       ) &
       build_pids+=($!)
     else
       log "PARALLEL_BUILDS DISABLED"
+
       local build_start=$SECONDS
-      echo podman ${connect_arg} build "${build_args[@]}" --platform "${platform}" -t "${platform_tag}" .
-      podman ${connect_arg} build "${build_args[@]}" --platform "${platform}" -t "${platform_tag}" . | sed "s|^|${label} |" || exit 1
+      echo podman ${connect_arg} build "${build_args[@]}" --platform "${platform}" -t "${platform_tag}" "${DOCKER_BUILD_CONTEXT}"
+      podman ${connect_arg} build "${build_args[@]}" --platform "${platform}" -t "${platform_tag}" "${DOCKER_BUILD_CONTEXT}" | sed "s|^|${label} |" || exit 1
       build_durations["${platform}"]=$(( SECONDS - build_start ))
       log "Build ${platform} finished in $(format_duration ${build_durations["${platform}"]})"
     fi
@@ -330,8 +391,7 @@ build_with_podman() {
   echo podman manifest create "${DOCKER_IMAGE}" "${platform_tags[@]}"
   podman manifest create "${DOCKER_IMAGE}" "${platform_tags[@]}"
 
-  # Tag with latest (if not already latest)
-  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+  if [[ -n "${DOCKER_IMAGE_LATEST}" && "${DOCKER_IMAGE}" != *:latest ]]; then
     log "Tagging as latest: ${DOCKER_IMAGE_LATEST}"
     podman tag "${DOCKER_IMAGE}" "${DOCKER_IMAGE_LATEST}"
   fi
@@ -343,8 +403,7 @@ build_with_podman() {
   echo podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE}"
   podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE}"
 
-  # Push latest tag
-  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+  if [[ -n "${DOCKER_IMAGE_LATEST}" && "${DOCKER_IMAGE}" != *:latest ]]; then
     log "Pushing as latest: ${DOCKER_IMAGE_LATEST}"
     podman manifest push "${DOCKER_IMAGE}" "docker://${DOCKER_IMAGE_LATEST}"
   fi
@@ -376,18 +435,24 @@ build_local_only() {
   esac
   local native_platform="linux/${native_arch}"
 
-  # Add latest tag if not already latest
   local -a build_args=("${BUILD_BASE_ARGS[@]}")
+  if (( DOCKER_IS_PODMAN == 1 )); then
+    build_args+=("${PODMAN_EXTRA_ARGS[@]}")
+  fi
   build_args+=("--platform" "${native_platform}")
-  if [[ "${DOCKER_IMAGE}" != *:latest ]]; then
+  if [[ -n "${DOCKER_IMAGE_LATEST}" && "${DOCKER_IMAGE}" != *:latest ]]; then
     build_args+=("-t" "${DOCKER_IMAGE_LATEST}")
   fi
 
   build_args+=("-t" "${DOCKER_IMAGE}")
 
+  echo docker build \
+    "${build_args[@]}" \
+    "${DOCKER_BUILD_CONTEXT}"
+
   docker build \
     "${build_args[@]}" \
-    .
+    "${DOCKER_BUILD_CONTEXT}"
 }
 
 #=============================================================================
@@ -396,33 +461,36 @@ build_local_only() {
 main() {
   local main_start=$SECONDS
   setup_environment
-  ensure_docker_login
 
-  # Handle command line arguments
-  if [[ "${1:-}" == "check" ]]; then
-    if [[ -z "${REMOTE_ARM64_CONNECTION}" ]]; then
-      die "REMOTE_ARM64_CONNECTION is not set"
-    fi
-    ensure_remote_arm64_connection
-    log "Remote arm64 connection OK"
-    exit 0
-  fi
-
-  if [[ "${1:-}" == "onlylocal" ]]; then
-    build_local_only
-    exit 0
-  fi
-
-  # Build based on container runtime
-  if (( DOCKER_IS_PODMAN == 1 )); then
-    build_with_podman
-  else
-    build_with_docker
-  fi
+  case "${1:-}" in
+    login)
+      ensure_docker_login
+      ;;
+    check)
+      if [[ -z "${REMOTE_ARM64_CONNECTION}" ]]; then
+        die "REMOTE_ARM64_CONNECTION is not set"
+      fi
+      ensure_remote_arm64_connection
+      log "Remote arm64 connection OK"
+      exit 0
+      ;;
+    onlylocal)
+      ensure_docker_login
+      build_local_only
+      ;;
+    *)
+      ensure_docker_login
+      if (( DOCKER_IS_PODMAN == 1 )); then
+        build_with_podman
+      else
+        build_with_docker
+      fi
+      ;;
+  esac
 
   log "Total time: $(format_duration $(( SECONDS - main_start )))"
 }
 
 # Run main and ensure cleanup
-trap stop_podman_vm_if_started EXIT
+trap 'stop_podman_vm_if_started || true' EXIT
 main "$@"
