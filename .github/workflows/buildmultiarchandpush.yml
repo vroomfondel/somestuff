@@ -30,6 +30,14 @@ on:
         description: 'Build pythonpandasmultiarch'
         type: boolean
         default: false
+      build_f2bapi:
+        description: 'Build f2b-api'
+        type: boolean
+        default: false
+      build_postfixpgsql:
+        description: 'Build postfix-pgsql'
+        type: boolean
+        default: false
   workflow_run:
     workflows: ["mypy and pytests"]
     branches: ["main"]
@@ -61,6 +69,8 @@ jobs:
       tangstuff: ${{ steps.filter.outputs.tangstuff }}
       python314jit: ${{ steps.filter.outputs.python314jit }}
       python314pandasmultiarch: ${{ steps.filter.outputs.python314pandasmultiarch }}
+      f2bapistuff: ${{ steps.filter.outputs.f2bapistuff }}
+      postfixpgsqlstuff: ${{ steps.filter.outputs.postfixpgsqlstuff }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -76,6 +86,8 @@ jobs:
             echo "tangstuff=${{ inputs.build_tang }}" >> $GITHUB_OUTPUT
             echo "python314jit=${{ inputs.build_python314jit }}" >> $GITHUB_OUTPUT
             echo "python314pandasmultiarch=${{ inputs.build_python314pandasmultiarch }}" >> $GITHUB_OUTPUT
+            echo "f2bapistuff=${{ inputs.build_f2bapi }}" >> $GITHUB_OUTPUT
+            echo "postfixpgsqlstuff=${{ inputs.build_postfixpgsql }}" >> $GITHUB_OUTPUT
           else
             echo "main=true" >> $GITHUB_OUTPUT
             CHANGED=$(git diff --name-only HEAD~1 HEAD)
@@ -98,6 +110,16 @@ jobs:
               echo "python314pandasmultiarch=true" >> $GITHUB_OUTPUT
             else
               echo "python314pandasmultiarch=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED" | grep -q '^f2bapistuff/'; then
+              echo "f2bapistuff=true" >> $GITHUB_OUTPUT
+            else
+              echo "f2bapistuff=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED" | grep -q '^postfixpgsqlstuff/'; then
+              echo "postfixpgsqlstuff=true" >> $GITHUB_OUTPUT
+            else
+              echo "postfixpgsqlstuff=false" >> $GITHUB_OUTPUT
             fi
           fi
 
@@ -311,6 +333,84 @@ jobs:
             python_version=3.14
             gh_ref=${{ github.ref }}
             gh_sha=${{ github.sha }}
+
+  build-f2bapi:
+    needs: build-selector
+    runs-on: ubuntu-latest
+    if: ${{ needs.build-selector.outputs.f2bapistuff == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The pinned tag lives only in build.sh (IMAGE_TAG); consumers pin it, so it must not drift between the two paths.
+      - name: Get Berlin Time and image tag
+        id: meta
+        run: |
+          BUILDTIME=$(TZ='Europe/Berlin' date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
+          TAG=$(sed -n 's/^readonly IMAGE_TAG=//p' f2bapistuff/build.sh)
+          test -n "${TAG}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Build and push f2b-api
+        uses: docker/build-push-action@v6
+        with:
+          context: ./f2bapistuff
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: "xomoxcc/f2b-api:${{ steps.meta.outputs.tag }},xomoxcc/f2b-api:latest"
+          build-args: |
+            buildtime=${{ steps.meta.outputs.buildtime }}
+            debian_version=trixie-slim
+
+  build-postfixpgsql:
+    needs: build-selector
+    runs-on: ubuntu-latest
+    if: ${{ needs.build-selector.outputs.postfixpgsqlstuff == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get Berlin Time
+        id: berlin_time
+        run: |
+          BUILDTIME=$(TZ='Europe/Berlin' date +'%Y-%m-%d %H:%M:%S %Z')
+          echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
+
+      - name: Build and push postfix-pgsql
+        uses: docker/build-push-action@v6
+        with:
+          context: ./postfixpgsqlstuff
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: "xomoxcc/postfix-pgsql:trixie-slim,xomoxcc/postfix-pgsql:latest"
+          build-args: |
+            buildtime=${{ steps.berlin_time.outputs.buildtime }}
+            debian_version=trixie-slim
 
 #      - name: Login to GHCR
 #        if: github.event_name != 'pull_request'

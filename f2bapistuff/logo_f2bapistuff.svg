@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2a41"/><stop offset="1" stop-color="#0d1623"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="160" fill="url(#bg)"/>
+  <!-- shield -->
+  <path d="M512 150 L790 250 V520 C790 700 650 820 512 880 C374 820 234 700 234 520 V250 Z"
+        fill="#243b5a" stroke="#e8eef7" stroke-width="28" stroke-linejoin="round"/>
+  <!-- ban sign -->
+  <circle cx="512" cy="500" r="170" fill="none" stroke="#e5484d" stroke-width="54"/>
+  <line x1="400" y1="388" x2="624" y2="612" stroke="#e5484d" stroke-width="54" stroke-linecap="round"/>
+  <!-- remote link: node -> node -->
+  <circle cx="150" cy="700" r="42" fill="#5ac8fa"/>
+  <circle cx="874" cy="700" r="42" fill="#5ac8fa"/>
+  <path d="M192 700 H300 M724 700 H832" stroke="#5ac8fa" stroke-width="22" stroke-linecap="round" stroke-dasharray="6 40"/>
+  <path d="M250 660 l50 40 l-50 40" fill="none" stroke="#5ac8fa" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="512" y="965" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-weight="bold" font-size="92" fill="#e8eef7">f2b-api</text>
+</svg>

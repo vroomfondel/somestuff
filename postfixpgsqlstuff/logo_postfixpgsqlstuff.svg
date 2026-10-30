@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b2f36"/><stop offset="1" stop-color="#14171c"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="160" fill="url(#bg)"/>
+  <!-- envelope -->
+  <rect x="120" y="250" width="620" height="430" rx="40" fill="#f4f1ea" stroke="#d9d2c3" stroke-width="12"/>
+  <path d="M120 290 L430 520 L740 290" fill="none" stroke="#b0a68f" stroke-width="26" stroke-linejoin="round"/>
+  <path d="M120 680 L370 470 M740 680 L490 470" fill="none" stroke="#d9d2c3" stroke-width="12"/>
+  <!-- database cylinder (PostgreSQL blue) -->
+  <g transform="translate(600 460)">
+    <rect x="0" y="60" width="300" height="300" fill="#336791"/>
+    <ellipse cx="150" cy="60" rx="150" ry="60" fill="#4a86b8"/>
+    <ellipse cx="150" cy="360" rx="150" ry="60" fill="#336791"/>
+    <path d="M0 160 a150 60 0 0 0 300 0 M0 260 a150 60 0 0 0 300 0" fill="none" stroke="#1f4a6e" stroke-width="16"/>
+    <path d="M0 60 V360 M300 60 V360" fill="none" stroke="#1f4a6e" stroke-width="16"/>
+  </g>
+  <text x="512" y="965" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-weight="bold" font-size="86" fill="#f4f1ea">postfix-pgsql</text>
+</svg>

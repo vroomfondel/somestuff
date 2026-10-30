@@ -69,6 +69,8 @@ These subdirectories contain independent Docker image builds with their own `bui
 | `mosquitto-2.1/`           | Mosquitto 2.1 MQTT broker with dynamic security      |
 | `python314jit/`            | Python 3.14 base image with JIT support              |
 | `python314pandasmultiarch/`| Python 3.14 base image with pandas (multi-arch)      |
+| `f2bapistuff/`             | fail2ban + remote ban API (`xomoxcc/f2b-api`)        |
+| `postfixpgsqlstuff/`       | Postfix with pgsql maps + policyd-spf for k8s pods   |
 
 ### Shared Utilities
 
