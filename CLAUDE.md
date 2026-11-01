@@ -39,20 +39,21 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 
 ### Namespace Layout
 
-All packages live under `somestuff/<pkg>/`. `somestuff` is a PEP 420 namespace package: there is no `somestuff/__init__.py` and none may ever be added (one distribution shipping it would hide every other `somestuff.*` package). Imports are `from somestuff.<pkg> import ...`, entry points `python3 -m somestuff.<pkg>.<module>`. Publishable packages carry `__version__` in their `__init__.py` (hatch reads it) and get a `packaging/<pkg>.toml` that becomes the `pyproject.toml` of the staged distribution `somestuff-<pkg>`. `config.py`, `Helper.py` and `config.yaml` stay at the repo root (application layer, found via `PYTHONPATH=/app` or the repo root) and must never end up in a wheel; the root `pyproject.toml` carries `Private :: Do Not Upload`.
+All packages live under `somestuff/<pkg>/`. `somestuff` is a PEP 420 namespace package: there is no `somestuff/__init__.py` and none may ever be added (one distribution shipping it would hide every other `somestuff.*` package). Imports are `from somestuff.<pkg> import ...`, entry points `python3 -m somestuff.<pkg>.<module>`. Publishable packages carry `__version__` in their `__init__.py` (hatch reads it) and get a `packaging/<pkg>.toml` that becomes the `pyproject.toml` of the staged distribution `somestuff-<pkg>`. The shared settings loader lives in `somestuff/corestuff/` (`config.py`, `helper.py`, `config.yaml` sample) and is its own distribution `somestuff-corestuff`; packages that need it (`ecowittstuff`, `netatmostuff`, `hydromailstuff`, `llmstuff`) declare it as a dependency, never bundle it. `config.local.yaml` stays outside every wheel. The root `pyproject.toml` carries `Private :: Do Not Upload`.
 
 ### Configuration System
 
-- **config.py**: Pydantic-based settings loader using `pydantic-settings`
-- **config.yaml**: Default configuration (sample values, committed to repo)
-- **config.local.yaml**: Local overrides for secrets (not committed, merged at runtime via `Helper.update_deep()`)
-- Environment variables can override config using `SOMESTUFF_` prefix or nested delimiter `__`
+- **somestuff/corestuff/config.py**: Pydantic-based settings loader using `pydantic-settings`; nothing is read at import, `get_settings()` (or the lazy `settings` proxy) loads on first use
+- **somestuff/corestuff/config.yaml**: Default configuration (sample values, committed, shipped in the wheel); must validate on its own
+- **config.local.yaml**: Local overrides for secrets (not committed), searched in the CWD, then `/app`; deep-merged via `helper.update_deep()`
+- `SOMESTUFF_CONFIG_PATH`, `SOMESTUFF_CONFIG_LOCAL_PATH`, `SOMESTUFF_CONFIG_DIR_PATH` override the lookup; nested env vars (`MQTT__HOST`) override values
 
 ### Key Modules
 
 | Module                                    | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 |-------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `somestuff/broadlinkstuff/`               | Broadlink RM4 IR/RF blaster: device fleet, IR/RF learning, Coolix (Midea) climate codec, Typer CLI (`broadlinkhelper`; own `broadlink.yaml` + `broadlink.local.yaml`, not the repo-wide config)                                                                                                                                                                                                                                                            |
+| `somestuff/broadlinkstuff/`               | Broadlink RM4 IR/RF blaster: device fleet, IR/RF learning, Coolix (Midea) climate codec, Typer CLI (`broadlinkhelper`; own `broadlink.yaml` + `broadlink.local.yaml`, not the repo-wide config) + `ac_api` (FastAPI in front of per-room `*_ac_*.sh` scripts, Typer CLI `broadlink-ac-api`, `AC_API_*` env, extra `api`)                                                                                                                                   |
+| `somestuff/corestuff/`                    | Shared settings loader: `config.py` (lazy `get_settings()`/`settings` proxy, `config.yaml` sample + `config.local.yaml` from CWD or `/app`, `SOMESTUFF_CONFIG_*` env), `helper.py` (`ComplexEncoder`, `update_deep`), `configure_logging()`                                                                                                                                                                                                                |
 | `somestuff/dhcpstuff/dhcp_discover.py`    | DHCP Discover sender with PXE/Proxy DHCP support                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `somestuff/dnsstuff/spf_ipset_updater.py` | SPF record crawler → ipset updater for SMTP allowlisting                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `somestuff/ecowittstuff/ecowittapi.py`    | Ecowitt weather station API client (typed with Pydantic)                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -84,7 +85,7 @@ These subdirectories contain independent Docker image builds with their own `bui
 
 ### Shared Utilities
 
-- **Helper.py**: JSON serialization (`ComplexEncoder`), deep dict merging
+- **somestuff/corestuff/helper.py**: JSON serialization (`ComplexEncoder`), deep dict merging
 - **mqttstuff**: External package (PyPI: `mqttstuff`) for MQTT topic management
 - **reputils**: External package (PyPI: `reputils`) for repository utilities
 - **docker-config/**: Private directory containing Docker registry credentials for `build.sh`
@@ -96,7 +97,7 @@ These subdirectories contain independent Docker image builds with their own `bui
 - Runs as non-root user `pythonuser` (UID 1200)
 - Multi-arch: linux/amd64, linux/arm64
 - Entry point uses `tini` for proper signal handling
-- `PYTHONPATH=/app` is set; `somestuff/` is copied to `/app/somestuff`, `config.py`/`Helper.py`/`config.yaml` to `/app/`
+- `PYTHONPATH=/app` is set; `somestuff/` is copied to `/app/somestuff`; `config.local.yaml` is expected at `/app/config.local.yaml` (CWD)
 
 ## Code Style
 
@@ -104,7 +105,7 @@ These subdirectories contain independent Docker image builds with their own `bui
 - Mypy for static type checking (excludes .venv, tests)
 - Pre-commit hooks: yaml validation, black --check, mypy, gitleaks
 - Secret scanning: `.gitleaks.toml` extends the default gitleaks ruleset; allowlists `.venv`, `.mypy_cache`, `.idea`, `__pycache__`, `*local*` files, and `docker-config`
-- Loguru for logging (configured in config.py with custom format)
+- Loguru for logging (each package's `configure_logging()` installs the shared format; nothing configures logging at import)
 
 ### Comments
 

@@ -14,8 +14,8 @@ from google.genai.types import GenerateContentResponse
 from loguru import logger
 from pydantic import BaseModel
 
-from config import settings
-from Helper import get_pretty_dict_json_no_sort
+from somestuff.corestuff.config import settings
+from somestuff.corestuff.helper import get_pretty_dict_json_no_sort
 
 mimetypes.init()
 

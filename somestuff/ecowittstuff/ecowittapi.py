@@ -10,8 +10,9 @@ from loguru import logger
 from pydantic import BaseModel, field_validator, model_validator, validator
 from pydantic_extra_types.mac_address import MacAddress
 
-from config import TIMEZONE, settings
-from Helper import get_pretty_dict_json_no_sort
+from somestuff.corestuff import configure_logging
+from somestuff.corestuff.config import get_timezone, settings
+from somestuff.corestuff.helper import get_pretty_dict_json_no_sort
 
 
 # https://doc.ecowitt.net/web/#/apiv3en?page_id=17
@@ -48,11 +49,11 @@ class MeasurementValue(BaseModel):
 
     @model_validator(mode="after")
     def _val_time_to_datetime(self) -> "MeasurementValue":
-        self.time_as_datetime = datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
+        self.time_as_datetime = datetime.datetime.fromtimestamp(self.time, tz=get_timezone())
         return self
 
     # def time_as_datetime(self):
-    #     return datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
+    #     return datetime.datetime.fromtimestamp(self.time, tz=get_timezone())
 
 
 class OutdoorData(BaseModel):
@@ -121,12 +122,12 @@ class WeatherStationResponse(BaseModel):
 
     @model_validator(mode="after")
     def _val_time_to_datetime(self) -> "WeatherStationResponse":
-        self.time_as_datetime = datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
+        self.time_as_datetime = datetime.datetime.fromtimestamp(self.time, tz=get_timezone())
         return self
 
     #
     # def time_as_datetime(self):
-    #     return datetime.datetime.fromtimestamp(self.time, tz=TIMEZONE)
+    #     return datetime.datetime.fromtimestamp(self.time, tz=get_timezone())
 
 
 def get_realtime_data() -> WeatherStationResponse:
@@ -171,6 +172,7 @@ def get_realtime_data() -> WeatherStationResponse:
 
 
 def main() -> None:
+    configure_logging()
     weather_response: WeatherStationResponse = get_realtime_data()
 
     # Auf die Daten zugreifen

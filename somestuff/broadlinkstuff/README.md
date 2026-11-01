@@ -23,6 +23,12 @@ air conditioners, **compute** the complete state matrix instead of learning all
     `swing`, `sleep`, ...), `selftest` checks the generator against learned
     reference codes.
   - **Dry-run** — `--dry-run` sends nothing and only shows what would be sent.
+- **`ac_api.py`** — a small FastAPI in front of per-room shell scripts
+  (`activate_`/`deactivate_`/`gettemp_ac_<room>.sh`). Rooms are discovered from
+  the script directory, so a new room is three scripts, not a code change. The
+  scripts can be anything that drives the blaster (`broadlinkhelper`, a
+  `podman run`, ...); calls are serialised per room so two IR bursts never
+  interleave at one device. Needs the `api` extra.
 
 Logging (loguru, with an intercept for stdlib `logging` from `broadlink`) and the
 startup banner are shared via `somestuff.broadlinkstuff`.
@@ -30,7 +36,8 @@ startup banner are shared via `somestuff.broadlinkstuff`.
 ## Installation
 
 ```bash
-pip install somestuff-broadlinkstuff
+pip install somestuff-broadlinkstuff          # CLI only
+pip install 'somestuff-broadlinkstuff[api]'   # + broadlink-ac-api (fastapi, uvicorn)
 ```
 
 `somestuff` is a PEP 420 namespace; the package is imported as
@@ -80,6 +87,32 @@ Subcommands:
 | `codes`    | List the code library with its Coolix interpretation (optional filter, `--hex`).            |
 | `decode`   | Analyse a named code or raw hex; no device needed.                                          |
 | `selftest` | Check the Coolix generator against the learned reference codes; exit code 1 on failure.     |
+
+### AC API
+
+```bash
+broadlink-ac-api                                              # 127.0.0.1:8099, scripts from ~/.local/bin
+AC_API_SCRIPT_DIR=/opt/ac-scripts broadlink-ac-api --listen-host 0.0.0.0
+python3 -m somestuff.broadlinkstuff.ac_api --log-level debug
+
+curl -s localhost:8099/rooms | jq
+curl -s localhost:8099/rooms/lounge/temp | jq
+curl -sX POST localhost:8099/rooms/lounge/on | jq
+```
+
+| Route                    | Purpose                                                                 |
+|--------------------------|-------------------------------------------------------------------------|
+| `GET /healthz`           | Liveness and the number of discovered rooms (touches no hardware).      |
+| `GET /rooms`             | Discovered rooms and the actions (`on`/`off`/`temp`) each one supports. |
+| `POST /rooms/{room}/on`  | Run `activate_ac_<room>.sh`.                                            |
+| `POST /rooms/{room}/off` | Run `deactivate_ac_<room>.sh`.                                          |
+| `GET /rooms/{room}/temp` | Run `gettemp_ac_<room>.sh` and parse its JSON (`{"<device>": {...}}`).  |
+
+A non-zero exit becomes `502` with the script's stderr, a timeout (`--timeout`,
+default 90 s) `504`. Options are also read from `AC_API_LISTEN_HOST`,
+`AC_API_LISTEN_PORT`, `AC_API_SCRIPT_DIR`, `AC_API_TIMEOUT` and
+`AC_API_LOG_LEVEL`. There is no authentication: bind to localhost (the default)
+or put it behind something that has any.
 
 `climate` modes are `cool`, `dry`, `heat`, `fan_only`, `heat_cool`; fan speeds are
 `auto`, `low`, `mid`, `high`.

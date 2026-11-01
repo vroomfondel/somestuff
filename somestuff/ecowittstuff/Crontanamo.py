@@ -13,9 +13,8 @@ import schedule
 from mqttstuff import MosquittoClientWrapper, MWMqttMessage
 from schedule import run_pending
 
-import Helper
-from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
-from config import settings
+from somestuff.corestuff import configure_logging
+from somestuff.corestuff.config import get_effective_config, settings
 from somestuff.ecowittstuff import print_banner
 from somestuff.ecowittstuff.ecowittapi import WeatherStationResponse, get_realtime_data
 
@@ -23,10 +22,7 @@ _tzberlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
 from loguru import logger
 
-os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")  # standard is DEBUG
-logger.remove()  # remove default-handler
-# # https://buildmedia.readthedocs.org/media/pdf/loguru/latest/loguru.pdf
-logger.add(sys.stderr, level=os.getenv("LOGURU_LEVEL"))  # type: ignore  # TRACE | DEBUG | INFO | WARN | ERROR |  FATAL
+os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")
 
 NOSENDMOSQUITTO: bool = False
 
@@ -35,7 +31,7 @@ def send_to_mosquitto(
     mqttclient: MosquittoClientWrapper,
     wsr: WeatherStationResponse,
 ) -> None:
-    assert isinstance(effconfig, dict)
+    effconfig: Dict[str, Any] = get_effective_config()
     assert "mqtt_topics" in effconfig
     assert "mqtt_message_default_metadata" in effconfig
 
@@ -92,6 +88,7 @@ def exc_caught_job_loop(mqttclient: MosquittoClientWrapper, maxtries: int = 10) 
 
 
 def main() -> int:
+    configure_logging()
     print_banner("ecowitt Crontanamo")
 
     schedulexseconds: int = 30  # 0

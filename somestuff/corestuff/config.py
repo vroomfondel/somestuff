@@ -1,42 +1,16 @@
 import datetime
 import json
-import locale
 import os
-import sys
-from enum import StrEnum, auto
+from functools import lru_cache
 from pathlib import Path
-
-from ruamel.yaml import YAML
-
-import Helper
-
-locale.setlocale(locale.LC_ALL, "de_DE.UTF-8")
-
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, cast
 
 import pytz
 from cachetools import TTLCache, cached
+from loguru import logger
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 from pydantic.networks import IPvAnyAddress
 from pydantic_extra_types.mac_address import MacAddress
-
-# from pydantic import RootModel
-# from pydantic import RootModel, PostgresDsn, field_validator, NameEmail
-
-
-_PKG = "SOMESTUFF"
-
-_CONFIGDIRPATH: Path = Path(__file__).parent.resolve()
-_CONFIGDIRPATH = Path(os.getenv(f"{_PKG}_CONFIG_DIR_PATH")) if os.getenv(f"{_PKG}_CONFIG_DIR_PATH") else _CONFIGDIRPATH  # type: ignore
-
-_CONFIGPATH: Path = Path(_CONFIGDIRPATH, "config.yaml")
-_CONFIGPATH = Path(os.getenv(f"{_PKG}_CONFIG_PATH")) if os.getenv(f"{_PKG}_CONFIG_PATH") else _CONFIGPATH  # type: ignore
-
-_CONFIGLOCALPATH: Path = Path(_CONFIGDIRPATH, "config.local.yaml")
-_CONFIGLOCALPATH = Path(os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH")) if os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH") else _CONFIGLOCALPATH  # type: ignore
-
-
-from loguru import logger
 from pydantic_settings import (
     BaseSettings,
     DotEnvSettingsSource,
@@ -44,51 +18,74 @@ from pydantic_settings import (
     InitSettingsSource,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
-    YamlConfigSettingsSource,
 )
+from ruamel.yaml import YAML
 
-# https://buildmedia.readthedocs.org/media/pdf/loguru/latest/loguru.pdf
-os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")  # standard is DEBUG
-logger.remove()  # remove default-handler
+from somestuff.corestuff import helper
 
-logger_fmt: str = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{module}</cyan>::<cyan>{extra[classname]}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-)
-# logger_fmt: str = "<g>{time:HH:mm:ssZZ}</> | <lvl>{level}</> | <c>{module}::{extra[classname]}:{function}:{line}</> - {message}"
-
-
-def _loguru_skiplog_filter(record: dict) -> bool:
-    return not record.get("extra", {}).get("skiplog", False)
+_PKG = "SOMESTUFF"
+_PACKAGE_DIR: Path = Path(__file__).parent.resolve()
+_CONFIG_FILENAME = "config.yaml"
+_CONFIG_LOCAL_FILENAME = "config.local.yaml"
 
 
-logger.add(sys.stderr, level=os.getenv("LOGURU_LEVEL"), format=logger_fmt, filter=_loguru_skiplog_filter)  # type: ignore # TRACE | DEBUG | INFO | WARN | ERROR |  FATAL
-logger.configure(extra={"classname": "None", "skiplog": False})
-
-logger.info(f"EFFECTIVE CONFIGPATH: {_CONFIGPATH}")
-logger.info(f"EFFECTIVE CONFIGLOCALPATH: {_CONFIGLOCALPATH}")
-
-_CONFIG_ORIG: Dict[str, Any] | None = None
-try:
-    _CONFIG_ORIG = YAML().load(_CONFIGPATH)
-except Exception as e:
-    logger.opt(exception=e).exception(f"Error loading local config file: {_CONFIGPATH}")
-
-_CONFIG_LOCAL_ORIG: Dict[str, Any] | None = None
-try:
-    _CONFIG_LOCAL_ORIG = YAML().load(stream=_CONFIGLOCALPATH)
-except Exception as e:
-    logger.opt(exception=e).exception(f"Error loading local config file: {_CONFIGLOCALPATH}")
-
-_EFFECTIVE_CONFIG: Dict[str, Any] | None = None
-
-if _CONFIG_ORIG is not None:
-    _EFFECTIVE_CONFIG = _CONFIG_ORIG
-
-    if _CONFIG_LOCAL_ORIG is not None:
-        _EFFECTIVE_CONFIG = Helper.update_deep(_EFFECTIVE_CONFIG, _CONFIG_LOCAL_ORIG)  # type: ignore
+def _search_dirs() -> List[Path]:
+    env_dir: str | None = os.getenv(f"{_PKG}_CONFIG_DIR_PATH")
+    if env_dir:
+        return [Path(env_dir)]
+    return [Path.cwd(), Path("/app")]
 
 
-# https://docs.pydantic.dev/latest/concepts/pydantic_settings/
+def _first_existing(filename: str) -> Path | None:
+    for d in _search_dirs():
+        candidate: Path = Path(d, filename)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def config_path() -> Path:
+    env_path: str | None = os.getenv(f"{_PKG}_CONFIG_PATH")
+    if env_path:
+        return Path(env_path)
+    return _first_existing(_CONFIG_FILENAME) or Path(_PACKAGE_DIR, _CONFIG_FILENAME)
+
+
+def config_local_path() -> Path | None:
+    env_path: str | None = os.getenv(f"{_PKG}_CONFIG_LOCAL_PATH")
+    if env_path:
+        return Path(env_path)
+    return _first_existing(_CONFIG_LOCAL_FILENAME)
+
+
+def _load_yaml(path: Path | None) -> Dict[str, Any] | None:
+    if path is None or not path.is_file():
+        return None
+    try:
+        return YAML().load(path)
+    except Exception as e:
+        logger.opt(exception=e).exception(f"Error loading config file: {path}")
+        return None
+
+
+@lru_cache(maxsize=1)
+def get_effective_config() -> Dict[str, Any]:
+    base: Dict[str, Any] | None = _load_yaml(config_path())
+    local: Dict[str, Any] | None = _load_yaml(config_local_path())
+    if base is None:
+        return {} if local is None else local
+    if local is None:
+        return base
+    return cast(Dict[str, Any], helper.update_deep(base, local))
+
+
+class _EffectiveConfigSource(PydanticBaseSettingsSource):
+    def get_field_value(self, field: Any, field_name: str) -> Tuple[Any, str, bool]:
+        return None, field_name, False
+
+    def __call__(self) -> Dict[str, Any]:
+        return dict(get_effective_config())
+
 
 # alias in settings not correctly handled for pydantic v2
 # https://github.com/pydantic/pydantic/issues/8379
@@ -209,7 +206,6 @@ class Settings(BaseSettings):
         populate_by_name=True,
         # env_prefix="TAS_",
         case_sensitive=False,
-        yaml_file_encoding="utf-8",
         extra="ignore",  # ignore | forbid | allow
         protected_namespaces=(),
         env_nested_delimiter="__",
@@ -217,7 +213,6 @@ class Settings(BaseSettings):
         #     validation_alias=to_camel,
         #     serialization_alias=to_pascal,
         # )
-        yaml_file=[_CONFIGPATH, _CONFIGLOCALPATH],
     )
 
     # emailsettings: EmailSettings
@@ -242,7 +237,27 @@ class Settings(BaseSettings):
         dotenv_settings: DotEnvSettingsSource,  # type: ignore
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> Tuple[PydanticBaseSettingsSource, ...]:
-        return init_settings, env_settings, YamlConfigSettingsSource(settings_cls)
+        return init_settings, env_settings, _EffectiveConfigSource(settings_cls)
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    logger.debug(f"EFFECTIVE CONFIGPATH: {config_path()}")
+    logger.debug(f"EFFECTIVE CONFIGLOCALPATH: {config_local_path()}")
+    return Settings()  # type: ignore[call-arg]
+
+
+class _LazySettings:
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_settings(), name)
+
+
+settings: Settings = cast(Settings, _LazySettings())
+
+
+@lru_cache(maxsize=1)
+def get_timezone() -> datetime.tzinfo:
+    return pytz.timezone(get_settings().timezone)
 
 
 def str2bool(v: str | bool) -> bool:
@@ -264,42 +279,13 @@ def is_in_cluster() -> bool:
 
 
 def log_settings() -> None:
-    for k, v in os.environ.items():
-        if k.startswith("PSQL_"):
-            logger.info(f"ENV::{k}: {v}")
-
-    # logger.info(json.dumps(_CONFIG_ORIG, indent=4, sort_keys=False, default=str))
-    # logger.info(json.dumps(_CONFIG_LOCAL_ORIG, indent=4, sort_keys=False, default=str))
-
-    logger.info(json.dumps(settings.model_dump(by_alias=True), indent=4, sort_keys=False, default=str))
-
-
-settings: Settings = Settings()  # type: ignore
-
-if settings.postgresql.url:
-    os.environ["PSQL_DB_URL"] = os.getenv("PSQL_DB_URL", settings.postgresql.url)
-
-os.environ["PSQL_DB_HOST"] = os.getenv("PSQL_DB_HOST", settings.postgresql.host_in_cluster if is_in_cluster() else settings.postgresql.host)  # type: ignore
-os.environ["PSQL_DB_PORT"] = os.getenv(
-    "PSQL_DB_PORT", str(settings.postgresql.port_in_cluster if is_in_cluster() else settings.postgresql.port)
-)
-os.environ["PSQL_DB_USERNAME"] = os.getenv("PSQL_DB_USERNAME", settings.postgresql.username)
-os.environ["PSQL_DB_PASSWORD"] = os.getenv("PSQL_DB_PASSWORD", settings.postgresql.password)
-os.environ["PSQL_DB_NAME"] = os.getenv("PSQL_DB_NAME", settings.postgresql.dbname)
-
-TEMPLATEDIRPATH: Path = Path(__file__).parent.resolve()
-TEMPLATEDIRPATH = Path(TEMPLATEDIRPATH, "templates")
-logger.debug(f"TEMPLATEDIRPATH: {TEMPLATEDIRPATH}")
-
-TIMEZONE: datetime.tzinfo = pytz.timezone(settings.timezone)
-logger.debug(f"TIMEZONE: {TIMEZONE}")
+    logger.info(json.dumps(get_settings().model_dump(by_alias=True), indent=4, sort_keys=False, default=str))
 
 
 if __name__ == "__main__":
+    from somestuff.corestuff import configure_logging
+
+    configure_logging()
     log_settings()
-
-    # logger.info(json.dumps(_CONFIG_ORIG, indent=4, sort_keys=False, default=str))
-    # logger.info(json.dumps(_CONFIG_LOCAL_ORIG, indent=4, sort_keys=False, default=str))
-    logger.info(json.dumps(_EFFECTIVE_CONFIG, indent=4, sort_keys=False, default=str))
-
-    Helper.get_loguru_logger_info()
+    logger.info(json.dumps(get_effective_config(), indent=4, sort_keys=False, default=str))
+    helper.get_loguru_logger_info()

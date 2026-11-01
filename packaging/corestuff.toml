@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-corestuff"
+dynamic = ["version"]
+description = "Shared settings loader for the somestuff packages: pydantic-settings over config.yaml with config.local.yaml overrides from the working directory, plus JSON/dict helpers"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["configuration", "pydantic-settings", "yaml", "iot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = [
+    "loguru>=0.7.3",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.10",
+    "pydantic-extra-types>=2.10",
+    "email-validator>=2.2",
+    "ruamel.yaml>=0.18",
+    "pytz>=2025.1",
+    "cachetools>=5.5",
+]
+
+[project.scripts]
+somestuff-config-dump = "somestuff.corestuff.config:log_settings"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/corestuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/*.local.*", "**/README.md", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml"]

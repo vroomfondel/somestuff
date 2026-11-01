@@ -6,6 +6,7 @@ compute the complete mode × fan × temperature matrix instead of learning all
 280 combinations one by one in front of the device.
 
 * :mod:`somestuff.broadlinkstuff.broadlinkhelper` — device fleet, Coolix codec, Typer CLI
+* :mod:`somestuff.broadlinkstuff.ac_api` — FastAPI in front of per-room ``*_ac_*.sh`` scripts (extra ``api``)
 
 Central logging setup lives here (loguru), mirroring ucmstuff's setup. This
 package (and third-party libraries such as ``broadlink``) logs via the stdlib
@@ -27,7 +28,7 @@ from tabulate import tabulate
 if TYPE_CHECKING:
     from loguru import Record
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = ["__version__", "configure_logging", "print_banner"]
 

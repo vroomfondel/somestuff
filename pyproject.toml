@@ -13,9 +13,6 @@ classifiers = ["Private :: Do Not Upload"]
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }
 
-[tool.setuptools]
-py-modules = ["Helper", "config"]
-
 [tool.setuptools.packages.find]
 # somestuff/ is a PEP 420 namespace (no __init__.py), so discovery needs namespaces = true
 namespaces = true

@@ -54,7 +54,7 @@ RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
 
 COPY --chown=${UID}:${GID} somestuff /app/somestuff
 
-COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
+COPY --chown=${UID}:${GID} README.md /app/
 
 # RUN rm skipcache
 

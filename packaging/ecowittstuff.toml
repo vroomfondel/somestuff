@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-ecowittstuff"
+dynamic = ["version"]
+description = "Ecowitt weather station API client (typed with Pydantic) and MQTT publisher loop for the realtime readings"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["ecowitt", "weather-station", "mqtt", "iot", "pydantic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Home Automation",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = [
+    "somestuff-corestuff>=0.1.0",
+    "loguru>=0.7.3",
+    "requests>=2.32",
+    "pydantic>=2.11",
+    "pydantic-extra-types>=2.10",
+    "mqttstuff>=0.0.7",
+    "schedule>=1.2",
+    "pytz>=2025.1",
+    "tabulate>=0.10",
+]
+
+[project.scripts]
+ecowitt-crontanamo = "somestuff.ecowittstuff.Crontanamo:main"
+ecowitt-realtime = "somestuff.ecowittstuff.ecowittapi:main"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/ecowittstuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/*.local.*", "**/README.md", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml"]

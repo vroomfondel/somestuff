@@ -1,4 +1,4 @@
-PUBLISHABLE := dnsstuff ucmstuff oepnvstuff mqttwebstuff uptimekumastuff k3shelperstuff dhcpstuff broadlinkstuff
+PUBLISHABLE := corestuff dnsstuff ucmstuff oepnvstuff mqttwebstuff uptimekumastuff k3shelperstuff dhcpstuff broadlinkstuff ecowittstuff netatmostuff hydromailstuff
 PYPI_LOCAL  := scripts/include.local.sh
 .PHONY: tests help install venv lint dstart isort tcheck gitleaks build build-nfs update-all-dockerhub-readmes check-dockerhub-token commit-checks prepare dist-all clean-dist %
 # Pattern-built stage-/dist-/distcheck-<pkg> targets are not files; keep make from printing `rm` for them.
@@ -153,7 +153,7 @@ stage-%: venv
 	find build/$* -name '__pycache__' -type d -prune -exec rm -rf {} +
 	cp packaging/$*.toml build/$*/pyproject.toml
 	cp somestuff/$*/README.md build/$*/README.md
-	cp LICENSE.md build/$*/LICENSE.md
+	cp LICENSE.md LICENSEGPL.md build/$*/
 	test ! -e build/$*/somestuff/__init__.py
 
 dist-%: stage-%

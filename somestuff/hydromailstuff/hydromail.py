@@ -9,9 +9,8 @@ from loguru import logger
 from mqttstuff.mosquittomqttwrapper import MQTTLastDataReader, MWMqttMessage
 from reputils import EmailAddress, MRSendmail, SendResult, SMTPServerInfo
 
-import config
-import Helper
-from config import TIMEZONE, is_in_cluster, settings
+from somestuff.corestuff import configure_logging, helper
+from somestuff.corestuff.config import MqttTopic, get_timezone, is_in_cluster, settings
 from somestuff.hydromailstuff import print_banner
 from somestuff.netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
 
@@ -65,7 +64,7 @@ def mail_stuff(
             smtp_server=smtpip, smtp_port=25, use_start_tls=True, wantsdebug=False, ignoresslerrors=True
         )
 
-        now: datetime.datetime = datetime.datetime.now(tz=TIMEZONE)
+        now: datetime.datetime = datetime.datetime.now(tz=get_timezone())
         sdd: str = now.strftime(_sdfD_formatstring)
 
         sendmail: MRSendmail = MRSendmail(
@@ -94,7 +93,7 @@ def mail_stuff(
             "wasserandma_dt": (
                 None
                 if wasserandma_dt is None
-                else wasserandma_dt.astimezone(tz=TIMEZONE).strftime(_sdfDHM_formatstring)
+                else wasserandma_dt.astimezone(tz=get_timezone()).strftime(_sdfDHM_formatstring)
             ),
         }
         mt_html: str = template.render(values)
@@ -130,13 +129,13 @@ def _get_latest_from_mqtt(
     data: Dict[str, float | str] = data_received[0].value  # type: ignore
 
     logger.debug(f"{type(data)=}")
-    logger.debug(Helper.get_pretty_dict_json_no_sort(data, 4))
+    logger.debug(helper.get_pretty_dict_json_no_sort(data, 4))
 
     retv: float | None = data.get(value_fieldname)  # type: ignore
     ret_dt: datetime.datetime | None = None
     ret_dt_s: str | None | float = data.get(created_at_fieldname)
     if ret_dt_s is not None and isinstance(ret_dt_s, str):
-        ret_dt = datetime.datetime.fromisoformat(ret_dt_s).astimezone(tz=TIMEZONE)
+        ret_dt = datetime.datetime.fromisoformat(ret_dt_s).astimezone(tz=get_timezone())
 
     logger.debug(f"Value from MQTT topic '{topic}' is {retv} with created_at '{ret_dt_s}'")
     return retv, ret_dt
@@ -159,8 +158,8 @@ def get_current_waterlevel_and_busvoltage_and_ma(
     busvoltage: float | None
 
     topic: str
-    wasserstandsmesser_topics: Dict[str, config.MqttTopic] = settings.mqtt_topics.root.get("wasserstandsmesser", {})
-    logger.debug(Helper.get_pretty_dict_json_no_sort(wasserstandsmesser_topics))
+    wasserstandsmesser_topics: Dict[str, MqttTopic] = settings.mqtt_topics.root.get("wasserstandsmesser", {})
+    logger.debug(helper.get_pretty_dict_json_no_sort(wasserstandsmesser_topics))
 
     assert "wasserstand" in wasserstandsmesser_topics
     topic = wasserstandsmesser_topics["wasserstand"].topic
@@ -213,7 +212,7 @@ def read_netatmo() -> dict:
         mod: dict = weather_data.moduleByName(n)
         logger.debug(f"{n} => {type(mod)=} {mod=}")
 
-        logger.debug(Helper.get_pretty_dict_json_no_sort(mod))
+        logger.debug(helper.get_pretty_dict_json_no_sort(mod))
 
         if n == settings.netatmo.outdoormodule.name or (
             mod is not None and mod["_id"] == str(settings.netatmo.outdoormodule.id)
@@ -234,15 +233,15 @@ def read_netatmo() -> dict:
     ret["current_temp"] = current_temp
     ret["rain_lasthour"] = lasthourrain
 
-    begin: datetime.datetime = datetime.datetime.now(TIMEZONE)
+    begin: datetime.datetime = datetime.datetime.now(get_timezone())
     begin = (begin - datetime.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     logger.debug(f" {begin=} {begin}")
 
-    end: datetime.datetime = datetime.datetime.now(TIMEZONE)
+    end: datetime.datetime = datetime.datetime.now(get_timezone())
     end = (end - datetime.timedelta(hours=1)).replace(minute=59, second=59, microsecond=999_999)
     logger.debug(f" {end=} {end}")
 
-    now: datetime.datetime = datetime.datetime.now(TIMEZONE)
+    now: datetime.datetime = datetime.datetime.now(get_timezone())
     now_sdf_d: str = now.strftime(_sdfD_formatstring)
 
     measures: dict = weather_data.getMeasure(
@@ -276,7 +275,7 @@ def read_netatmo() -> dict:
         measures_here: list[float | int] = bms[times]
         measures_here_0: float = measures_here[0]
 
-        measure_date: datetime.datetime = datetime.datetime.fromtimestamp(float(times), TIMEZONE)
+        measure_date: datetime.datetime = datetime.datetime.fromtimestamp(float(times), get_timezone())
         # logger.debug(f"timestamp: {times}\tmeasure_date: {measure_date}\tmeasures_here: {measures_here}")
 
         measure_sdf_d: str = measure_date.strftime(_sdfD_formatstring)
@@ -302,6 +301,8 @@ def read_netatmo() -> dict:
 
 
 def do_main_stuff() -> None:
+    os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")
+    configure_logging()
     print_banner()
 
     global DISABLE_MAIL_SEND

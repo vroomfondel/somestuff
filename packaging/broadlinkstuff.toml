@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "somestuff-broadlinkstuff"
 dynamic = ["version"]
-description = "Broadlink RM4 IR/RF blaster tooling: device fleet without broadcast, IR/RF learning and sending, Coolix (Midea) climate codec, Typer CLI"
+description = "Broadlink RM4 IR/RF blaster tooling: device fleet without broadcast, IR/RF learning and sending, Coolix (Midea) climate codec, Typer CLI, HTTP API in front of per-room scripts"
 readme = "README.md"
 requires-python = ">=3.13"
 authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
@@ -32,8 +32,15 @@ dependencies = [
     "tabulate>=0.10",
 ]
 
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.143",
+    "uvicorn>=0.54",
+]
+
 [project.scripts]
 broadlinkhelper = "somestuff.broadlinkstuff.broadlinkhelper:app"
+broadlink-ac-api = "somestuff.broadlinkstuff.ac_api:app"
 
 [project.urls]
 Homepage = "https://github.com/vroomfondel/somestuff"

@@ -15,20 +15,15 @@ from mqttstuff.mosquittomqttwrapper import MosquittoClientWrapper, MWMqttMessage
 # https://github.com/dbader/schedule
 from schedule import run_pending
 
-import config
-import Helper
-from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
-from config import settings
+from somestuff.corestuff import configure_logging, helper
+from somestuff.corestuff.config import MqttTopic, get_effective_config, settings
 from somestuff.netatmostuff import print_banner
 
 _tzberlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
 from loguru import logger
 
-os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")  # standard is DEBUG
-logger.remove()  # remove default-handler
-# # https://buildmedia.readthedocs.org/media/pdf/loguru/latest/loguru.pdf
-logger.add(sys.stderr, level=os.getenv("LOGURU_LEVEL"))  # type: ignore  # TRACE | DEBUG | INFO | WARN | ERROR |  FATAL
+os.environ["LOGURU_LEVEL"] = os.getenv("LOGURU_LEVEL", "DEBUG")
 
 NOSENDMOSQUITTO: bool = False
 
@@ -47,7 +42,7 @@ def send_to_mosquitto(
     created_at_rain1h: Optional[datetime.datetime] = None,
     created_at_rain24h: Optional[datetime.datetime] = None,
 ) -> None:
-    assert isinstance(effconfig, dict)
+    effconfig: Dict[str, Any] = get_effective_config()
     assert "mqtt_topics" in effconfig
     assert "mqtt_message_default_metadata" in effconfig
 
@@ -58,7 +53,7 @@ def send_to_mosquitto(
     # msgs: List[Tuple[str, Union[int, float, str, Dict], Optional[datetime.datetime], Optional[Dict]]] = []
     msgs: List[MWMqttMessage] = []
 
-    netatmo_topics: Dict[str, config.MqttTopic] = settings.mqtt_topics.root.get(
+    netatmo_topics: Dict[str, MqttTopic] = settings.mqtt_topics.root.get(
         "netatmo", {}
     )  # effconfig["mqtt_topics"]["netatmo"]
     # assert isinstance(netatmo_topics, dict)
@@ -71,7 +66,7 @@ def send_to_mosquitto(
     topic: str | None
 
     logger.debug("Crontanamo::send_to_mosquitto::netatmo_topics:")
-    logger.debug(Helper.get_pretty_dict_json_no_sort(netatmo_topics))
+    logger.debug(helper.get_pretty_dict_json_no_sort(netatmo_topics))
 
     logger.debug(f"Crontanamo::send_to_mosquitto::{temp=}")
     if temp is not None:
@@ -298,25 +293,25 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
         logger.debug(f"** RAW DATA {type(weather_data.rawDataPostRequest)=} **")
         if isinstance(weather_data.rawDataPostRequest, bytes):
             logger.debug(
-                Helper.get_pretty_dict_json_no_sort(json.loads(weather_data.rawDataPostRequest.decode("utf-8")))
+                helper.get_pretty_dict_json_no_sort(json.loads(weather_data.rawDataPostRequest.decode("utf-8")))
             )
         elif isinstance(weather_data.rawDataPostRequest, str):
-            logger.debug(Helper.get_pretty_dict_json_no_sort(json.loads(weather_data.rawDataPostRequest)))
+            logger.debug(helper.get_pretty_dict_json_no_sort(json.loads(weather_data.rawDataPostRequest)))
         elif isinstance(weather_data.rawDataPostRequest, dict) or isinstance(weather_data.rawDataPostRequest, list):
-            logger.debug(Helper.get_pretty_dict_json_no_sort(weather_data.rawDataPostRequest))
+            logger.debug(helper.get_pretty_dict_json_no_sort(weather_data.rawDataPostRequest))
 
         logger.debug("/** RAW DATA **")
 
     station = weather_data.getStation()
     logger.debug(f"{type(station)=}")
     if station is not None:
-        logger.debug(Helper.get_pretty_dict_json_no_sort(station))
+        logger.debug(helper.get_pretty_dict_json_no_sort(station))
 
     if not "dashboard_data" in station:
         logger.debug(f"NO DASHBOARD_DATA IN STATION!!!")
     else:
         logger.debug(f"DASHBOARD_DATA IN STATION!!!")
-        logger.debug(Helper.get_pretty_dict_json_no_sort(station["dashboard_data"]))
+        logger.debug(helper.get_pretty_dict_json_no_sort(station["dashboard_data"]))
 
     for hn, home in weather_data.homes.items():
         logger.debug(f"Home {hn}:")
@@ -347,7 +342,7 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
             logger.debug(f"EMPTY MOD (for {n}) !!!")
             continue
 
-        logger.debug(Helper.get_pretty_dict_json_no_sort(mod))
+        logger.debug(helper.get_pretty_dict_json_no_sort(mod))
         if n == settings.netatmo.outdoormodule.name or (
             mod is not None and mod["_id"] == str(settings.netatmo.outdoormodule.id)
         ):
@@ -364,10 +359,10 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
         raise Exception("REGEN MODULE NOT FOUND")
 
     logger.debug("AUSSEN:")
-    logger.debug(Helper.get_pretty_dict_json_no_sort(aussen))
+    logger.debug(helper.get_pretty_dict_json_no_sort(aussen))
 
     logger.debug("REGEN:")
-    logger.debug(Helper.get_pretty_dict_json_no_sort(regen))
+    logger.debug(helper.get_pretty_dict_json_no_sort(regen))
 
     if not "dashboard_data" in aussen:
         raise Exception("NO DASHBOARD DATA IN AUSSEN-MODULE FOUND")
@@ -389,7 +384,7 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
     #     )
     #     logger.debug(f"MEASURES RESULT: {measures}")
     #     logger.debug(f"{type(measures)=} => {measures=}")
-    #     logger.debug(Helper.getPrettyDictJSON(measures))
+    #     logger.debug(helper.getPrettyDictJSON(measures))
     #     for ts in measures["body"].keys():  # sollte nur einen geben
     #         logger.debug(f"{type(ts)=} => {ts}")
     #         dt_object = datetime.datetime.fromtimestamp(float(ts), tz=pytz.UTC).astimezone(_tzberlin)
@@ -426,7 +421,7 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
     #         # limit="1"
     #     )
     #     logger.debug(f"{type(measures)=} => {measures=}")
-    #     logger.debug(Helper.getPrettyDictJSON(measures))
+    #     logger.debug(helper.getPrettyDictJSON(measures))
     #     for ts in measures["body"].keys():  # sollte nur einen geben
     #         logger.debug(f"{type(ts)=} => {ts}")
     #         dt_object = datetime.datetime.fromtimestamp(float(ts), tz=pytz.UTC).astimezone(_tzberlin)
@@ -484,7 +479,7 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
     #     limit="1"
     # )
     # logger.debug(f"{type(measures)=} => {measures=}")
-    # logger.debug(Helper.getPrettyDictJSON(measures))
+    # logger.debug(helper.getPrettyDictJSON(measures))
     # for ts in measures["body"].keys():  # sollte nur einen geben
     #     logger.debug(f"{type(ts)=} => {ts}")
     #     dt_object = datetime.datetime.fromtimestamp(float(ts), tz=pytz.UTC).astimezone(_tzberlin)
@@ -511,8 +506,8 @@ def exc_caught_job_loop(mqttclient: MosquittoClientWrapper, maxtries: int = 10) 
 
             return 0
         except Exception as ex:
-            # logger.exception(Helper.get_exception_tb_as_string(ex))
-            # Helper.eprint(Helper.getExceptionTBAsString(ex))
+            # logger.exception(helper.get_exception_tb_as_string(ex))
+            # helper.eprint(helper.getExceptionTBAsString(ex))
             logger.opt(exception=ex).exception(ex)
             time.sleep(2)
 
@@ -533,10 +528,11 @@ def run_test_netatmo() -> None:
     station = weather_data.getStation()
 
     logger.debug(f"{type(station)=}")
-    logger.debug(Helper.get_pretty_dict_json_no_sort(station))
+    logger.debug(helper.get_pretty_dict_json_no_sort(station))
 
 
 def main() -> int:
+    configure_logging()
     print_banner("netatmo Crontanamo")
 
     schedulexseconds: int = 300

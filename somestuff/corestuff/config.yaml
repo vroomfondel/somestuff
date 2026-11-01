@@ -18,14 +18,14 @@ emailsettings:
 
 hydromail:
   smtpip: "127.0.0.1"
-  mailfrom: "hydromail@local.host.local"
-  mailreplyto: "hydromail@extern.host.tld"
+  mailfrom: "hydromail@example.com"
+  mailreplyto: "hydromail@example.org"
   mailsubject_base: "Regenmessdaten :: Some Where There"
   mailrecipients_to:
-    - "otherone@extern.host.tld"
+    - "otherone@example.org"
   mailrecipients_cc:
-    - "someone@extern.othercorp.tld"
-    - "somehone@extern.host.tld"
+    - "someone@example.net"
+    - "somehone@example.org"
 
 
 redis:
@@ -109,7 +109,7 @@ mqtt_topics:
       topic: "nodered/hydrostatics/hydrostatic0/status"
       subscribe: false
 
-mqtt_defaultmetadata:
+mqtt_message_default_metadata:
   # latitude, longitude, elevation for sensor/actor
   lat: 1.234567
   lon: 2.345678

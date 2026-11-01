@@ -13,7 +13,7 @@ Quick links:
 - CI: mypy + pytest, and a multi‑arch Docker build/push workflow (see badges above)
 
 Contents overview (Python packages/modules):
-- `broadlinkstuff`: Broadlink RM4 IR/RF blaster — learn/send codes and compute the full Coolix (Midea) climate matrix
+- `broadlinkstuff`: Broadlink RM4 IR/RF blaster — learn/send codes, compute the full Coolix (Midea) climate matrix, and a small HTTP API (`ac_api`) in front of per-room scripts
 - `dnsstuff`: SPF resolution helper and ipset updater for allow‑listing email senders (e.g. pcbway.com)
 - `ecowittstuff`: simple client/types for Ecowitt weather station API
 - `gcalstuff`: CLI tool for creating Google Calendar events with day‑view confirmation
@@ -27,11 +27,11 @@ Contents overview (Python packages/modules):
 - `mqttwebstuff`: live web view onto arbitrary MQTT streams — mountable mapper plugins (filter/map per message), server‑side last‑value cache, SSE push to an htmx/PicoCSS frontend; ships an oepnv departure‑board plugin and a generic view (indented topic tree by default, flat JSON cards via `--view flat`)
 - `ucmstuff`: monitor and control a Grandstream UCM6204 IP‑PBX — real‑time call events over WebSocket plus request/response control via the HTTPS API
 - `uptimekumastuff`: provision, migrate and back up Uptime Kuma 2.x declaratively — idempotent YAML apply, Ansible module, full export/import, direct Socket.IO client
-- Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
+- Shared config: `somestuff/corestuff/` (`config.py`, `helper.py`, `config.yaml` sample), optional `config.local.yaml` in the working directory, scripts
 - Moved to standalone repos: `sipstuff` ([vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff)), `flickrdownloaderstuff` ([vroomfondel/flickrtoimmich](https://github.com/vroomfondel/flickrtoimmich), image `xomoxcc/flickr-download`)
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
-Package layout: every module lives under the PEP 420 namespace `somestuff` (`somestuff/<pkg>/`, no `somestuff/__init__.py`), so imports read `from somestuff.dnsstuff import ...` and entry points `python3 -m somestuff.<pkg>.<module>`. Each package is prepared for its own PyPI distribution named `somestuff-<pkg>` (`pip install somestuff-dnsstuff` → `from somestuff.dnsstuff import ...`); distributions share the namespace and install side by side. `make pypibuild-<pkg>` stages, builds and checks one distribution, `make pypipush-<pkg>` uploads it (details in the `Makefile`). `config.py`/`Helper.py` stay at the repo root and are never part of a distribution.
+Package layout: every module lives under the PEP 420 namespace `somestuff` (`somestuff/<pkg>/`, no `somestuff/__init__.py`), so imports read `from somestuff.dnsstuff import ...` and entry points `python3 -m somestuff.<pkg>.<module>`. Each package is prepared for its own PyPI distribution named `somestuff-<pkg>` (`pip install somestuff-dnsstuff` → `from somestuff.dnsstuff import ...`); distributions share the namespace and install side by side. `make pypibuild-<pkg>` stages, builds and checks one distribution, `make pypipush-<pkg>` uploads it (details in the `Makefile`). The shared settings loader is its own distribution `somestuff-corestuff`, which the config-driven packages depend on; `config.local.yaml` is never part of a distribution.
 
 Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh`):
 - `tangstuff`: Tang server for LUKS/Clevis network‑bound disk encryption
@@ -57,7 +57,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 Configuration:
-- `config.yaml` contains sample/defaults. Do not commit secrets. If needed, create `config.local.yaml` to override locally (kept out of the image by default). Some modules read credentials/API keys from here (e.g. Ecowitt, Netatmo, MQTT, email settings). Adjust as needed before running modules that require it.
+- `somestuff/corestuff/config.yaml` contains sample/defaults. Do not commit secrets. If needed, create `config.local.yaml` in the working directory (or `/app` in the image) to override locally; it is deep-merged over the sample and kept out of the image by default. Some modules read credentials/API keys from here (e.g. Ecowitt, Netatmo, MQTT, email settings). Adjust as needed before running modules that require it.
 
 Run tests and type checks:
 ```bash
@@ -83,17 +83,19 @@ sudo python -m somestuff.dhcpstuff -i eth0 -a efi64
 ### broadlinkstuff
 Talk to Broadlink RM4 IR/RF blasters: address devices without a broadcast, learn IR/RF codes, send stored or raw codes, and compute Midea/Coolix air-conditioner codes instead of learning all 280 mode x fan x temperature combinations by hand.
 
-- Entrypoint: `somestuff/broadlinkstuff/broadlinkhelper.py`
+- Entrypoints: `somestuff/broadlinkstuff/broadlinkhelper.py` (CLI), `somestuff/broadlinkstuff/ac_api.py` (FastAPI, extra `api`)
 - CLI usage:
 ```bash
 python -m somestuff.broadlinkstuff.broadlinkhelper devices
 python -m somestuff.broadlinkstuff.broadlinkhelper learn-ir Lounge
 python -m somestuff.broadlinkstuff.broadlinkhelper climate Lounge --mode heat --temp 23
 python -m somestuff.broadlinkstuff.broadlinkhelper special Lounge swing
+AC_API_SCRIPT_DIR=/opt/ac-scripts python -m somestuff.broadlinkstuff.ac_api --listen-host 0.0.0.0   # REST: /rooms, /rooms/<room>/{on,off,temp}
 ```
 - Config: own YAML files, independent of the repo-wide `config.yaml` — `somestuff/broadlinkstuff/broadlink.yaml` (documented sample, committed) with `broadlink.local.yaml` (real devices, gitignored, taken from the current working directory) merged over it. No devices configured means every command falls back to a broadcast search; `discover` prints a ready-made YAML block to paste in.
 - Logs go to stderr, payload (learned hex, config line, code listings) to stdout, so `learn-ir` can be piped.
 - `selftest` verifies the Coolix generator against the learned reference codes; `decode` analyses any packet without touching hardware.
+- `ac_api` discovers rooms from `activate_`/`deactivate_`/`gettemp_ac_<room>.sh` in a script directory, serialises calls per room and maps script failures to 502/504; no auth, bind to localhost or front it.
 
 
 ### dinogame (archived)
@@ -256,7 +258,7 @@ docker build \
 Run interactively (example):
 ```bash
 docker run --rm -it \
-  -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  -v $(pwd)/config.local.yaml:/app/config.local.yaml:ro \
   xomoxcc/somestuff:python-3.14-slim-trixie \
   python -m somestuff.dnsstuff.spf_ipset_updater pcbway.com
 ```
