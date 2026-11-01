@@ -12,6 +12,7 @@ from reputils import EmailAddress, MRSendmail, SendResult, SMTPServerInfo
 import config
 import Helper
 from config import TIMEZONE, is_in_cluster, settings
+from somestuff.hydromailstuff import print_banner
 from somestuff.netatmostuff.Crontanamo import ensure_up2date_netatmo_credentialsfile
 
 # from somestuff.netatmostuff.Crontanamo import write_netatmo_credentials_to_shared_file
@@ -234,11 +235,11 @@ def read_netatmo() -> dict:
     ret["rain_lasthour"] = lasthourrain
 
     begin: datetime.datetime = datetime.datetime.now(TIMEZONE)
-    begin = begin.replace(day=begin.day - 1, hour=0, minute=0, second=0, microsecond=0)
+    begin = (begin - datetime.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     logger.debug(f" {begin=} {begin}")
 
     end: datetime.datetime = datetime.datetime.now(TIMEZONE)
-    end = end.replace(hour=end.hour - 1, minute=59, second=59, microsecond=999_999)
+    end = (end - datetime.timedelta(hours=1)).replace(minute=59, second=59, microsecond=999_999)
     logger.debug(f" {end=} {end}")
 
     now: datetime.datetime = datetime.datetime.now(TIMEZONE)
@@ -301,6 +302,8 @@ def read_netatmo() -> dict:
 
 
 def do_main_stuff() -> None:
+    print_banner()
+
     global DISABLE_MAIL_SEND
 
     if not is_in_cluster():

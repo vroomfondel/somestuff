@@ -16,6 +16,7 @@ from schedule import run_pending
 import Helper
 from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
 from config import settings
+from somestuff.ecowittstuff import print_banner
 from somestuff.ecowittstuff.ecowittapi import WeatherStationResponse, get_realtime_data
 
 _tzberlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
@@ -91,6 +92,8 @@ def exc_caught_job_loop(mqttclient: MosquittoClientWrapper, maxtries: int = 10) 
 
 
 def main() -> int:
+    print_banner("ecowitt Crontanamo")
+
     schedulexseconds: int = 30  # 0
     sleeptimexseconds: int = 10
 

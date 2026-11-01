@@ -19,6 +19,7 @@ import config
 import Helper
 from config import _EFFECTIVE_CONFIG as effconfig  # dirty.
 from config import settings
+from somestuff.netatmostuff import print_banner
 
 _tzberlin: datetime.tzinfo = pytz.timezone("Europe/Berlin")
 
@@ -536,6 +537,8 @@ def run_test_netatmo() -> None:
 
 
 def main() -> int:
+    print_banner("netatmo Crontanamo")
+
     schedulexseconds: int = 300
     sleeptimexseconds: int = 10
 
