@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-k3shelperstuff"
+dynamic = ["version"]
+description = "K3s/Kubernetes helpers: kubeconfig credential sync via SSH, user client certificates via the CSR API, Keel image-drift and version-pin drift checkers"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["k3s", "kubernetes", "kubeconfig", "csr", "client-certificate", "keel", "image-drift", "version-pins"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Systems Administration",
+    "Topic :: System :: Clustering",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = [
+    "loguru>=0.7.3",
+    "typer>=0.27",
+    "kubernetes>=37",
+    "cryptography>=50",
+    "pydantic>=2.14",
+    "requests>=2.34",
+    "urllib3>=2.8",
+    "rich>=15",
+    "tabulate>=0.10",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+keel-drift = "somestuff.k3shelperstuff.keel_drift:app"
+pin-drift = "somestuff.k3shelperstuff.pin_drift:app"
+k3s-drift = "somestuff.k3shelperstuff.drift:app"
+k8s-user-cert = "somestuff.k3shelperstuff.k8s_user_cert:cli"
+update-local-k3s-keys = "somestuff.k3shelperstuff.update_local_k3s_keys:main"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/k3shelperstuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]

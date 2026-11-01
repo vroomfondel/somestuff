@@ -25,11 +25,21 @@ make prepare            # Run tests + commit-checks
 ./build.sh onlylocal    # Local build only (no push)
 make build              # Update git submodules and run build.sh
 make dstart             # Run container interactively (mounts config.local.yaml, ~/.config/gcal, ~/.kube, ~/.ssh)
+
+# PyPI distributions (one per package, see packaging/<pkg>.toml)
+make distcheck-<pkg>    # Stage into build/<pkg>/, build sdist + wheel with hatch, run scripts/check_dist_secrets.py
+make pypibuild-<pkg>    # Same as distcheck-<pkg>
+make pypipush-<pkg>     # Upload; needs PYPI_* in scripts/include.local.sh, only upload.pypi.org or test.pypi.org are accepted
+make dist-all           # distcheck for every publishable package
 ```
 
 ## Architecture Overview
 
 This is a collection of Python utilities for IoT data aggregation, weather monitoring, and DNS automation. The codebase follows a modular structure where each subdirectory is a self-contained Python package.
+
+### Namespace Layout
+
+All packages live under `somestuff/<pkg>/`. `somestuff` is a PEP 420 namespace package: there is no `somestuff/__init__.py` and none may ever be added (one distribution shipping it would hide every other `somestuff.*` package). Imports are `from somestuff.<pkg> import ...`, entry points `python3 -m somestuff.<pkg>.<module>`. Publishable packages carry `__version__` in their `__init__.py` (hatch reads it) and get a `packaging/<pkg>.toml` that becomes the `pyproject.toml` of the staged distribution `somestuff-<pkg>`. `config.py`, `Helper.py` and `config.yaml` stay at the repo root (application layer, found via `PYTHONPATH=/app` or the repo root) and must never end up in a wheel; the root `pyproject.toml` carries `Private :: Do Not Upload`.
 
 ### Configuration System
 
@@ -52,11 +62,12 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 | `somestuff/llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
 | `somestuff/netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
 | `sipstuff/`                 | **Moved** to [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) |
-| `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
 | `somestuff/ucmstuff/`                  | Grandstream UCM6204 IP-PBX monitor/control: WebSocket events (`UCMEventClient`) + HTTPS-API control (`UCM6204`/`UCM6204Rest`), trunk call router, Typer CLI |
 | `somestuff/uptimekumastuff/`           | Uptime-Kuma 2.x provisioning/migration: `KumaClient` (direct Socket.IO, fresh reads, idempotent upserts), `uptimekuma_apply` (YAML → idempotent apply, Typer CLI), `SimpleKumaApi` (full export/import, Typer CLI) |
 | `somestuff/oepnvstuff/`                | GTFS-Realtime coverage checker: `RealtimeMonitor` (poll loop, staleness detection, pluggable `on_*` handlers), MQTT bridge, Typer CLI (`check_realtime`, `OEPNV_*` env) |
 | `somestuff/mqttwebstuff/`              | Live web view onto MQTT streams: mountable mapper plugins (`plugin_api.ViewEvent`), `ViewHub` (last-value cache + SSE fan-out), FastAPI + htmx/PicoCSS frontend, Typer CLI (`serve`, `MQTTWEB_*` env) |
+| `packaging/`                 | One `<pkg>.toml` per PyPI distribution (`somestuff-<pkg>`), copied into `build/<pkg>/pyproject.toml` by `make stage-<pkg>` |
+| `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`, `check_dist_secrets.py`: gate that refuses sdists/wheels with files outside the hatch allowlist or a `somestuff/__init__.py`) |
 
 ### Standalone Docker Images
 

@@ -6,6 +6,11 @@ DOCKER_TOKEN="dockerhubtokenforthatuser"
 
 KUBECTL_CONTEXT="arley@local"
 
+# Package index for `make pypipush-<pkg>` (pypi.org API token; only upload.pypi.org / test.pypi.org are accepted)
+PYPI_REPO_URL="https://test.pypi.org/legacy/"
+PYPI_USER="__token__"
+PYPI_PASSWORD="dummy"
+
 # echo \$0 in include.sh: $0
 
 REMOTE_ARM64_CONNECTION="${REMOTE_ARM64_CONNECTION:-}"

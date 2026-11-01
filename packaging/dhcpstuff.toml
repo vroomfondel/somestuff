@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-dhcpstuff"
+dynamic = ["version"]
+description = "DHCP Discover sender and response analyzer, including Proxy DHCP / PXE boot server responses (stdlib only)"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["dhcp", "pxe", "proxy-dhcp", "network-diagnostics", "discover"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Boot",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.scripts]
+dhcp-discover = "somestuff.dhcpstuff.dhcp_discover:main"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/dhcpstuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml", "**/*.sh"]

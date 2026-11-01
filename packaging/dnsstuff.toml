@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-dnsstuff"
+dynamic = ["version"]
+description = "DNS utilities: SPF crawler → ipset updater, Microsoft 365 21Vianet IP sync, mDNS responder diagnostics"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["dns", "spf", "ipset", "mdns", "netfilter", "smtp", "allowlist", "21vianet", "pyroute2"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Networking",
+    "Topic :: Internet :: Name Service (DNS)",
+    "Topic :: System :: Networking :: Firewalls",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = [
+    "loguru>=0.7.3",
+    "dnspython>=2.9",
+    "pyroute2>=0.9",
+    "tabulate>=0.10",
+]
+
+[project.scripts]
+spf-ipset-updater = "somestuff.dnsstuff.spf_ipset_updater:main"
+mdns-who = "somestuff.dnsstuff.mdns_who:main"
+update-21vianet-ips = "somestuff.dnsstuff.update_21vianet_ips:main"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/dnsstuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]

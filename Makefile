@@ -1,5 +1,12 @@
-.PHONY: tests help install venv lint dstart isort tcheck gitleaks build build-nfs update-all-dockerhub-readmes check-dockerhub-token commit-checks prepare %
+PUBLISHABLE := dnsstuff ucmstuff oepnvstuff mqttwebstuff uptimekumastuff k3shelperstuff dhcpstuff
+PYPI_LOCAL  := scripts/include.local.sh
+.PHONY: tests help install venv lint dstart isort tcheck gitleaks build build-nfs update-all-dockerhub-readmes check-dockerhub-token commit-checks prepare dist-all clean-dist %
+# Pattern-built stage-/dist-/distcheck-<pkg> targets are not files; keep make from printing `rm` for them.
+.SECONDARY:
+# `make pypipush-<pkg>` uploads only to upload.pypi.org or test.pypi.org; URL + token come from
+# scripts/include.local.sh (gitignored): PYPI_REPO_URL, PYPI_USER (__token__), PYPI_PASSWORD. distcheck gates every push.
 SHELL := /usr/bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
 .ONESHELL:
 
 
@@ -18,6 +25,10 @@ help:
 	@printf "\nupdate-all-dockerhub-readmes \n\tupdate ALL Docker Hub repo descriptions from DOCKERHUB_OVERVIEW.md resp */DOCKERHUB_OVERVIEW.md\n"
 	@printf "\ncheck-dockerhub-token\n\tcheck Docker Hub token permissions (credentials from include.sh)\n"
 	@printf "\ndstart \n\tlaunch \"app\" in docker\n"
+	@printf "\ndistcheck-<pkg>\n\tstage + hatch build somestuff-<pkg> into build/<pkg>/ and verify the artifacts (pypibuild-<pkg> is an alias)\n"
+	@printf "\npypipush-<pkg>\n\tupload build/<pkg>/dist/* to PYPI_REPO_URL from scripts/include.local.sh (pypi.org / test.pypi.org only)\n"
+	@printf "\ndist-all\n\tdistcheck for every publishable package: $(PUBLISHABLE)\n"
+	@printf "\nclean-dist\n\tremove build/\n"
 
 
 
@@ -29,7 +40,7 @@ install: venv
 venv: .venv/touchfile
 
 .venv/touchfile: requirements.txt requirements-dev.txt
-	@if [ -z "$${GITHUB_RUN_ID}" ]; then \
+	@if [ -z "$${GITHUB_RUN_ID:-}" ]; then \
 		test -d .venv || python3.14 -m venv .venv; \
 		source .venv/bin/activate; \
 		pip install -r requirements-dev.txt; \
@@ -134,15 +145,52 @@ commit-checks: .git/hooks/pre-commit
 
 prepare: tests commit-checks
 
+stage-%: venv
+	rm -rf build/$*
+	mkdir -p build/$*/somestuff
+	cp -r somestuff/$* build/$*/somestuff/
+	find build/$*/somestuff -name '__pycache__' -type d -prune -exec rm -rf {} +
+	cp packaging/$*.toml build/$*/pyproject.toml
+	cp somestuff/$*/README.md build/$*/README.md
+	cp LICENSE.md build/$*/LICENSE.md
+	test ! -e build/$*/somestuff/__init__.py
+
+dist-%: stage-%
+	@$(venv_activated)
+	ver=$$(sed -n 's/^__version__ = "\(.*\)"$$/\1/p' somestuff/$*/__init__.py)
+	[ -n "$$ver" ] || { printf "refusing: no __version__ in somestuff/$*/__init__.py\n" >&2; exit 2; }
+	printf "somestuff-$*  VERSION: %s\n" "$$ver"
+	cd build/$* && hatch build --clean
+
+distcheck-%: dist-%
+	@$(venv_activated)
+	python scripts/check_dist_secrets.py --root build/$* --namespace somestuff
+
+pypibuild-%: distcheck-%
+
+pypipush-%: distcheck-%
+	@$(venv_activated)
+	[ -f "$(PYPI_LOCAL)" ] || { printf "refusing: %s missing (PYPI_REPO_URL, PYPI_USER, PYPI_PASSWORD)\n" "$(PYPI_LOCAL)" >&2; exit 2; }
+	source scripts/include.sh > /dev/null
+	case "$${PYPI_REPO_URL:-}" in
+		https://upload.pypi.org/legacy/|https://test.pypi.org/legacy/) ;;
+		*) printf "refusing: PYPI_REPO_URL='%s' is not pypi.org or test.pypi.org\n" "$${PYPI_REPO_URL:-}" >&2; exit 2;;
+	esac
+	[ "$${PYPI_USER:-}" = "__token__" ] && [ -n "$${PYPI_PASSWORD:-}" ] && [ "$$PYPI_PASSWORD" != dummy ] || { printf "refusing: PYPI_USER must be __token__ and PYPI_PASSWORD set in %s\n" "$(PYPI_LOCAL)" >&2; exit 2; }
+	ver=$$(sed -n 's/^__version__ = "\(.*\)"$$/\1/p' somestuff/$*/__init__.py)
+	printf "publishing somestuff-$* %s to %s\n" "$$ver" "$$PYPI_REPO_URL"
+	@hatch publish -n -r "$$PYPI_REPO_URL" -u "$$PYPI_USER" -a "$$PYPI_PASSWORD" build/$*/dist/*
+	idx=$$( [ "$$PYPI_REPO_URL" = https://test.pypi.org/legacy/ ] && echo https://test.pypi.org || echo https://pypi.org )
+	curl -sf "$$idx/simple/somestuff-$*/" | grep -o -E "somestuff_$*-$$ver[^\"<#]*" | sort -u
+
+dist-all: $(addprefix distcheck-,$(PUBLISHABLE))
+
+clean-dist:
+	rm -rf build
+
 # Catch-all target to allow arguments after flickrstuffpipe
 %:
 	@:
-
-#pypibuild: .venv
-#	@$(venv_activated)
-#	pip install -r requirements-build.txt
-#	pip install --upgrade twine build
-#	python3 -m build
 
 # AUTH=$(jq -r '.auths["https://index.docker.io/v1/"].auth' ~/.docker/config.json | base64 -d) && USERNAME=$(echo "$AUTH" | cut -d: -f1) && PASSWORD=$(echo "$AUTH" | cut -d: -f2-)
 # TOKEN=$(curl -s -X POST https://hub.docker.com/v2/users/login/ -H "Content-Type: application/json" -d '{"username":"'"$USERNAME"'","password":"'"$PASSWORD"'"}' | jq -r .token)

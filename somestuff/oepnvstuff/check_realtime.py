@@ -577,5 +577,9 @@ def main(
             bridge.stop()
 
 
-if __name__ == "__main__":
+def cli() -> None:
     typer.run(main)
+
+
+if __name__ == "__main__":
+    cli()

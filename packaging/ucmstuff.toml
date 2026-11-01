@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-ucmstuff"
+dynamic = ["version"]
+description = "Grandstream UCM6204 IP-PBX monitor/control: WebSocket call events, HTTPS API client, trunk call router, MQTT bridge"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["grandstream", "ucm6204", "pbx", "voip", "sip", "websocket", "mqtt", "call-routing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Communications :: Telephony",
+    "Topic :: System :: Monitoring",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = [
+    "loguru>=0.7.3",
+    "typer>=0.27",
+    "requests>=2.34",
+    "urllib3>=2.8",
+    "websocket-client>=1.9",
+    "tabulate>=0.10",
+    "mqttstuff>=0.0.7",
+]
+
+[project.scripts]
+ucm6204 = "somestuff.ucmstuff.ucm6204_api:app"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/ucmstuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]

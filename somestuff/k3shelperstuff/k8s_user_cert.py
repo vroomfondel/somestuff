@@ -564,5 +564,9 @@ def main(
     raise typer.Exit(code=0 if creator.run() else 1)
 
 
-if __name__ == "__main__":
+def cli() -> None:
     typer.run(main)
+
+
+if __name__ == "__main__":
+    cli()

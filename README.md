@@ -31,6 +31,8 @@ Contents overview (Python packages/modules):
 - Root helpers: `Helper.py`, configs (`config.yaml`, `config.py`, optional `config.local.yaml`), scripts
 - External packages: `mqttstuff` and `reputils` (via PyPI)
 
+Package layout: every module lives under the PEP 420 namespace `somestuff` (`somestuff/<pkg>/`, no `somestuff/__init__.py`), so imports read `from somestuff.dnsstuff import ...` and entry points `python3 -m somestuff.<pkg>.<module>`. Each package is prepared for its own PyPI distribution named `somestuff-<pkg>` (`pip install somestuff-dnsstuff` → `from somestuff.dnsstuff import ...`); distributions share the namespace and install side by side. `make pypibuild-<pkg>` stages, builds and checks one distribution, `make pypipush-<pkg>` uploads it (details in the `Makefile`). `config.py`/`Helper.py` stay at the repo root and are never part of a distribution.
+
 Standalone Docker image sub‑projects (each with own `Dockerfile` and `build.sh`):
 - `tangstuff`: Tang server for LUKS/Clevis network‑bound disk encryption
 - `mosquitto-2.1`: Mosquitto 2.1 MQTT broker with dynamic security

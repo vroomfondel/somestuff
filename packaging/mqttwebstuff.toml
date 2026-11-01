@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-mqttwebstuff"
+dynamic = ["version"]
+description = "Live web view onto MQTT streams: FastAPI + mountable mapper plugins, Server-Sent Events, htmx/PicoCSS frontend"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["mqtt", "fastapi", "sse", "server-sent-events", "htmx", "dashboard", "iot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Home Automation",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = [
+    "loguru>=0.7.3",
+    "typer>=0.27",
+    "fastapi>=0.143",
+    "uvicorn>=0.54",
+    "jinja2>=3.1",
+    "python-dotenv>=1.2",
+    "tabulate>=0.10",
+    "mqttstuff>=0.0.7",
+]
+
+[project.scripts]
+mqttweb-serve = "somestuff.mqttwebstuff.serve:app"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/mqttwebstuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]

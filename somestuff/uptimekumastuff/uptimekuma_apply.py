@@ -273,10 +273,13 @@ def _fmt(diff: dict[str, dict[str, object]]) -> str:
     return "(" + ", ".join(parts) + ")" if parts else ""
 
 
-if __name__ == "__main__":
-    # A KumaError is an expected outcome (instance unreachable, ambiguous name, no ack) and
-    # carries its own message - a traceback would only bury it.
+def cli() -> None:
+    # A KumaError carries its own message; a traceback would only bury it.
     try:
         typer.run(apply_cmd)
     except KumaError as exc:
         sys.exit(str(exc))
+
+
+if __name__ == "__main__":
+    cli()

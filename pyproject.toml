@@ -8,6 +8,7 @@ version = "0.1.2"
 description = "Collection of Python utilities for IoT data aggregation, weather monitoring, and DNS automation."
 requires-python = ">=3.13"
 dynamic = ["dependencies"]
+classifiers = ["Private :: Do Not Upload"]
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }

@@ -1,5 +1,7 @@
 """DHCP discovery and diagnostic tools."""
 
+__version__ = "0.1.0"
+
 from somestuff.dhcpstuff.dhcp_discover import (
     DHCP_CLIENT_PORT,
     DHCP_MSG_TYPES,
