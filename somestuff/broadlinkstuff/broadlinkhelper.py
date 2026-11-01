@@ -47,7 +47,6 @@ from broadlink.remote import data_to_pulses, pulses_to_data
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from ruamel.yaml import YAML
 
-import Helper
 from somestuff.broadlinkstuff import configure_logging, print_banner
 
 logger = logging.getLogger(__name__)
@@ -261,11 +260,30 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return data or {}
 
 
+def _update_deep(base: Any, u: Any) -> Any:
+    if isinstance(u, dict):
+        if not isinstance(base, dict):
+            base = {}
+        for k, v in u.items():
+            base[k] = _update_deep(base.get(k, {}), v) if isinstance(v, (dict, list)) else v
+    elif isinstance(u, list):
+        if not isinstance(base, list):
+            base = []
+        del base[len(u) :]
+        base.extend([None] * (len(u) - len(base)))
+        for i, v in enumerate(u):
+            if isinstance(v, (dict, list)):
+                base[i] = _update_deep(base[i] if base[i] is not None else ({} if isinstance(v, dict) else []), v)
+            else:
+                base[i] = v
+    return base
+
+
 def load_devices() -> dict[str, DeviceConfig]:
     """Read the device configuration from the YAML files.
 
     ``broadlink.yaml`` provides the base, the first existing file from
-    :data:`CONFIG_LOCAL_FILES` is merged over it with ``Helper.update_deep`` —
+    :data:`CONFIG_LOCAL_FILES` is merged over it with :func:`_update_deep` —
     the same base/local layering ``config.yaml``/``config.local.yaml`` uses.
 
     Returns:
@@ -280,7 +298,7 @@ def load_devices() -> dict[str, DeviceConfig]:
     merged = _read_yaml(CONFIG_FILE)
     for path in CONFIG_LOCAL_FILES:
         if path.is_file():
-            merged = Helper.update_deep(merged, _read_yaml(path))  # type: ignore[assignment]
+            merged = _update_deep(merged, _read_yaml(path))
             sources.append(path)
             break
     # Not logged here: this runs at import time, before the CLI has configured

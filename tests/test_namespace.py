@@ -38,4 +38,4 @@ def test_console_script_targets_resolve(dist: str, script: str, target: str) -> 
 
 
 def test_packaging_files_present() -> None:
-    assert len(PACKAGING_FILES) == 7
+    assert len(PACKAGING_FILES) == 8
