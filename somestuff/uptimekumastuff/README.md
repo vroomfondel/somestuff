@@ -1,29 +1,36 @@
 # uptimekumastuff
 
-Provision, migrate and back up **[Uptime Kuma](https://github.com/louislam/uptime-kuma) 2.x**
-declaratively and idempotently — instead of clicking monitors together in the web UI.
+Provision, migrate and back up [Uptime Kuma](https://github.com/louislam/uptime-kuma) 2.x
+declaratively and idempotently instead of clicking monitors together in the web UI: a direct
+Socket.IO client with fresh reads and idempotent upserts, a YAML-driven apply CLI and a full
+export/import tool. None of these tools monitor anything; they only create configuration, the
+monitoring itself is done entirely by Kuma.
 
-> **None of these tools *monitor* anything.** They only create configuration; the monitoring
-> itself is done entirely by Kuma.
-
-## Which tool for what?
-
-| I want to…                                             | Tool                                                             |
-|--------------------------------------------------------|------------------------------------------------------------------|
-| Apply monitors **and** notifications from a YAML file  | **`uptimekuma_apply.py`** — `SimpleKumaApi`'s idempotent sibling |
-| Manage monitors from an **Ansible** playbook           | **`uptimekuma_monitor.py`** (Ansible module)                     |
-| Back up / migrate the complete state to a new instance | **`uptimekuma_simpleapi.py`** (`SimpleKumaApi`)                  |
-| Write my own Python against Kuma                       | **`uptimekuma_client.py`** (`KumaClient`)                        |
+## Modules
 
 - **`uptimekuma_client.py`** — `KumaClient`, a direct Socket.IO client with guaranteed-fresh
   reads and idempotent `upsert_monitor` / `upsert_notification`. The library everything else
   builds on.
-- **`uptimekuma_apply.py`** — applies a partial desired state from a YAML file against an
-  existing instance, re-runnable, with `--check` (dry run) and `--prune`.
-- **`uptimekuma_monitor.py`** — an Ansible module wrapping `KumaClient` for idempotent,
-  per-monitor management from a playbook (`state: present`/`absent`, `--check` support).
+- **`uptimekuma_apply.py`** — applies a partial desired state (monitors and notifications) from a
+  YAML file against an existing instance; re-runnable, with `--check` (dry run) and `--prune`.
 - **`uptimekuma_simpleapi.py`** — `SimpleKumaApi`, full export/import of a whole instance
   (monitors, notifications, tags, status pages) into a preferably **empty** target.
+- **`uptimekuma_monitor.py`** — an Ansible module wrapping `KumaClient`. It is available in the
+  repository only, not in the installed package (see Ansible below).
+
+Logging (loguru, with an intercept for stdlib `logging` from `uptime_kuma_api` and
+`python-socketio`), the startup banner and the credentials lookup are shared via
+`somestuff.uptimekumastuff`.
+
+## Installation
+
+```bash
+pip install somestuff-uptimekumastuff
+```
+
+`somestuff` is a PEP 420 namespace; the package is imported as
+`somestuff.uptimekumastuff` and shares the namespace with the other `somestuff-*`
+distributions.
 
 ## Why not just `uptime-kuma-api`?
 
@@ -66,27 +73,25 @@ writes goes over Socket.IO.
 `_call()` for writes. It is verified correct and only ever writes into an empty instance without
 reading in between, so the cache problem never arises there.
 
-## Setup
+## Credentials
 
-Credentials come from `uptimekuma.local.env` (gitignored via `*.local.*`), real environment
-variables (these win), or `--username` / `--password`:
+Both CLIs read the login from `--username` / `--password` (`uptimekuma-simpleapi` only), real
+environment variables, or a `uptimekuma.local.env` file (dotenv syntax):
 
-```bash
-cp somestuff/uptimekumastuff/uptimekuma.env.example somestuff/uptimekumastuff/uptimekuma.local.env
-$EDITOR somestuff/uptimekumastuff/uptimekuma.local.env
+```
+UPTIME_KUMA_USERNAME=admin
+UPTIME_KUMA_PASSWORD=...
+UPTIME_KUMA_URL=https://uptimekuma.example.lan
 ```
 
-`uptimekuma.local.env` is looked for **first in the current working directory**, then in the
-package directory — the first hit wins. So a per-deployment file can sit next to the state YAML
-it belongs to, without touching the checkout:
+Precedence: command-line options, then real environment variables, then `uptimekuma.local.env`.
+The file is looked for **first in the current working directory**, then in the installed package
+directory — the first hit wins, and variables never overwrite ones already set. A per-deployment
+file can therefore sit next to the state YAML it belongs to. Keep it out of version control.
 
-```bash
-cd /srv/kuma-state && $EDITOR uptimekuma.local.env   # beats somestuff/uptimekumastuff/uptimekuma.local.env
-```
-
-The file also carries **`UPTIME_KUMA_URL`** as the fallback target — then `--url` can be omitted.
-Precedence for the URL is `--url` → `url:` in the state YAML → `UPTIME_KUMA_URL`, so an ambient
-default never silently redirects a run at a different instance than the file names.
+`UPTIME_KUMA_URL` is the fallback target, so `--url` can be omitted. Precedence for the URL is
+`--url` → `url:` in the state YAML → `UPTIME_KUMA_URL`, so an ambient default never silently
+redirects a run at a different instance than the file names.
 
 > **The Socket.IO login accepts username+password only.** API keys (`uk1_`/`uk2_`/`uk3_`) work
 > exclusively for HTTP basic auth on `/metrics` — never for the socket. The login is also
@@ -98,23 +103,33 @@ A **timeout** (`login: no response within 30s`) is something else: no ack at all
 `server.js` have no try/catch, so an exception inside one (DB hiccup) swallows the callback; a
 dropped connection looks identical from the client side. Both are transient — retry.
 
-Requires: `python-socketio`, `python-dotenv`, `typer`, `PyYAML`, `uptime-kuma-api` (the last only
-for the reads in `uptimekuma_simpleapi.py`), plus `loguru` and `tabulate` for logging.
+## Usage
 
-## `uptimekuma_apply.py` — YAML in, idempotent apply
+Console scripts and module invocation are equivalent:
+
+```bash
+uptimekuma-apply -f kuma_state.local.yml --check
+python3 -m somestuff.uptimekumastuff.uptimekuma_apply -f kuma_state.local.yml --check
+
+uptimekuma-simpleapi export --url https://uptimekuma.example.lan --out state.local.json
+python3 -m somestuff.uptimekumastuff.uptimekuma_simpleapi export --out state.local.json
+```
+
+### uptimekuma-apply — YAML in, idempotent apply
 
 Applies a desired state against an existing instance — re-runnable, with topological ordering
-(nested groups) and full state awareness (so no check-mode ordering problem):
+(nested groups) and full state awareness (so no check-mode ordering problem). Options: `-f/--file`
+(required), `--url`, `--check`, `--prune`, `-v/--verbose`.
 
 ```bash
 # dry run — show what would change, write nothing
-python3 -m somestuff.uptimekumastuff.uptimekuma_apply -f kuma_state.local.yml --check
+uptimekuma-apply -f kuma_state.local.yml --check
 
 # apply
-python3 -m somestuff.uptimekumastuff.uptimekuma_apply -f kuma_state.local.yml
+uptimekuma-apply -f kuma_state.local.yml
 
 # apply and delete monitors the YAML doesn't declare
-python3 -m somestuff.uptimekumastuff.uptimekuma_apply -f kuma_state.local.yml --prune
+uptimekuma-apply -f kuma_state.local.yml --prune
 ```
 
 ```yaml
@@ -140,29 +155,27 @@ monitors:
 
 References go by **name**, not ID — IDs differ per instance and wouldn't be declarative. Field
 names are Kuma's (camelCase: `mqttTopic`, `retryInterval`), so an export from
-`uptimekuma_simpleapi.py` drops in without translation.
+`uptimekuma-simpleapi` drops in without translation, apart from the ID references described below.
 
 Output masks secrets (`mqttPassword=<secret>`). The YAML itself holds plaintext secrets —
-**don't commit it**; name it `*.local.*` (gitignored).
+**don't commit it**; name it `*.local.*` or keep it out of version control.
 
-## `uptimekuma_simpleapi.py` — backup & migration
+### uptimekuma-simpleapi — backup and migration
+
+Subcommands `export` and `import`; both take `--url`, `--username`, `--password`, `-v/--verbose`.
 
 ```bash
 # pull the current state
-python3 -m somestuff.uptimekumastuff.uptimekuma_simpleapi export \
-  --url https://uptimekuma.example.lan --out state.local.json
+uptimekuma-simpleapi export --url https://uptimekuma.example.lan --out state.local.json
 
 # ... as YAML, for readable diffs between two exports
-python3 -m somestuff.uptimekumastuff.uptimekuma_simpleapi export \
-  --url https://uptimekuma.example.lan --out state.local.yml
+uptimekuma-simpleapi export --url https://uptimekuma.example.lan --out state.local.yml
 
 # see what an import would create — touches nothing, needs no credentials
-python3 -m somestuff.uptimekumastuff.uptimekuma_simpleapi import \
-  --url http://127.0.0.1:3001 --in-file state.local.json --dry-run
+uptimekuma-simpleapi import --url http://127.0.0.1:3001 --in-file state.local.json --dry-run
 
 # write it into the target instance, monitors inactive
-python3 -m somestuff.uptimekumastuff.uptimekuma_simpleapi import \
-  --url http://127.0.0.1:3001 --in-file state.local.json --paused \
+uptimekuma-simpleapi import --url http://127.0.0.1:3001 --in-file state.local.json --paused \
   --username admin --password '…'
 ```
 
@@ -171,7 +184,7 @@ The export format follows the extension of `--out` (`.yml`/`.yaml` → YAML, oth
 as YAML. That order matters: PyYAML implements YAML 1.1 and resolves a few JSON scalars
 differently (`1e5` becomes a string, not a number), so a JSON file belongs in the JSON parser.
 
-> The YAML here is **not** an `uptimekuma_apply.py` state file. Both use Kuma's field names, but
+> The YAML here is **not** an `uptimekuma-apply` state file. Both use Kuma's field names, but
 > the export references by ID (`parent: 9`, `notificationIDList: [1, 3]`) while apply references
 > by name — and `resolve_parent` passes an `int` through unchanged, so the IDs would be taken as
 > already-resolved and silently point at whatever carries that ID on the target.
@@ -184,30 +197,64 @@ The import remaps every foreign ID (notification, tag, parent monitor) from the 
 newly assigned target IDs, and creates monitors parents-before-children so nested groups survive.
 It targets an **empty** instance — there is no merge or update, objects are always created new,
 so re-running against a populated instance duplicates. (For idempotent updates use
-`uptimekuma_apply.py`.)
+`uptimekuma-apply`.)
 
-## `uptimekuma_monitor.py` — Ansible module
+## Library
 
-An Ansible module that wraps `KumaClient` for idempotent, per-monitor management from a
-playbook — `state: present`/`absent`, full `--check` support, and `changed`/`diff`/
-`not_applicable` reporting. Use it when Kuma provisioning is one step in a larger Ansible run;
-for a standalone declarative file, `uptimekuma_apply.py` is the better fit.
+```python
+from somestuff.uptimekumastuff.uptimekuma_client import KumaClient
+
+with KumaClient("https://uptimekuma.example.lan") as c:
+    c.login(user, pw)
+    mons = c.monitors()                       # fresh from the server, no cache
+    r = c.upsert_monitor({"name": "x", "type": "push"})
+    print(r["changed"], r["object_id"], r["diff"])
+```
+
+`upsert_monitor` / `upsert_notification` return:
+
+```python
+{"changed": bool, "object_id": int | None, "created": bool,
+ "diff": {"field": {"before": ..., "after": ...}},
+ "not_applicable": {...}}   # optional
+```
+
+Full-instance export/import via `SimpleKumaApi`:
+
+```python
+from somestuff.uptimekumastuff.uptimekuma_simpleapi import SimpleKumaApi
+
+api = SimpleKumaApi("https://uptimekuma.example.lan", "admin", "…")
+try:
+    state = api.export_state()
+finally:
+    api.close()
+
+print(len(state["monitors"]), "monitors")
+```
+
+## Ansible module
+
+`uptimekuma_monitor.py` is an Ansible module wrapping `KumaClient` for idempotent, per-monitor
+management from a playbook — `state: present`/`absent`, full `--check` support, and
+`changed`/`diff`/`not_applicable` reporting. Use it when Kuma provisioning is one step in a larger
+Ansible run; for a standalone declarative file, `uptimekuma-apply` is the better fit.
+
+The module is **not part of the installed package**. Get it from the repository:
+https://github.com/vroomfondel/somestuff/tree/main/somestuff/uptimekumastuff/
 
 **Wiring it into Ansible.** The module imports its client via
 `from ansible.module_utils.uptimekuma_client import KumaClient, KumaError`, so two files have to
 be reachable from your Ansible config's `library` and `module_utils` paths:
 
-| Ansible path                       | points at                                |
-|------------------------------------|------------------------------------------|
-| `library/uptimekuma_monitor.py`    | `somestuff/uptimekumastuff/uptimekuma_monitor.py`  |
-| `module_utils/uptimekuma_client.py`| `somestuff/uptimekumastuff/uptimekuma_client.py`   |
+| Ansible path                        | source                                                               |
+|-------------------------------------|----------------------------------------------------------------------|
+| `library/uptimekuma_monitor.py`     | `uptimekuma_monitor.py` from the repository                          |
+| `module_utils/uptimekuma_client.py` | `uptimekuma_client.py`, from the installed package or the repository |
 
-**Symlink** rather than copy, so this package stays the single source of truth:
-
-```bash
-ln -s /path/to/somestuff/uptimekumastuff/uptimekuma_monitor.py library/uptimekuma_monitor.py
-ln -s /path/to/somestuff/uptimekumastuff/uptimekuma_client.py  module_utils/uptimekuma_client.py
-```
+Symlink or copy the files into those directories. The installed `uptimekuma_client.py` lives in
+the `somestuff/uptimekumastuff/` directory of your Python environment's site-packages. Keep the
+client and the module from the same release.
 
 **Runtime requirements** — all consequences of talking to Kuma over Socket.IO:
 
@@ -247,48 +294,14 @@ ln -s /path/to/somestuff/uptimekumastuff/uptimekuma_client.py  module_utils/upti
         active: true
 ```
 
-Like `uptimekuma_apply.py`, references go by **name** (`parent`, `notifications`). Options are
+Like `uptimekuma-apply`, references go by **name** (`parent`, `notifications`). Options are
 snake_case (`retry_interval`, `mqtt_topic`); the ~100 rarer Kuma fields aren't mapped
 individually — pass them camelCase under `extra:`. `state: absent` deletes by name. Full option
 docs: `ansible-doc -M /path/to/library uptimekuma_monitor`.
 
 > **check_mode caveat:** against an empty instance, a task whose `parent`/`notifications` only a
 > *prior task of the same run* would create fails under `--check` — the reference doesn't exist
-> yet. `uptimekuma_apply.py` avoids this because it knows the whole desired state up front.
-
-## Library
-
-```python
-from somestuff.uptimekumastuff.uptimekuma_client import KumaClient
-
-with KumaClient("https://uptimekuma.example.lan") as c:
-    c.login(user, pw)
-    mons = c.monitors()                       # fresh from the server, no cache
-    r = c.upsert_monitor({"name": "x", "type": "push"})
-    print(r["changed"], r["object_id"], r["diff"])
-```
-
-`upsert_monitor` / `upsert_notification` return:
-
-```python
-{"changed": bool, "object_id": int | None, "created": bool,
- "diff": {"field": {"before": ..., "after": ...}},
- "not_applicable": {...}}   # optional
-```
-
-Full-instance export/import via `SimpleKumaApi`:
-
-```python
-from somestuff.uptimekumastuff.uptimekuma_simpleapi import SimpleKumaApi
-
-api = SimpleKumaApi("https://uptimekuma.example.lan", "admin", "…")
-try:
-    state = api.export_state()
-finally:
-    api.close()
-
-print(len(state["monitors"]), "monitors")
-```
+> yet. `uptimekuma-apply` avoids this because it knows the whole desired state up front.
 
 ## Pitfalls (all verified against the server code)
 
@@ -310,7 +323,7 @@ print(len(state["monitors"]), "monitors")
 - **11 monitor fields are dropped on import** (`DERIVED_MONITOR_FIELDS`): Kuma returns 115 fields
   but the `monitor` table has only 111 columns; the rest is derived server-side or lives in its
   own table. All other fields pass through untouched, so unknown/new fields need no code change.
-- **`add` requires `conditions`** (NOT NULL); `uptimekuma_apply.py` supplies it via
+- **`add` requires `conditions`** (NOT NULL); `uptimekuma-apply` supplies it via
   `CREATE_DEFAULTS`.
 
 ## Testing with a throwaway instance
@@ -337,3 +350,9 @@ with KumaClient("http://127.0.0.1:3001") as c:
 running). Don't poll the port — poll for a `needSetup` response.
 
 Clean up with `podman rm -f kuma-test` — after an import the instance holds real secrets.
+
+## Notes
+
+- Requires: `loguru`, `typer`, `python-socketio[client]`, `uptime-kuma-api` (only for the reads in
+  `SimpleKumaApi`), `PyYAML`, `python-dotenv`, `tabulate`. Targets Uptime Kuma 2.x.
+- Licensed under the LGPL, see `LICENSE.md` in the repository root.

@@ -1,64 +1,86 @@
 # dhcpstuff
 
-DHCP diagnostic and discovery tools.
+DHCP Discover sender and response analyzer for network diagnostics: broadcasts a
+DHCPDISCOVER and prints every answer, including regular DHCP offers and Proxy DHCP
+responses from PXE boot servers. Standard library only.
 
-## dhcp_discover.py
+## Modules
 
-Sends a DHCP Discover broadcast and displays all responses, including regular DHCP offers and Proxy DHCP responses (e.g. from PXE boot servers).
+- **`dhcp_discover.py`** — builds a DHCPDISCOVER packet, broadcasts it to
+  `255.255.255.255:67` from UDP port 68 and collects replies for the given timeout.
+  Only replies matching the transaction ID are shown. Each response is labelled
+  `DHCP <type>` or, if the offered address (`yiaddr`) is `0.0.0.0`, `Proxy DHCP <type>`,
+  followed by offered IP, next server, server name, boot file and all parsed options
+  with human-readable names. With `--arch` the Discover carries PXE client
+  architecture (option 93) and a matching `PXEClient` vendor class (option 60),
+  which Proxy DHCP / PXE boot servers require before they answer.
+- **`__main__.py`** — makes `python3 -m somestuff.dhcpstuff` run the same CLI.
 
-**Requires root privileges** (binds to UDP port 68).
-
-### Usage
+## Installation
 
 ```bash
-sudo python3 dhcp_discover.py [-i INTERFACE] [-t TIMEOUT] [-m MAC] [-a ARCH]
+pip install somestuff-dhcpstuff
 ```
 
-| Flag | Description |
-|------|-------------|
-| `-i`, `--interface` | Bind to a specific interface (e.g. `eth0`) |
-| `-t`, `--timeout` | Seconds to wait for responses (default: 5) |
-| `-m`, `--mac` | MAC address to use (default: random locally-administered MAC) |
-| `-a`, `--arch` | PXE client architecture: `bios`, `efi64`, or `efi64-http` |
+`somestuff` is a PEP 420 namespace; the package is imported as
+`somestuff.dhcpstuff` and shares the namespace with the other `somestuff-*`
+distributions.
 
-### Examples
+## Usage
+
+Console script and module invocation are equivalent:
+
+```bash
+sudo dhcp-discover
+sudo python3 -m somestuff.dhcpstuff.dhcp_discover
+sudo python3 -m somestuff.dhcpstuff
+```
+
+| Flag                | Description                                                            |
+|---------------------|------------------------------------------------------------------------|
+| `-i`, `--interface` | Bind to a specific interface (e.g. `eth0`)                             |
+| `-t`, `--timeout`   | Seconds to wait for responses (default: 5)                             |
+| `-m`, `--mac`       | MAC address to use (default: random locally-administered MAC)          |
+| `-a`, `--arch`      | PXE client architecture for option 93: `bios`, `efi64` or `efi64-http` |
+
+Examples:
 
 ```bash
 # Basic discover on all interfaces
-sudo python3 dhcp_discover.py
+sudo dhcp-discover
 
-# Discover on a specific interface with PXE EFI64 architecture
-sudo python3 dhcp_discover.py -i eth0 -a efi64
+# Specific interface, PXE EFI64 architecture
+sudo dhcp-discover -i eth0 -a efi64
 
 # Custom MAC and longer timeout
-sudo python3 dhcp_discover.py -m 02:aa:bb:cc:dd:ee -t 10
+sudo dhcp-discover -m 02:aa:bb:cc:dd:ee -t 10
 ```
 
-The output shows each DHCP Offer with the offered IP, server ID, boot file, and all parsed DHCP options.
+### Library
 
-## diagnose-dhcp.sh
+```python
+from somestuff.dhcpstuff import build_discover, mac_bytes, parse_response
 
-Comprehensive diagnostic script for finding unwanted DHCP on physical interfaces of an Ubuntu Server (24.04+). Written in German.
-
-**Requires root privileges.**
-
-### Usage
-
-```bash
-sudo bash diagnose-dhcp.sh
+packet = build_discover(mac_bytes("02:aa:bb:cc:dd:ee"), xid=0x12345678)
 ```
 
-### What it checks
+The package also exports `parse_options`, `print_response`, `format_option`,
+`fmt_ip`, `fmt_mac`, `main` and the constants `DHCP_SERVER_PORT`,
+`DHCP_CLIENT_PORT`, `MAGIC_COOKIE`, `DHCP_MSG_TYPES`, `DHCP_OPTIONS` and
+`PXE_ARCH_TYPES`.
 
-1. **System overview** &mdash; lists physical (non-virtual) interfaces and their DHCP state
-2. **cloud-init** &mdash; whether cloud-init is installed/active and generating network configs
-3. **Netplan** &mdash; scans all netplan YAML sources for `dhcp4: true`
-4. **systemd-networkd** &mdash; checks `.network` files for DHCP settings
-5. **NetworkManager** &mdash; checks active NM connections for `ipv4.method auto`
-6. **DHCP client processes** &mdash; detects running `dhclient`, `dhcpcd`, `udhcpc`
-7. **DHCP leases** &mdash; inspects lease files in `/run/systemd/netif/leases`, `/var/lib/dhcp`, etc.
-8. **Kernel cmdline** &mdash; checks for `ip=dhcp` in boot parameters and initramfs hooks
-9. **udev rules & hooks** &mdash; scans networkd-dispatcher and if-up hooks for DHCP client calls
-10. **networkctl summary** &mdash; shows `networkctl status` for each physical interface
+## Privileges
 
-At the end it prints a summary of all findings with concrete remediation steps.
+`dhcp-discover` binds UDP port 68 and needs root (or `CAP_NET_BIND_SERVICE`). It
+will not work while another DHCP client holds the port exclusively.
+
+## Notes
+
+- The repository additionally contains `diagnose-dhcp.sh`, a root-only (German)
+  shell script for finding unwanted DHCP on physical interfaces of Ubuntu Server
+  (cloud-init, Netplan, systemd-networkd, NetworkManager, DHCP client processes,
+  lease files, `ip=dhcp` kernel cmdline, udev/dispatcher hooks). It is not part
+  of the installed package:
+  https://github.com/vroomfondel/somestuff/tree/main/somestuff/dhcpstuff/
+- Requires: no third-party dependencies. Linux only (`SO_BINDTODEVICE`).
+- Licensed under the LGPL, see `LICENSE.md` in the repository root.

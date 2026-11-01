@@ -5,21 +5,126 @@ broadcast, learn IR/RF codes, send stored or raw codes — and, for Midea/Coolix
 air conditioners, **compute** the complete state matrix instead of learning all
 280 combinations one by one in front of the device.
 
-Everything lives in `broadlinkhelper.py`: the device fleet, the Coolix codec and
-a Typer CLI. Logging setup is shared via `somestuff.broadlinkstuff.configure_logging` /
-`print_banner` (loguru, with a stdlib-`logging` intercept), mirroring the other
-packages in this repo.
+## Modules
+
+- **`broadlinkhelper.py`** — everything in one module: the device fleet, the
+  Coolix codec and the Typer CLI.
+  - **Device fleet** — devices are configured by name, host, `devtype` and MAC,
+    and confirmed by a unicast `hello()` (about 0.02 s per device against about
+    5 s for a broadcast). A device whose IP moved is re-found by MAC through a
+    broadcast fallback. Commands: `devices`, `sensors` (temperature/humidity),
+    `discover`, `rename`.
+  - **IR/RF learning** — `learn-ir` and `learn-rf` print the learned code as hex
+    on stdout; `send` transmits a named code from the built-in `CODES` library or
+    raw hex, `codes` lists the library, `decode` analyses a packet without a
+    device.
+  - **Coolix (Midea) climate codec** — `climate` computes mode × fan ×
+    temperature codes, `special` sends the commands that are not a state (`off`,
+    `swing`, `sleep`, ...), `selftest` checks the generator against learned
+    reference codes.
+  - **Dry-run** — `--dry-run` sends nothing and only shows what would be sent.
+
+Logging (loguru, with an intercept for stdlib `logging` from `broadlink`) and the
+startup banner are shared via `somestuff.broadlinkstuff`.
+
+## Installation
+
+```bash
+pip install somestuff-broadlinkstuff
+```
+
+`somestuff` is a PEP 420 namespace; the package is imported as
+`somestuff.broadlinkstuff` and shares the namespace with the other `somestuff-*`
+distributions.
+
+## Usage
+
+The console script and module invocation are equivalent:
+
+```bash
+broadlinkhelper devices
+python3 -m somestuff.broadlinkstuff.broadlinkhelper devices
+```
+
+```bash
+broadlinkhelper devices                    # what is reachable
+broadlinkhelper sensors                    # temperature/humidity, all of them
+broadlinkhelper sensors Lounge --json      # one device, machine-readable
+broadlinkhelper discover                   # broadcast + config block
+broadlinkhelper learn-ir Lounge            # press a button, hex comes out
+broadlinkhelper learn-rf Lounge            # needs a device with an RF part
+broadlinkhelper send Lounge off            # code from CODES
+broadlinkhelper send Lounge 2600ca00...    # raw hex
+broadlinkhelper climate Lounge --temp 23   # Coolix computed
+broadlinkhelper special Lounge swing       # swing on/off (toggle)
+broadlinkhelper special Lounge swing-v-step -n 3   # vane 3 steps
+broadlinkhelper rename Lounge Wohnzimmer   # write the device name
+broadlinkhelper codes --hex                # the code library
+broadlinkhelper decode 2600ca00938e...     # no device, just maths
+broadlinkhelper selftest
+```
+
+Subcommands:
+
+| Command    | Purpose                                                                                     |
+|------------|---------------------------------------------------------------------------------------------|
+| `devices`  | List the configured devices that are reachable.                                             |
+| `sensors`  | Temperature/humidity of one device or all of them; `--json` keys the output by device name. |
+| `discover` | Broadcast search; prints a ready-made YAML block (`--timeout`, default 5 s).                |
+| `rename`   | Write the name the device carries itself (`--yes`/`-y` skips the confirmation).             |
+| `learn-ir` | Learn an IR code, hex on stdout (`--timeout`, default 30 s).                                |
+| `learn-rf` | Learn an RF code, hex on stdout (`--timeout` per phase, default 30 s).                      |
+| `send`     | Send a named code or raw hex (`--repeat`/`-n`, `--delay`, default 0.5 s).                   |
+| `climate`  | Send a computed Coolix state (`--mode`/`-m`, `--temp`/`-t` 17..30, `--fan`/`-f`).           |
+| `special`  | Send a Coolix special command (`--repeat`/`-n`, `--delay`, default 0.8 s).                  |
+| `codes`    | List the code library with its Coolix interpretation (optional filter, `--hex`).            |
+| `decode`   | Analyse a named code or raw hex; no device needed.                                          |
+| `selftest` | Check the Coolix generator against the learned reference codes; exit code 1 on failure.     |
+
+`climate` modes are `cool`, `dry`, `heat`, `fan_only`, `heat_cool`; fan speeds are
+`auto`, `low`, `mid`, `high`.
+
+Global options (before the subcommand), each with a `BROADLINK_*` env var:
+`--verbose/-v`, `--quiet/-q`, `--probe/--no-probe`, `--timeout`,
+`--no-rediscover`, `--dry-run`.
+
+**Logs go to stderr, payload to stdout** — so `learn-ir`, `codes --hex`,
+`sensors --json` and `discover` can be piped without log lines coming along.
+
+`sensors` keys its JSON by device name whether or not a name was given, so a
+script does not have to care: `sensors Lounge --json | jq .Lounge.temperature`.
+Naming a device also keeps the traffic to that device — `devices` and a bare
+`sensors` log in to every configured entry, which is what makes their listing
+complete, but is wasted work when one reading is wanted.
+
+### Two things worth knowing about `--probe`
+
+`--probe` (the default) confirms each configured device with a unicast `hello()`
+— about 0.02 s per device against about 5 s for a broadcast — and gets model,
+name and `is_locked` from the device itself. `--no-probe` builds the object
+purely locally with zero network traffic.
+
+That matters for `rename`: `set_name()` transmits `is_locked` along with the
+name, and a locally built object carries the default `False`. Renaming a
+**locked** device from such an object would silently unlock it. `rename`
+therefore always calls `update()` first.
 
 ## Configuration
 
-This package brings its own config files and does **not** touch the repo-wide
-`config.yaml`: `somestuff/broadlinkstuff/broadlink.yaml` holds the documented sample (and
-is committed), the real devices go into `broadlink.local.yaml` (gitignored via
-`*.local.*`), which is merged over it at runtime with `Helper.update_deep` —
-the same base/local layering `config.yaml` / `config.local.yaml` uses.
+The package brings its own config files; the sample `broadlink.yaml` ships
+inside the package next to the module and holds only documented examples. Real
+devices go into `broadlink.local.yaml`, which is merged over the shipped sample
+at runtime.
+
+`broadlink.local.yaml` is looked up in the **current working directory** first,
+then in the package directory — first hit wins. Which file was actually read is
+logged at DEBUG (`-v`). Values are validated by a pydantic model.
+
+With no devices configured, every command falls back to a broadcast search.
+`discover` prints a ready-made YAML block for exactly this file:
 
 ```bash
-python3 -m somestuff.broadlinkstuff.broadlinkhelper discover > broadlink.local.yaml
+broadlinkhelper discover > broadlink.local.yaml
 $EDITOR broadlink.local.yaml
 ```
 
@@ -43,65 +148,24 @@ broadlink:
 The key (`Lounge`) is how you address the device on the command line; it is
 independent of the name the device carries itself (see `rename`).
 
-`broadlink.local.yaml` is looked up in the **current working directory** first,
-then next to the module — first hit wins. Which file was actually read is logged
-at DEBUG (`-v`). Values are validated by a pydantic model in
-`broadlinkhelper.py`.
+### Environment variables
 
-With no devices configured, every command falls back to a broadcast search.
+Each global option can be set through the environment instead of the command line.
 
-## Usage
-
-```bash
-python3 -m somestuff.broadlinkstuff.broadlinkhelper devices                    # what is reachable
-python3 -m somestuff.broadlinkstuff.broadlinkhelper sensors                    # temperature/humidity, all of them
-python3 -m somestuff.broadlinkstuff.broadlinkhelper sensors Lounge --json      # one device, machine-readable
-python3 -m somestuff.broadlinkstuff.broadlinkhelper discover                   # broadcast + config block
-python3 -m somestuff.broadlinkstuff.broadlinkhelper learn-ir Lounge            # press a button, hex comes out
-python3 -m somestuff.broadlinkstuff.broadlinkhelper send Lounge off            # code from CODES
-python3 -m somestuff.broadlinkstuff.broadlinkhelper send Lounge 2600ca00...    # raw hex
-python3 -m somestuff.broadlinkstuff.broadlinkhelper climate Lounge --temp 23   # Coolix computed
-python3 -m somestuff.broadlinkstuff.broadlinkhelper special Lounge swing       # swing on/off (toggle)
-python3 -m somestuff.broadlinkstuff.broadlinkhelper decode 2600ca00938e...     # no device, just maths
-python3 -m somestuff.broadlinkstuff.broadlinkhelper selftest
-```
-
-Global options (before the subcommand), each with a `BROADLINK_*` env var:
-`--verbose/-v`, `--quiet/-q`, `--probe/--no-probe`, `--timeout`,
-`--no-rediscover`, `--dry-run`.
-
-**Logs go to stderr, payload to stdout** — so `learn-ir`, `codes --hex`,
-`sensors --json` and `discover` can be piped without log lines coming along.
-
-`sensors` keys its JSON by device name whether or not a name was given, so a
-script does not have to care: `sensors Lounge --json | jq .Lounge.temperature`.
-Naming a device also keeps the traffic to that device — `devices` and a bare
-`sensors` log in to every configured entry, which is what makes their listing
-complete, but is wasted work when one reading is wanted.
-
-### Two things worth knowing about `--probe`
-
-`--probe` (the default) confirms each configured device with a unicast `hello()`
-— ~0.02 s per device against ~5 s for a broadcast — and gets model, name and
-`is_locked` from the device itself. `--no-probe` builds the object purely
-locally with zero network traffic.
-
-That matters for `rename`: `set_name()` transmits `is_locked` along with the
-name, and a locally built object carries the default `False`. Renaming a
-**locked** device from such an object would silently unlock it. `rename`
-therefore always calls `update()` first.
+| Variable                  | Option            | Default | Meaning                                         |
+|---------------------------|-------------------|---------|-------------------------------------------------|
+| `BROADLINK_VERBOSE`       | `--verbose`       | off     | DEBUG logging.                                  |
+| `BROADLINK_QUIET`         | `--quiet`         | off     | Warnings and errors only.                       |
+| `BROADLINK_PROBE`         | `--probe`         | on      | Confirm devices by unicast (yields is_locked).  |
+| `BROADLINK_TIMEOUT`       | `--timeout`       | 2       | Seconds per unicast attempt.                    |
+| `BROADLINK_NO_REDISCOVER` | `--no-rediscover` | off     | Do not fall back to broadcast when unreachable. |
+| `BROADLINK_DRY_RUN`       | `--dry-run`       | off     | Send nothing, only show what would be sent.     |
 
 ## Coolix (Midea) air conditioners
 
 The learned climate codes are not an opaque blob but the **Coolix** protocol
 (IRremoteESP8266 `decode_type_t::COOLIX`), which makes mode × fan × temperature
-computable:
-
-```python
-from somestuff.broadlinkstuff.broadlinkhelper import CoolixFan, CoolixMode, coolix_code
-
-code = coolix_code(CoolixMode.HEAT, 21, CoolixFan.LOW).hex()   # for HA, Node-RED, …
-```
+computable.
 
 On the wire: header 4692 µs mark / 4416 µs space, then 48 bits pulse-distance
 coded, MSB first — three data bytes each followed by its complement, so 24 bits
@@ -130,6 +194,14 @@ on your own unit.
 `CODES` — at word level, not byte-wise, because the RM4 measures with its own
 jitter while learning.
 
+### Library
+
+```python
+from somestuff.broadlinkstuff.broadlinkhelper import CoolixFan, CoolixMode, coolix_code
+
+code = coolix_code(CoolixMode.HEAT, 21, CoolixFan.LOW).hex()   # for HA, Node-RED, …
+```
+
 ## What an RM4 cannot do
 
 - **No subdevices.** Those exist only on `broadlink.hub.s3`. An RM blasts IR/RF
@@ -138,3 +210,10 @@ jitter while learning.
   one volatile buffer holding the most recently learned code. The named commands
   ("TV on") live in the Broadlink app and its cloud, not on the box — which is
   why `CODES` in this module exists.
+
+## Notes
+
+- Requires: `broadlink`, `typer`, `pydantic`, `ruamel.yaml`, `loguru`, `tabulate`.
+- Source and repository-only material:
+  https://github.com/vroomfondel/somestuff/tree/main/somestuff/broadlinkstuff/
+- Licensed under the LGPL, see `LICENSE.md` in the repository root.

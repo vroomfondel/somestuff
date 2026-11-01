@@ -160,7 +160,7 @@ def print_banner() -> None:
     startup_rows = [
         ["version", __version__],
         ["buildtime", os.getenv("BUILDTIME", "unknown")],
-        ["github", "https://github.com/vroomfondel/somestuff/tree/main/uptimekumastuff"],
+        ["github", "https://github.com/vroomfondel/somestuff/tree/main/somestuff/uptimekumastuff"],
         ["Docker Hub", "https://hub.docker.com/r/xomoxcc/somestuff"],
     ]
     table_str = tabulate(startup_rows, tablefmt="mixed_grid")

@@ -1,197 +1,234 @@
 # oepnvstuff
 
-Validate whether an open **GTFS-Realtime** feed actually carries real-time data
-(delays / actual times) for specific transit lines at a specific station — as a
-one-shot check, or as a long-running watcher that publishes its findings to
-**MQTT**.
+Validate whether an open GTFS-Realtime feed actually carries real-time data
+(delays / actual times) for specific transit lines at a specific station, either
+as a one-shot check or as a long-running watcher that publishes its findings to
+MQTT.
 
-Background: open-data GTFS-RT aggregators (like [gtfs.de](https://gtfs.de)) merge
-whatever the transit agencies deliver. For many rural/suburban lines that is
-*schedule only* — the feed exists, but your lines never get actual times. This
-tool answers the question "is there real realtime for *my* lines at *my* stop?"
-before you build anything on top of it. The defaults (station `Blankenese`,
-lines `1/12/22/189`) are just defaults — every parameter is overridable via CLI
-option or `OEPNV_*` environment variable.
+Open-data GTFS-RT aggregators (such as gtfs.de) merge whatever the transit
+agencies deliver. For many rural and suburban lines that is schedule only: the
+feed exists, but your lines never get actual times. This tool answers "is there
+real realtime for my lines at my stop?" before you build anything on top of it.
+The defaults (station `Blankenese`, lines `1/12/22/189`) are just defaults;
+every parameter is overridable via CLI option or `OEPNV_*` environment variable.
 
 ## Modules
 
-| Module              | Purpose                                                                                    |
-|---------------------|--------------------------------------------------------------------------------------------|
-| `check_realtime.py` | Typer CLI: one-shot check / `--watch` poll loop, console report, optional MQTT             |
-| `monitor.py`        | `RealtimeMonitor`: poll loop + staleness detection, dispatches to pluggable `on_*` handlers |
-| `gtfs_static.py`    | Static feed: cached download (conditional GET) + schedule indexing (`StaticFeedIndex`)     |
-| `gtfs_realtime.py`  | RT feed: `RealtimeFetcher` (ETag/If-Modified-Since) + protobuf parsing (`RealtimeSnapshot`) |
-| `mqtt_bridge.py`    | `GtfsMqttBridge`: publishes cycle/line status, alerts and stale transitions via `mqttstuff` |
+- **`check_realtime.py`** — Typer CLI: one-shot check or `--watch` poll loop,
+  console report, optional MQTT publishing.
+- **`monitor.py`** — `RealtimeMonitor`: poll loop with staleness detection that
+  dispatches typed results to pluggable `on_*` handlers (cycle, alert, stale,
+  error). Console output and the MQTT bridge are just handlers.
+- **`gtfs_static.py`** — static feed: cached download with conditional GET plus
+  schedule indexing (`StaticFeedIndex`): matched stops, routes of the target
+  lines, and the trips that belong to those lines and serve a matched stop.
+- **`gtfs_realtime.py`** — realtime feed: `RealtimeFetcher` (ETag /
+  If-Modified-Since) and protobuf parsing into a `RealtimeSnapshot`
+  (TripUpdates + ServiceAlerts).
+- **`mqtt_bridge.py`** — `GtfsMqttBridge`: publishes cycle and line status,
+  departures, new alerts and stale transitions via `mqttstuff`.
 
-Only `mqtt_bridge.py` imports `mqttstuff` — the core runs without a broker.
+Only `mqtt_bridge.py` imports `mqttstuff`; the core runs without a broker.
+Logging (loguru, with an intercept for stdlib `logging`, e.g. `requests` and
+`paho-mqtt`) and the startup banner are shared via `somestuff.oepnvstuff`.
 
-## How it works
+### How it works
 
-1. The **static** GTFS feed (planned schedule, one big zip) is downloaded once
-   and indexed: stops whose name contains the station query, the routes of the
-   target lines, and the trips that belong to those lines **and** serve one of
-   the matched stops. Next to the cached zip a `<name>.meta.json` sidecar stores
-   the server's `ETag`/`Last-Modified`; every later run sends a conditional GET,
-   so an unchanged feed costs a `304` round-trip instead of a re-download — no
-   TTL needed.
-2. The **realtime** feed (`.pb`, TripUpdates + ServiceAlerts) is fetched (or, in
-   `--watch`, polled — GTFS-RT is *not* push/WebSocket). The fetcher keeps the
+1. The static GTFS feed (planned schedule, one big zip) is downloaded once and
+   indexed: stops whose name contains the station query, the routes of the target
+   lines, and the trips of those lines that serve one of the matched stops. Next
+   to the cached zip a `<name>.meta.json` sidecar stores the server's
+   `ETag`/`Last-Modified`; every later run sends a conditional GET, so an
+   unchanged feed costs a `304` round-trip instead of a re-download.
+2. The realtime feed (`.pb`, TripUpdates + ServiceAlerts) is fetched, or in
+   `--watch` mode polled (GTFS-RT is not push/WebSocket). The fetcher keeps the
    HTTP validators between polls, so unchanged cycles are `304`s.
-3. TripUpdates are matched against the target trips (`trip_id`) and target
-   lines (`route_id`); delay values are aggregated per line.
-4. **Staleness** is detected two ways (either marks the cycle stale): the feed's
-   own `FeedHeader.timestamp` older than `--max-age` seconds, or `--stale-cycles`
-   consecutive cycles without a timestamp change.
+3. TripUpdates are matched against the target trips (`trip_id`) and target lines
+   (`route_id`); delay values are aggregated per line.
+4. Staleness is detected two ways, and either marks the cycle stale: the feed's
+   own `FeedHeader.timestamp` is older than `--max-age` seconds, or
+   `--stale-cycles` consecutive cycles passed without a timestamp change.
+
+## Installation
+
+```bash
+pip install somestuff-oepnvstuff
+```
+
+`somestuff` is a PEP 420 namespace; the package is imported as
+`somestuff.oepnvstuff` and shares the namespace with the other `somestuff-*`
+distributions.
 
 ## Usage
 
+Console script and module invocation are equivalent:
+
 ```bash
-# one-shot check, human-readable report, exit code says it all
+oepnv-check-realtime
 python3 -m somestuff.oepnvstuff.check_realtime
-
-# explicit station / lines (overrides the defaults — e.g. only the Elbe-bank buses)
-python3 -m somestuff.oepnvstuff.check_realtime --station "Blankenese" --lines "286,488"
-
-# which stops would match? (fast: reads only stops.txt + one stop_times pass;
-# shows coordinates, serving lines incl. agency, and directions per stop)
-python3 -m somestuff.oepnvstuff.check_realtime --show-stops
-
-# same-named stations in different towns? GTFS has no postal codes — filter
-# geographically by 'lat,lon,radius_km' (applies to the check itself as well;
-# 53.5633,9.8144 is S Blankenese); several areas ';'-separated (OR-combined)
-python3 -m somestuff.oepnvstuff.check_realtime --show-stops --station Blankenese --near 53.5633,9.8144,2
-python3 -m somestuff.oepnvstuff.check_realtime --near "53.5633,9.8144,2;53.647,9.892,3"
-
-# poll loop, one compact status line per cycle
-python3 -m somestuff.oepnvstuff.check_realtime --watch --interval 180
-
-# several stations at once (';'-separated — stop names contain commas/spaces)
-python3 -m somestuff.oepnvstuff.check_realtime --station "Blankenese;Ellerbek" --lines "1,189,195"
-
-# departure board: next N departures per line+direction, with realtime delay
-# ("1 Richtung S Rissen: in 2 min (+80s)"); publishes to <base>/departures with --mqtt
-python3 -m somestuff.oepnvstuff.check_realtime --watch --departures --departures-count 2
-
-# poll loop that exits (code 2) once the feed goes stale — lets k8s restart it
-python3 -m somestuff.oepnvstuff.check_realtime --watch --stop-on-stale
-
-# publish results to MQTT while watching
-python3 -m somestuff.oepnvstuff.check_realtime --watch --mqtt --mqtt-host broker.example.org
 ```
 
-Both feed options also accept **local file paths** (handy for tests):
+One-shot check (human-readable report, the exit code summarises the result):
+
+```bash
+oepnv-check-realtime
+oepnv-check-realtime --station "Blankenese" --lines "286,488"
+```
+
+Both feed options also accept local file paths (handy for tests):
 `--static feed.zip --realtime snapshot.pb`.
 
-**Exit codes:** `0` realtime found for at least one line (or watch ended
-cleanly) · `2` schedule found but no realtime (or stale abort) · `3` no matching
-stops/trips in the static feed · `1` technical error.
+Exit codes: `0` realtime found for at least one line (or watch ended cleanly),
+`2` schedule found but no realtime (or stale abort), `3` no matching stops or
+trips in the static feed, `1` technical error.
 
-## Configuration
-
-Precedence: **CLI option > real environment variable > `./oepnv.local.env`
-(CWD) > `somestuff/oepnvstuff/oepnv.local.env` (package dir)** — both env files are
-auto-loaded via `python-dotenv` and gitignored via `*.local.*`.
+### Stations, lines and `--near`
 
 ```bash
-cp somestuff/oepnvstuff/oepnv.env.example somestuff/oepnvstuff/oepnv.local.env
-$EDITOR somestuff/oepnvstuff/oepnv.local.env
+# which stops would match? Reads only stops.txt plus one stop_times pass and
+# shows coordinates, serving lines (incl. agency) and directions per stop
+oepnv-check-realtime --show-stops
+
+# several stations at once, ';'-separated (stop names contain commas and spaces)
+oepnv-check-realtime --station "Blankenese;Ellerbek" --lines "1,189,195"
+
+# same-named stations in different towns? GTFS has no postal codes, so filter
+# geographically by 'lat,lon,radius_km'; applies to the check itself as well.
+# Several areas are ';'-separated and OR-combined.
+oepnv-check-realtime --show-stops --station Blankenese --near 53.5633,9.8144,2
+oepnv-check-realtime --near "53.5633,9.8144,2;53.647,9.892,3"
 ```
 
-| Env var                | CLI                | Default                                     |
-|------------------------|--------------------|---------------------------------------------|
-| `OEPNV_STATIC_URL`     | `--static`         | `https://download.gtfs.de/germany/nv_free/latest.zip` |
-| `OEPNV_REALTIME_URL`   | `--realtime`       | `https://realtime.gtfs.de/realtime-free.pb` |
-| `OEPNV_LINES`          | `--lines`, `-l`    | `1,12,22,189` (comma/space separated)       |
-| `OEPNV_STATION`        | `--station`, `-s`  | `Blankenese` (substring match, case-insensitive; several stations `;`-separated) |
-| `OEPNV_NEAR`           | `--near`           | *(off)* — `lat,lon,radius_km` geo filter for the matched stops; several areas `;`-separated (OR-combined) |
-| `OEPNV_DEPARTURES`     | `--departures`     | off — report upcoming departures per line+direction |
-| `OEPNV_DEPARTURES_COUNT` | `--departures-count` | `3` — next N departures per line+direction |
-| `OEPNV_DEPARTURES_HORIZON` | `--departures-horizon` | `48` h look-ahead (a fresh static feed appears within 48h anyway) |
-| `OEPNV_CACHE_DIR`      | `--cache-dir`      | `.gtfs_cache`                               |
-| `OEPNV_FORCE_REFRESH`  | `--force-refresh`  | off                                         |
-| `OEPNV_WATCH`          | `--watch`, `-w`    | off                                         |
-| `OEPNV_INTERVAL`       | `--interval`       | `180` s — see [Bandbreite](#bandbreite)     |
-| `OEPNV_MAX_AGE`        | `--max-age`        | `120` s (`0` = off)                         |
-| `OEPNV_STALE_CYCLES`   | `--stale-cycles`   | `6`                                         |
-| `OEPNV_STOP_ON_STALE`  | `--stop-on-stale`  | off                                         |
-| `OEPNV_MQTT_ENABLE`    | `--mqtt/--no-mqtt` | off                                         |
-| `OEPNV_MQTT_HOST`      | `--mqtt-host`      | `mosquitto.mosquitto.svc.cluster.local`     |
-| `OEPNV_MQTT_PORT`      | `--mqtt-port`      | `1883`                                      |
-| `OEPNV_MQTT_USER`      | `--mqtt-user`      | *(anonymous)*                               |
-| `OEPNV_MQTT_PASSWORD`  | `--mqtt-password`  | *(empty)*                                   |
-| `OEPNV_MQTT_BASE_TOPIC`| `--mqtt-base-topic`| `oepnv`                                     |
-| `OEPNV_MQTT_TLS`       | `--mqtt-tls`       | off — TLS brokers usually listen on `8883`: set the port explicitly |
-| `OEPNV_MQTT_TLS_CA`    | `--mqtt-tls-ca`    | *(system CA store)* — CA certificate path   |
-| `OEPNV_MQTT_TLS_CERT`  | `--mqtt-tls-cert`  | *(off)* — client certificate for mutual TLS (with `…_KEY`) |
-| `OEPNV_MQTT_TLS_KEY`   | `--mqtt-tls-key`   | *(off)* — client key for mutual TLS         |
-| `OEPNV_MQTT_TLS_INSECURE` | `--mqtt-tls-insecure` | off — skip hostname verification (self-signed certs) |
-| `OEPNV_VERBOSE`        | `--verbose`, `-v`  | off                                         |
-
-### Bandbreite
-
-`OEPNV_INTERVAL` ist der einzige Hebel auf das Datenvolumen, und zwar aus einem
-Grund, der nicht auf der Hand liegt:
-
-* `RealtimeFetcher` schickt Conditional Requests (`If-None-Match` /
-  `If-Modified-Since`) und gtfs.de beantwortet sie korrekt mit `304`.
-* gtfs.de baut `realtime-free.pb` aber **einmal pro Minute** neu
-  (`FeedHeader.timestamp` landet immer auf `:50`). Bei einem Intervall `<= 60 s`
-  ist jeder Poll deshalb ein echter neuer Body — der `304` ist strukturell
-  unerreichbar, nicht etwa kaputt.
-* Der Feed ist **unkomprimiert** (kein `Content-Encoding`, egal ob `gzip`,
-  `br` oder `zstd`), und es gibt **keine kleinere regionale Variante**:
-  `realtime-{nv,fv,rv}.pb` liefern 404, nur der bundesweite Feed existiert.
-
-Das Volumen hängt damit allein daran, wie viele Feed-**Versionen** geholt
-werden — nicht daran, wie oft gepollt wird. Schneller pollen als der Rebuild
-kostet nichts (die Extra-Polls sind `304`), langsamer pollen ist die einzige
-Ersparnis. Gemessen über 360 Zyklen: ⌀ 44 MB pro Version (min 29, max 53).
-
-| Intervall | Versionen/Tag | Volumen/Tag |
-|-----------|---------------|-------------|
-| 20–60 s   | 1440          | ~61 GB      |
-| 180 s (Default) | 480     | ~20 GB      |
-| 300 s     | 288           | ~12 GB      |
-| 600 s     | 144           | ~6 GB       |
-
-`OEPNV_MAX_AGE` muss dabei **nicht** mitwachsen: `age` ist `now - feed_ts` zum
-Fetch-Zeitpunkt und bleibt wegen des Minuten-Rebuilds immer unter 60 s,
-unabhängig vom Intervall.
-
-**k3s notes:** configure everything via env in the Deployment; point
-`OEPNV_CACHE_DIR` at a persistent volume so pod restarts reuse the (large)
-static zip via `304`; combine `OEPNV_WATCH=1` + `OEPNV_STOP_ON_STALE=1` so a
-dead feed exits with code 2 and the kubelet restarts the pod. Ready-made
-examples: `somestuff_oepnv_deployment.yml` (watch + MQTT + cache volume) and
-`somestuff-oepnv-secret.example.yaml` (broker credentials; copy to
-`*.local.yaml`, gitignored).
-
-## MQTT topic layout
-
-`base_topic` defaults to `oepnv`:
-
-| Topic                        | Payload                                                          |
-|------------------------------|------------------------------------------------------------------|
-| `oepnv/status`               | per-cycle summary: feed ts/age, stale flag, per-line hit counts  |
-| `oepnv/lines/<line>/status`  | one line: `updates`, `delay_min/max/avg_s`, `static_trips`       |
-| `oepnv/departures`           | with `--departures`: all upcoming departures in one document (`in_minutes`, `delay_s`, `realtime`, stop, times); published every cycle, empty list when the board is empty |
-| `oepnv/departures/<line>/<stop>/<direction>` | one group's departures; ASCII-simplified segments (`departures/1/S_Blankenese/U_Kellinghusenstrasse`) |
-| `oepnv/alerts`               | each *new* (deduplicated) service alert: `{entity, text}`        |
-| `oepnv/stale`                | fired once on the transition into staleness                      |
-
-Everything is published with `retain=False` — the broker keeps no last value,
-subscribers see the live stream only. A late subscriber waits at most one poll
-interval for the next status/departures cycle.
+### Watch mode
 
 ```bash
+# poll loop, one compact status line per cycle
+oepnv-check-realtime --watch --interval 180
+
+# exit with code 2 once the feed goes stale (lets a supervisor restart it)
+oepnv-check-realtime --watch --stop-on-stale
+```
+
+### Departures
+
+```bash
+# next N departures per line+direction, with realtime delay
+# ("1 Richtung S Rissen: in 2 min (+80s)")
+oepnv-check-realtime --watch --departures --departures-count 2
+```
+
+`--departures-horizon` sets the look-ahead window in hours (default 48).
+
+### MQTT
+
+```bash
+oepnv-check-realtime --watch --mqtt --mqtt-host broker.example.org
 mosquitto_sub -h broker.example.org -v -t 'oepnv/#'
 ```
 
-## Library / writing your own handler
+With `base_topic` at its default `oepnv`:
 
-The monitor knows nothing about consoles or brokers — it dispatches typed
-results to registered handlers. Console output and the MQTT bridge are just
-handlers; add your own the same way:
+| Topic                                        | Payload                                                                                                                                                                    |
+|----------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `oepnv/status`                               | per-cycle summary: feed ts/age, stale flag, per-line hit counts                                                                                                            |
+| `oepnv/lines/<line>/status`                  | one line: `updates`, `delay_min/max/avg_s`, `static_trips`                                                                                                                 |
+| `oepnv/departures`                           | with `--departures`: all upcoming departures in one document (`in_minutes`, `delay_s`, `realtime`, stop, times); published every cycle, empty list when the board is empty |
+| `oepnv/departures/<line>/<stop>/<direction>` | one group's departures; ASCII-simplified segments (`departures/1/S_Blankenese/U_Kellinghusenstrasse`)                                                                      |
+| `oepnv/alerts`                               | each new (deduplicated) service alert: `{entity, text}`                                                                                                                    |
+| `oepnv/stale`                                | fired once on the transition into staleness                                                                                                                                |
+
+Everything is published with `retain=False`: the broker keeps no last value and
+subscribers see the live stream only. A late subscriber waits at most one poll
+interval for the next status/departures cycle.
+
+## Configuration
+
+Precedence: CLI option > real environment variable > `./oepnv.local.env` (current
+working directory) > `oepnv.local.env` next to the installed `check_realtime`
+module. Both env files are auto-loaded via `python-dotenv` and never override
+variables that are already set. An example env file ships in the repository, not
+in the wheel:
+https://github.com/vroomfondel/somestuff/tree/main/somestuff/oepnvstuff/
+
+| Env var                          | CLI                            | Default                                                                                       |
+|----------------------------------|--------------------------------|-----------------------------------------------------------------------------------------------|
+| `OEPNV_STATIC_URL`               | `--static`                     | `https://download.gtfs.de/germany/nv_free/latest.zip` (URL or `.zip` path)                    |
+| `OEPNV_REALTIME_URL`             | `--realtime`                   | `https://realtime.gtfs.de/realtime-free.pb` (URL or `.pb` path)                               |
+| `OEPNV_LINES`                    | `--lines`, `-l`                | `1,12,22,189` (comma/space separated)                                                         |
+| `OEPNV_STATION`                  | `--station`, `-s`              | `Blankenese` (case-insensitive substring match; several stations `;`-separated)               |
+| `OEPNV_NEAR`                     | `--near`                       | off; `lat,lon,radius_km` geo filter for the matched stops, areas `;`-separated (OR)           |
+| `OEPNV_ENABLE_DEPARTURES`        | `--departures/--no-departures` | off; report upcoming departures per line+direction                                            |
+| `OEPNV_DEPARTURES_COUNT`         | `--departures-count`           | `3`; next N departures per line+direction                                                     |
+| `OEPNV_DEPARTURES_HORIZON_HOURS` | `--departures-horizon`         | `48` h look-ahead                                                                             |
+| `OEPNV_CACHE_DIR`                | `--cache-dir`                  | `.gtfs_cache`                                                                                 |
+| `OEPNV_FORCE_REFRESH`            | `--force-refresh`              | off; re-download the static zip even on `304`                                                 |
+| `OEPNV_WATCH`                    | `--watch`, `-w`                | off                                                                                           |
+| `OEPNV_INTERVAL`                 | `--interval`                   | `180` s, see Bandwidth below                                                                  |
+| `OEPNV_MAX_AGE`                  | `--max-age`                    | `120` s (`0` = off)                                                                           |
+| `OEPNV_STALE_CYCLES`             | `--stale-cycles`               | `6`                                                                                           |
+| `OEPNV_STOP_ON_STALE`            | `--stop-on-stale`              | off                                                                                           |
+| `OEPNV_RECENT_WINDOW`            | `--recent-window`              | `900` s; a line still counts as `realtime_recent` this long after its last update (`0` = off) |
+| `OEPNV_MQTT_ENABLE`              | `--mqtt/--no-mqtt`             | off                                                                                           |
+| `OEPNV_MQTT_HOST`                | `--mqtt-host`                  | `mosquitto.mosquitto.svc.cluster.local`                                                       |
+| `OEPNV_MQTT_PORT`                | `--mqtt-port`                  | `1883`                                                                                        |
+| `OEPNV_MQTT_USER`                | `--mqtt-user`                  | anonymous                                                                                     |
+| `OEPNV_MQTT_PASSWORD`            | `--mqtt-password`              | empty                                                                                         |
+| `OEPNV_MQTT_BASE_TOPIC`          | `--mqtt-base-topic`            | `oepnv`                                                                                       |
+| `OEPNV_MQTT_TLS`                 | `--mqtt-tls`                   | off; the port is not switched automatically, TLS brokers usually listen on `8883`             |
+| `OEPNV_MQTT_TLS_CA`              | `--mqtt-tls-ca`                | system CA store; CA certificate path                                                          |
+| `OEPNV_MQTT_TLS_CERT`            | `--mqtt-tls-cert`              | off; client certificate for mutual TLS (with `OEPNV_MQTT_TLS_KEY`)                            |
+| `OEPNV_MQTT_TLS_KEY`             | `--mqtt-tls-key`               | off; client key for mutual TLS                                                                |
+| `OEPNV_MQTT_TLS_INSECURE`        | `--mqtt-tls-insecure`          | off; skip hostname verification (self-signed certs), chain verification still applies         |
+| `OEPNV_VERBOSE`                  | `--verbose`, `-v`              | off; DEBUG logging                                                                            |
+
+`--show-stops` has no environment variable.
+
+### Bandwidth
+
+`OEPNV_INTERVAL` is the only lever on data volume, for a reason that is not
+obvious:
+
+- `RealtimeFetcher` sends conditional requests (`If-None-Match` /
+  `If-Modified-Since`) and gtfs.de answers them correctly with `304`.
+- gtfs.de rebuilds `realtime-free.pb` once per minute (`FeedHeader.timestamp`
+  always lands on `:50`). With an interval of 60 s or less every poll is
+  therefore a genuinely new body; the `304` is structurally unreachable, not
+  broken.
+- The feed is uncompressed (no `Content-Encoding`) and there is no smaller
+  regional variant: `realtime-{nv,fv,rv}.pb` return 404, only the nationwide
+  feed exists.
+
+Volume therefore depends only on how many feed versions are fetched, not on how
+often you poll. Polling faster than the rebuild costs nothing (the extra polls
+are `304`s); polling slower is the only saving. Measured over 360 cycles: about
+44 MB per version (min 29, max 53).
+
+| Interval        | Versions/day | Volume/day |
+|-----------------|--------------|------------|
+| 20-60 s         | 1440         | ~61 GB     |
+| 180 s (default) | 480          | ~20 GB     |
+| 300 s           | 288          | ~12 GB     |
+| 600 s           | 144          | ~6 GB      |
+
+`OEPNV_MAX_AGE` does not have to grow with the interval: `age` is
+`now - feed_ts` at fetch time and stays below 60 s because of the per-minute
+rebuild, regardless of the interval.
+
+### Kubernetes
+
+Configure everything via env in the Deployment. Point `OEPNV_CACHE_DIR` at a
+persistent volume so pod restarts reuse the large static zip via `304`, and
+combine `OEPNV_WATCH=1` with `OEPNV_STOP_ON_STALE=1` so a dead feed exits with
+code 2 and the kubelet restarts the pod. A ready-made Deployment (watch + MQTT +
+cache volume) and a Secret example for the broker credentials are in the
+repository, not in the wheel:
+https://github.com/vroomfondel/somestuff/tree/main/somestuff/oepnvstuff/
+
+## Library
+
+The monitor knows nothing about consoles or brokers: it dispatches typed
+results to registered handlers. Add your own the same way the console report and
+the MQTT bridge do:
 
 ```python
 from somestuff.oepnvstuff.gtfs_realtime import RealtimeFetcher
@@ -215,18 +252,20 @@ monitor.add_error_handler(print)               # fetch errors (loop keeps runnin
 raise SystemExit(monitor.watch())              # or: monitor.check_once()
 ```
 
-Handler exceptions are logged and swallowed — one misbehaving sink cannot kill
+Handler exceptions are logged and swallowed, so one misbehaving sink cannot kill
 the poll loop.
 
 ## Data sources
 
-Defaults are the free, registration-less feeds from
-[gtfs.de](https://gtfs.de/de/open-data/) (CC BY-SA 4.0): static
-`germany/nv_free/latest.zip` (German regional transit) and
-`realtime-free.pb` (TripUpdates + ServiceAlerts). Any other GTFS/GTFS-RT source
-pair works via `--static`/`--realtime` — e.g. an agency's own feed if the open
-aggregate turns out to lack your lines (for HVV territory: Geofox-GTI).
+The defaults are the free, registration-less feeds from gtfs.de (CC BY-SA 4.0,
+https://gtfs.de/de/open-data/): static `germany/nv_free/latest.zip` (German
+regional transit) and `realtime-free.pb` (TripUpdates + ServiceAlerts). Any other
+GTFS / GTFS-RT pair works via `--static` / `--realtime`, for example an agency's
+own feed if the open aggregate turns out to lack your lines (for HVV territory:
+Geofox-GTI).
 
-Requires: `requests`, `gtfs-realtime-bindings` (protobuf), `typer`,
-`python-dotenv`, plus `loguru` and `tabulate` for logging and `mqttstuff` only
-if the MQTT bridge is used.
+## Notes
+
+- Requires: `loguru`, `typer`, `gtfs-realtime-bindings`, `python-dotenv`,
+  `requests`, `tabulate`, `mqttstuff`.
+- Licensed under the LGPL, see `LICENSE.md` in the repository root.
