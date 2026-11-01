@@ -245,7 +245,7 @@ def read_netatmo() -> dict:
     now_sdf_d: str = now.strftime(_sdfD_formatstring)
 
     measures: dict = weather_data.getMeasure(
-        device_id=weather_data.default_station_data["_id"],  # "70:ee:50:02:ed:4c",  # "Indoor" | homestationid!
+        device_id=weather_data.default_station_data["_id"],
         scale="1hour",  # Timeframe between two measurements {30min, 1hour, 3hours, 1day, 1week, 1month}
         mtype="sum_rain",
         module_id=regen["_id"],  # type: ignore

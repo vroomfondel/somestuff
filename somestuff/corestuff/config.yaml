@@ -1,7 +1,7 @@
 emailsettings:
-  privileged_sender: "jonathan@fara.de"
-  mailaddress: "fu@fara.de"
-  mailuser: "fu@fara.de"
+  privileged_sender: "someone@example.com"
+  mailaddress: "mailbox@example.com"
+  mailuser: "mailbox@example.com"
   mailpassword: "fumpuslumpus"
   imapserver: "imap.hopefully.not.office365.blargh"
   imapport: 143

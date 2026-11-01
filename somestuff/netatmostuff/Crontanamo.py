@@ -393,19 +393,6 @@ def job(mqttclient: MosquittoClientWrapper) -> None:
     #         logger.debug(f"Datetime: {dt_object} -> {values[0]}")
     #     logger.debug("/MEASURES TEST...")
     #
-    #     # │ 2025-11-28 17:14:09.676 | DEBUG    | __main__:job:305 - {                                                                                                                                                                                           │
-    #     # │     "body": {                                                                                                                                                                                                                                       │
-    #     # │         "1764342849": [                                                                                                                                                                                                                             │
-    #     # │             1014                                                                                                                                                                                                                                    │
-    #     # │         ],                                                                                                                                                                                                                                          │
-    #     # │         "1764344649": [                                                                                                                                                                                                                             │
-    #     # │             1013.8                                                                                                                                                                                                                                  │
-    #     # │         ]                                                                                                                                                                                                                                           │
-    #     # │     },                                                                                                                                                                                                                                              │
-    #     # │     "status": "ok",                                                                                                                                                                                                                                 │
-    #     # │     "time_exec": 0.027267932891845703,                                                                                                                                                                                                              │
-    #     # │     "time_server": 1764346449                                                                                                                                                                                                                       │
-    #     # │ }
     # except Exception as exx:
     #     logger.opt(exception=exx).exception(exx)
 

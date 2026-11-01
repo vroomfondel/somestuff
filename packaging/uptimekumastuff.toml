@@ -46,9 +46,13 @@ Issues = "https://github.com/vroomfondel/somestuff/issues"
 path = "somestuff/uptimekumastuff/__init__.py"
 
 # Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+# A target-level `exclude` replaces the build-level list instead of extending it, so each target carries the full set.
 [tool.hatch.build]
 packages = ["somestuff", "ansible_collections"]
-exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml", "**/*.sh"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml", "**/*.sh"]
 
 [tool.hatch.build.targets.wheel]
-exclude = ["**/*.local.*", "**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml", "**/*.sh", "**/README.md"]
