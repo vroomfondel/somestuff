@@ -14,7 +14,7 @@ repo are built from a staging directory (build/<pkg>/, see `make stage-<pkg>`), 
 pyproject.toml and dist/ are read from --root while .gitattributes is read from the
 repository root (the parent of scripts/).
 
-Four checks per artifact:
+Five checks per artifact:
 
   1. Authority check: the sdist allowlist may only come from a key that actually
      governs the sdist, i.e. [tool.hatch.build.targets.sdist] include/only-include
@@ -31,6 +31,10 @@ Four checks per artifact:
   4. Namespace check (--namespace NAME): no member may be NAME/__init__.py. A PEP 420
      namespace package must stay free of that file in every distribution; one wheel
      shipping it hides the NAME.* packages of all other distributions.
+  5. Local-override check: no member may be named `*.local` or `*.local.*`. That is
+     this repo's .gitignore convention for secret-bearing overrides (config.local.yaml,
+     *.local.env), and `make stage-<pkg>` copies the working tree, gitignored files
+     included.
 
 Usage:
     check_dist_secrets.py [--root DIR] [--namespace NAME] [ARTIFACT ...]
@@ -232,6 +236,14 @@ def content_leaks(path: Path) -> list[str]:
     return hits
 
 
+LOCAL_OVERRIDE_GLOBS = ("*.local", "*.local.*")
+
+
+def is_local_override(member: str) -> bool:
+    name = member.rsplit("/", 1)[-1]
+    return any(fnmatch.fnmatchcase(name, g) for g in LOCAL_OVERRIDE_GLOBS)
+
+
 def check(path: Path, allowed: list[str], protected: list[re.Pattern[str]], namespace: str | None) -> list[str]:
     """Return the offending members of one artifact (empty list means clean)."""
     is_wheel = path.name.endswith(".whl")
@@ -243,6 +255,8 @@ def check(path: Path, allowed: list[str], protected: list[re.Pattern[str]], name
     for member in artifact_members(path):
         if any(rx.match(member) for rx in protected):
             secrets.append(f"{member}  [git-crypt protected]")
+        elif is_local_override(member):
+            secrets.append(f"{member}  [local override file]")
         elif member == namespace_init:
             namespace_hits.append(f"{member}  [breaks PEP 420 namespace '{namespace}']")
         elif not is_allowed(member, allowed, is_wheel=is_wheel):

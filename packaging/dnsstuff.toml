@@ -47,7 +47,7 @@ path = "somestuff/dnsstuff/__init__.py"
 # Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
 [tool.hatch.build]
 packages = ["somestuff"]
-exclude = ["**/__pycache__", "**/*.pyc"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*"]
 
 [tool.hatch.build.targets.wheel]
-exclude = ["**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]
+exclude = ["**/*.local.*", "**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]
