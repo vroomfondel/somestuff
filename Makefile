@@ -149,7 +149,8 @@ stage-%: venv
 	rm -rf build/$*
 	mkdir -p build/$*/somestuff
 	cp -r somestuff/$* build/$*/somestuff/
-	find build/$*/somestuff -name '__pycache__' -type d -prune -exec rm -rf {} +
+	if [ -d ansible_collections/somestuff/$* ]; then mkdir -p build/$*/ansible_collections/somestuff && cp -r ansible_collections/somestuff/$* build/$*/ansible_collections/somestuff/; fi
+	find build/$* -name '__pycache__' -type d -prune -exec rm -rf {} +
 	cp packaging/$*.toml build/$*/pyproject.toml
 	cp somestuff/$*/README.md build/$*/README.md
 	cp LICENSE.md build/$*/LICENSE.md
@@ -167,6 +168,7 @@ distcheck-%: dist-%
 	python scripts/check_dist_secrets.py --root build/$* --namespace somestuff
 
 pypibuild-%: distcheck-%
+	@:
 
 pypipush-%: distcheck-%
 	@$(venv_activated)

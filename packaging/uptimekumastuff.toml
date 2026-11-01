@@ -47,8 +47,8 @@ path = "somestuff/uptimekumastuff/__init__.py"
 
 # Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
 [tool.hatch.build]
-packages = ["somestuff"]
+packages = ["somestuff", "ansible_collections"]
 exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*"]
 
 [tool.hatch.build.targets.wheel]
-exclude = ["**/*.local.*", "**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml", "somestuff/uptimekumastuff/uptimekuma_monitor.py"]
+exclude = ["**/*.local.*", "**/README.md", "**/*_deployment.yml", "**/*.example", "**/*.example.yaml"]

@@ -181,7 +181,7 @@ EXAMPLES = r"""
   gather_facts: false
   tasks:
     - name: Create group
-      uptimekuma_monitor:
+      somestuff.uptimekumastuff.uptimekuma_monitor:
         url: https://uptimekuma.example.lan
         username: "{{ uptimekuma_admin_user }}"
         password: "{{ uptimekuma_admin_password }}"
@@ -189,7 +189,7 @@ EXAMPLES = r"""
         type: group
 
     - name: MQTT check in the group
-      uptimekuma_monitor:
+      somestuff.uptimekumastuff.uptimekuma_monitor:
         url: https://uptimekuma.example.lan
         username: "{{ uptimekuma_admin_user }}"
         password: "{{ uptimekuma_admin_password }}"
@@ -210,7 +210,7 @@ EXAMPLES = r"""
 
 # From a play that runs against real hosts: delegate to the control node.
 - name: Monitor for this host
-  uptimekuma_monitor:
+  somestuff.uptimekumastuff.uptimekuma_monitor:
     url: https://uptimekuma.example.lan
     username: "{{ uptimekuma_admin_user }}"
     password: "{{ uptimekuma_admin_password }}"
@@ -220,7 +220,7 @@ EXAMPLES = r"""
   delegate_to: localhost
 
 - name: Remove monitor
-  uptimekuma_monitor:
+  somestuff.uptimekumastuff.uptimekuma_monitor:
     url: https://uptimekuma.example.lan
     username: "{{ uptimekuma_admin_user }}"
     password: "{{ uptimekuma_admin_password }}"
@@ -262,7 +262,7 @@ not_applicable:
 """
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.uptimekuma_client import KumaClient, KumaError
+from somestuff.uptimekumastuff.uptimekuma_client import KumaClient, KumaError
 
 # Ansible option -> Kuma field name. Kuma mixes camelCase and snake_case; the module options
 # stay snake_case throughout.
@@ -504,6 +504,7 @@ def run_module() -> None:
             existing = client.monitor_by_name(params["name"])
             if existing is None:
                 module.exit_json(changed=False, created=False, diff={})
+                return
             if not module.check_mode:
                 client.delete_monitor(existing["id"])
             module.exit_json(changed=True, created=False, monitor_id=existing["id"], diff={})

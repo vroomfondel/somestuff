@@ -15,8 +15,8 @@ monitoring itself is done entirely by Kuma.
   YAML file against an existing instance; re-runnable, with `--check` (dry run) and `--prune`.
 - **`uptimekuma_simpleapi.py`** — `SimpleKumaApi`, full export/import of a whole instance
   (monitors, notifications, tags, status pages) into a preferably **empty** target.
-- **`uptimekuma_monitor.py`** — an Ansible module wrapping `KumaClient`. It is available in the
-  repository only, not in the installed package (see Ansible below).
+- **`uptimekuma_monitor.py`** — an Ansible module wrapping `KumaClient`, shipped in the wheel as
+  the collection `somestuff.uptimekumastuff` (see Ansible below).
 
 Logging (loguru, with an intercept for stdlib `logging` from `uptime_kuma_api` and
 `python-socketio`), the startup banner and the credentials lookup are shared via
@@ -240,28 +240,18 @@ management from a playbook — `state: present`/`absent`, full `--check` support
 `changed`/`diff`/`not_applicable` reporting. Use it when Kuma provisioning is one step in a larger
 Ansible run; for a standalone declarative file, `uptimekuma-apply` is the better fit.
 
-The module is **not part of the installed package**. Get it from the repository:
-https://github.com/vroomfondel/somestuff/tree/main/somestuff/uptimekumastuff/
-
-**Wiring it into Ansible.** The module imports its client via
-`from ansible.module_utils.uptimekuma_client import KumaClient, KumaError`, so two files have to
-be reachable from your Ansible config's `library` and `module_utils` paths:
-
-| Ansible path                        | source                                                               |
-|-------------------------------------|----------------------------------------------------------------------|
-| `library/uptimekuma_monitor.py`     | `uptimekuma_monitor.py` from the repository                          |
-| `module_utils/uptimekuma_client.py` | `uptimekuma_client.py`, from the installed package or the repository |
-
-Symlink or copy the files into those directories. The installed `uptimekuma_client.py` lives in
-the `somestuff/uptimekumastuff/` directory of your Python environment's site-packages. Keep the
-client and the module from the same release.
+The wheel ships it as the Ansible collection **`somestuff.uptimekumastuff`** under
+`ansible_collections/` in site-packages; ansible-core finds collections on `sys.path`
+(`COLLECTIONS_SCAN_SYS_PATH`, on by default). Install the package into the environment
+`ansible-playbook` runs from and call the module by its full name,
+`somestuff.uptimekumastuff.uptimekuma_monitor`. Module and client always come from the same release.
 
 **Runtime requirements** — all consequences of talking to Kuma over Socket.IO:
 
-- It runs on the **control node**, so `python-socketio` is needed *there*, not on the targets.
+- It runs on the **control node**, so the package is needed *there*, not on the targets.
   Use `hosts: localhost` or `delegate_to: localhost`.
-- `python-socketio` must be importable by the interpreter Ansible uses. If it only lives in a
-  virtualenv, point `ansible_python_interpreter` at that venv's `python`
+- The package must be importable by the interpreter Ansible runs the module with, not only by
+  `ansible-playbook`. If it only lives in a virtualenv, point `ansible_python_interpreter` at that venv's `python`
   (`-e ansible_python_interpreter=/path/to/.venv/bin/python`, or set it for localhost in the
   inventory) — otherwise the module import fails.
 
@@ -272,7 +262,7 @@ client and the module from the same release.
   gather_facts: false
   tasks:
     - name: Create group
-      uptimekuma_monitor:
+      somestuff.uptimekumastuff.uptimekuma_monitor:
         url: https://uptimekuma.example.lan
         username: "{{ uptimekuma_admin_user }}"
         password: "{{ uptimekuma_admin_password }}"
@@ -280,7 +270,7 @@ client and the module from the same release.
         type: group
 
     - name: MQTT check in the group
-      uptimekuma_monitor:
+      somestuff.uptimekumastuff.uptimekuma_monitor:
         url: https://uptimekuma.example.lan
         username: "{{ uptimekuma_admin_user }}"
         password: "{{ uptimekuma_admin_password }}"
@@ -297,7 +287,7 @@ client and the module from the same release.
 Like `uptimekuma-apply`, references go by **name** (`parent`, `notifications`). Options are
 snake_case (`retry_interval`, `mqtt_topic`); the ~100 rarer Kuma fields aren't mapped
 individually — pass them camelCase under `extra:`. `state: absent` deletes by name. Full option
-docs: `ansible-doc -M /path/to/library uptimekuma_monitor`.
+docs: `ansible-doc somestuff.uptimekumastuff.uptimekuma_monitor`.
 
 > **check_mode caveat:** against an empty instance, a task whose `parent`/`notifications` only a
 > *prior task of the same run* would create fails under `--check` — the reference doesn't exist
