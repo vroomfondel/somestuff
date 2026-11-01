@@ -67,7 +67,7 @@ fastapi
 uvicorn
 
 # k3shelperstuff (keel drift checker, k8s user certificates)
-kubernetes>=37
+kubernetes>=37.0.1
 rich
 cryptography
 
