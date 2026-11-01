@@ -13,14 +13,12 @@ dynamic = ["dependencies"]
 dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools]
-# Top-level single-file modules imported package-wide (e.g. `import Helper`, `from config import settings`).
 py-modules = ["Helper", "config"]
 
 [tool.setuptools.packages.find]
-# Only the real Python packages (dirs with __init__.py). The Docker-image build
-# dirs (tangstuff, python314jit, overlays, …) have no __init__.py and are ignored
-# automatically; tests are excluded explicitly.
-exclude = ["tests*", "docker-config*"]
+# somestuff/ is a PEP 420 namespace (no __init__.py), so discovery needs namespaces = true
+namespaces = true
+include = ["somestuff*"]
 
 [tool.black]
 line-length = 120
@@ -29,3 +27,4 @@ target-version = ["py313"]
 [tool.isort]
 profile = "black"
 line_length = 120
+known_first_party = ["somestuff"]

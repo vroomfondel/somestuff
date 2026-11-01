@@ -42,21 +42,21 @@ This is a collection of Python utilities for IoT data aggregation, weather monit
 
 | Module                       | Purpose                                                     |
 |------------------------------|-------------------------------------------------------------|
-| `broadlinkstuff/`            | Broadlink RM4 IR/RF blaster: device fleet, IR/RF learning, Coolix (Midea) climate codec, Typer CLI (`broadlinkhelper`; own `broadlink.yaml` + `broadlink.local.yaml`, not the repo-wide config) |
-| `dhcpstuff/dhcp_discover.py` | DHCP Discover sender with PXE/Proxy DHCP support            |
-| `dnsstuff/spf_ipset_updater.py` | SPF record crawler → ipset updater for SMTP allowlisting |
-| `ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
-| `gcalstuff/gcal_event.py`   | Google Calendar event creation CLI (OAuth2)                 |
-| `hydromailstuff/hydromail.py`| Assembles status emails from MQTT/Netatmo data              |
-| `k3shelperstuff/`           | K3s kubeconfig credential sync via SSH (`update_local_k3s_keys`), user client certificates via the CSR API (`k8s_user_cert`, Typer CLI, `K8S_USER_CERT_*` env) + Keel image-drift checker (`keel_drift`, Typer CLI, `KEEL_*` env) + version-pin vs. upstream-release checker (`pin_drift`, Typer CLI, `pin_drift.yml`, `PIN_DRIFT_*` env) + `drift` (both as subcommands `pin`/`keel` of one Typer CLI; `DRIFT_PROG_NAME` sets the name shown in `--help`) |
-| `llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
-| `netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
+| `somestuff/broadlinkstuff/`            | Broadlink RM4 IR/RF blaster: device fleet, IR/RF learning, Coolix (Midea) climate codec, Typer CLI (`broadlinkhelper`; own `broadlink.yaml` + `broadlink.local.yaml`, not the repo-wide config) |
+| `somestuff/dhcpstuff/dhcp_discover.py` | DHCP Discover sender with PXE/Proxy DHCP support            |
+| `somestuff/dnsstuff/spf_ipset_updater.py` | SPF record crawler → ipset updater for SMTP allowlisting |
+| `somestuff/ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
+| `somestuff/gcalstuff/gcal_event.py`   | Google Calendar event creation CLI (OAuth2)                 |
+| `somestuff/hydromailstuff/hydromail.py`| Assembles status emails from MQTT/Netatmo data              |
+| `somestuff/k3shelperstuff/`           | K3s kubeconfig credential sync via SSH (`update_local_k3s_keys`), user client certificates via the CSR API (`k8s_user_cert`, Typer CLI, `K8S_USER_CERT_*` env) + Keel image-drift checker (`keel_drift`, Typer CLI, `KEEL_*` env) + version-pin vs. upstream-release checker (`pin_drift`, Typer CLI, `pin_drift.yml`, `PIN_DRIFT_*` env) + `drift` (both as subcommands `pin`/`keel` of one Typer CLI; `DRIFT_PROG_NAME` sets the name shown in `--help`) |
+| `somestuff/llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
+| `somestuff/netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
 | `sipstuff/`                 | **Moved** to [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) |
-| `ucmstuff/`                  | Grandstream UCM6204 IP-PBX monitor/control: WebSocket events (`UCMEventClient`) + HTTPS-API control (`UCM6204`/`UCM6204Rest`), trunk call router, Typer CLI |
-| `uptimekumastuff/`           | Uptime-Kuma 2.x provisioning/migration: `KumaClient` (direct Socket.IO, fresh reads, idempotent upserts), `uptimekuma_apply` (YAML → idempotent apply, Typer CLI), `SimpleKumaApi` (full export/import, Typer CLI) |
-| `oepnvstuff/`                | GTFS-Realtime coverage checker: `RealtimeMonitor` (poll loop, staleness detection, pluggable `on_*` handlers), MQTT bridge, Typer CLI (`check_realtime`, `OEPNV_*` env) |
-| `mqttwebstuff/`              | Live web view onto MQTT streams: mountable mapper plugins (`plugin_api.ViewEvent`), `ViewHub` (last-value cache + SSE fan-out), FastAPI + htmx/PicoCSS frontend, Typer CLI (`serve`, `MQTTWEB_*` env) |
 | `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`)      |
+| `somestuff/ucmstuff/`                  | Grandstream UCM6204 IP-PBX monitor/control: WebSocket events (`UCMEventClient`) + HTTPS-API control (`UCM6204`/`UCM6204Rest`), trunk call router, Typer CLI |
+| `somestuff/uptimekumastuff/`           | Uptime-Kuma 2.x provisioning/migration: `KumaClient` (direct Socket.IO, fresh reads, idempotent upserts), `uptimekuma_apply` (YAML → idempotent apply, Typer CLI), `SimpleKumaApi` (full export/import, Typer CLI) |
+| `somestuff/oepnvstuff/`                | GTFS-Realtime coverage checker: `RealtimeMonitor` (poll loop, staleness detection, pluggable `on_*` handlers), MQTT bridge, Typer CLI (`check_realtime`, `OEPNV_*` env) |
+| `somestuff/mqttwebstuff/`              | Live web view onto MQTT streams: mountable mapper plugins (`plugin_api.ViewEvent`), `ViewHub` (last-value cache + SSE fan-out), FastAPI + htmx/PicoCSS frontend, Typer CLI (`serve`, `MQTTWEB_*` env) |
 
 ### Standalone Docker Images
 
@@ -85,7 +85,7 @@ These subdirectories contain independent Docker image builds with their own `bui
 - Runs as non-root user `pythonuser` (UID 1200)
 - Multi-arch: linux/amd64, linux/arm64
 - Entry point uses `tini` for proper signal handling
-- `PYTHONPATH=/app` is set; all modules copied to `/app/`
+- `PYTHONPATH=/app` is set; `somestuff/` is copied to `/app/somestuff`, `config.py`/`Helper.py`/`config.yaml` to `/app/`
 
 ## Code Style
 

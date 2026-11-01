@@ -1,10 +1,10 @@
-"""Tests for k3shelperstuff.keel_drift."""
+"""Tests for somestuff.k3shelperstuff.keel_drift."""
 
 import pytest
 import requests
 
-from k3shelperstuff import keel_drift
-from k3shelperstuff.keel_drift import (
+from somestuff.k3shelperstuff import keel_drift
+from somestuff.k3shelperstuff.keel_drift import (
     REGISTRY_MAX_ATTEMPTS,
     REGISTRY_RETRY_BASE_SECONDS,
     REGISTRY_RETRY_MAX_WAIT_SECONDS,

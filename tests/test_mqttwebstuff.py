@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from mqttwebstuff.hub import ViewHub, anchor_slug, decode_payload
-from mqttwebstuff.plugin_api import LoadedPlugin, MapResult, ViewEvent, generic_plugin, load_plugin
-from mqttwebstuff.webapp import _sse_frame, build_environment, create_app
+from somestuff.mqttwebstuff.hub import ViewHub, anchor_slug, decode_payload
+from somestuff.mqttwebstuff.plugin_api import LoadedPlugin, MapResult, ViewEvent, generic_plugin, load_plugin
+from somestuff.mqttwebstuff.webapp import _sse_frame, build_environment, create_app
 
 
 def _one(result: MapResult) -> ViewEvent:
@@ -16,7 +16,7 @@ def _one(result: MapResult) -> ViewEvent:
     return result
 
 
-OEPNV_PLUGIN = Path(__file__).parents[1] / "mqttwebstuff" / "plugins" / "oepnv_view.py"
+OEPNV_PLUGIN = Path(__file__).parents[1] / "somestuff" / "mqttwebstuff" / "plugins" / "oepnv_view.py"
 
 DEPARTURES_PAYLOAD = {
     "time": "2026-07-19T19:33:06",
@@ -89,12 +89,12 @@ def test_oepnv_plugin_contract() -> None:
 
 
 def test_load_plugin_by_dotted_module_name() -> None:
-    plugin = load_plugin("mqttwebstuff.plugins.oepnv_view")
+    plugin = load_plugin("somestuff.mqttwebstuff.plugins.oepnv_view")
     assert plugin.title == "ÖPNV Live"
     # Template dir anchors at the module's own directory, not the CWD.
     assert plugin.template_dir == OEPNV_PLUGIN.parent / "templates"
     with pytest.raises(ValueError):
-        load_plugin("mqttwebstuff.does_not_exist")
+        load_plugin("somestuff.mqttwebstuff.does_not_exist")
 
 
 def test_load_plugin_relative_template_dir_anchors_at_plugin(tmp_path: Path) -> None:

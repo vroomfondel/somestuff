@@ -52,19 +52,7 @@ RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
 
 # ADD --chown=${UID}:${GID} "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 
-COPY --chown=${UID}:${GID} ecowittstuff /app/ecowittstuff
-COPY --chown=${UID}:${GID} llmstuff /app/llmstuff
-COPY --chown=${UID}:${GID} dnsstuff /app/dnsstuff
-COPY --chown=${UID}:${GID} netatmostuff /app/netatmostuff
-COPY --chown=${UID}:${GID} hydromailstuff /app/hydromailstuff
-COPY --chown=${UID}:${GID} k3shelperstuff /app/k3shelperstuff
-COPY --chown=${UID}:${GID} gcalstuff /app/gcalstuff
-COPY --chown=${UID}:${GID} dhcpstuff /app/dhcpstuff
-COPY --chown=${UID}:${GID} ucmstuff /app/ucmstuff
-COPY --chown=${UID}:${GID} uptimekumastuff /app/uptimekumastuff
-COPY --chown=${UID}:${GID} oepnvstuff /app/oepnvstuff
-COPY --chown=${UID}:${GID} mqttwebstuff /app/mqttwebstuff
-COPY --chown=${UID}:${GID} broadlinkstuff /app/broadlinkstuff
+COPY --chown=${UID}:${GID} somestuff /app/somestuff
 
 COPY --chown=${UID}:${GID} config.py config.yaml Helper.py README.md /app/
 

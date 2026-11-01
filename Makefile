@@ -69,7 +69,6 @@ isort: venv
 
 tcheck: venv
 	@$(venv_activated)
-	# mypy *.py ecowittstuff/*.py llmstuff/*.py dnsstuff/*.py netatmostuff/*.py hydromailstuff/*.py k3shelperstuff/*.py gcalstuff/*.py
 	mypy .
 
 gitleaks: venv .git/hooks/pre-commit

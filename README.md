@@ -79,7 +79,7 @@ DHCP discovery and diagnostic tools. Includes a Python DHCP Discover sender that
 
 - CLI usage (requires root):
 ```bash
-sudo python -m dhcpstuff -i eth0 -a efi64
+sudo python -m somestuff.dhcpstuff -i eth0 -a efi64
 ```
 - Flags: `-i` interface, `-t` timeout, `-m` MAC, `-a` PXE architecture (`bios`, `efi64`, `efi64-http`).
 - The bash script `diagnose-dhcp.sh` checks cloud-init, netplan, systemd-networkd, NetworkManager, kernel cmdline, leases, and hooks for unwanted DHCP sources.
@@ -90,15 +90,15 @@ sudo python -m dhcpstuff -i eth0 -a efi64
 ### broadlinkstuff
 Talk to Broadlink RM4 IR/RF blasters: address devices without a broadcast, learn IR/RF codes, send stored or raw codes, and compute Midea/Coolix air-conditioner codes instead of learning all 280 mode x fan x temperature combinations by hand.
 
-- Entrypoint: `broadlinkstuff/broadlinkhelper.py`
+- Entrypoint: `somestuff/broadlinkstuff/broadlinkhelper.py`
 - CLI usage:
 ```bash
-python -m broadlinkstuff.broadlinkhelper devices
-python -m broadlinkstuff.broadlinkhelper learn-ir Lounge
-python -m broadlinkstuff.broadlinkhelper climate Lounge --mode heat --temp 23
-python -m broadlinkstuff.broadlinkhelper special Lounge swing
+python -m somestuff.broadlinkstuff.broadlinkhelper devices
+python -m somestuff.broadlinkstuff.broadlinkhelper learn-ir Lounge
+python -m somestuff.broadlinkstuff.broadlinkhelper climate Lounge --mode heat --temp 23
+python -m somestuff.broadlinkstuff.broadlinkhelper special Lounge swing
 ```
-- Config: own YAML files, independent of the repo-wide `config.yaml` — `broadlinkstuff/broadlink.yaml` (documented sample, committed) with `broadlink.local.yaml` (real devices, gitignored, taken from the current working directory) merged over it. No devices configured means every command falls back to a broadcast search; `discover` prints a ready-made YAML block to paste in.
+- Config: own YAML files, independent of the repo-wide `config.yaml` — `somestuff/broadlinkstuff/broadlink.yaml` (documented sample, committed) with `broadlink.local.yaml` (real devices, gitignored, taken from the current working directory) merged over it. No devices configured means every command falls back to a broadcast search; `discover` prints a ready-made YAML block to paste in.
 - Logs go to stderr, payload (learned hex, config line, code listings) to stdout, so `learn-ir` can be piped.
 - `selftest` verifies the Coolix generator against the learned reference codes; `decode` analyses any packet without touching hardware.
 - Usefulness: script IR/RF devices (air conditioning, TVs) from Python or a shell without the vendor cloud, and generate every climate code instead of learning it.
@@ -113,7 +113,7 @@ Script to crawl SPF records (including nested `include:` chains) for one or more
 
 - CLI usage:
 ```
-python -m dnsstuff.spf_ipset_updater [--ipset-name NAME] [--ipset-type TYPE] [--dry-run] [domain ...]
+python -m somestuff.dnsstuff.spf_ipset_updater [--ipset-name NAME] [--ipset-type TYPE] [--dry-run] [domain ...]
 ```
 - Behavior:
   - Logs resolved IPv4s for each domain and combined total.
@@ -126,11 +126,11 @@ python -m dnsstuff.spf_ipset_updater [--ipset-name NAME] [--ipset-type TYPE] [--
 ### ecowittstuff
 Small client types and functions to call the Ecowitt API and parse real‑time weather data into typed models.
 
-- Main bits: `ecowittstuff/ecowittapi.py` defines `pydantic` models (e.g. `WeatherStationResponse`) and `get_realtime_data()`.
+- Main bits: `somestuff/ecowittstuff/ecowittapi.py` defines `pydantic` models (e.g. `WeatherStationResponse`) and `get_realtime_data()`.
 - Config required: `ecowitt.application_key`, `ecowitt.api_key`, `ecowitt.mac`, URLs in `config.yaml`.
 - Example:
 ```
-python -c "from ecowittstuff.ecowittapi import get_realtime_data; print(get_realtime_data())"
+python -c "from somestuff.ecowittstuff.ecowittapi import get_realtime_data; print(get_realtime_data())"
 ```
 - Usefulness: convenient, typed access to your Ecowitt station’s real‑time metrics for dashboards, alerts, and reports.
 
@@ -138,12 +138,12 @@ python -c "from ecowittstuff.ecowittapi import get_realtime_data; print(get_real
 ### gcalstuff
 CLI tool for creating Google Calendar events via OAuth2 Desktop flow. Shows all existing events for the target day across all user calendars and requires explicit confirmation before creating the new event.
 
-- Entrypoint: `gcalstuff/gcal_event.py`
+- Entrypoint: `somestuff/gcalstuff/gcal_event.py`
 - Setup: download OAuth2 Desktop credentials from Google Cloud Console to `~/.config/gcal/credentials.json`. On first run the browser‑based OAuth flow creates `~/.config/gcal/token.json`.
 - CLI usage:
 ```
-python -m gcalstuff.gcal_event "Meeting" 2025-07-15 14:00
-python -m gcalstuff.gcal_event "Lunch" 2025-07-15 12:00 -d 90 --description "Team lunch"
+python -m somestuff.gcalstuff.gcal_event "Meeting" 2025-07-15 14:00
+python -m somestuff.gcalstuff.gcal_event "Lunch" 2025-07-15 12:00 -d 90 --description "Team lunch"
 ```
 - Dependencies: `google-auth`, `google-auth-oauthlib`, `google-api-python-client`.
 - Docker: the initial OAuth flow opens a browser, so run it on the host first. After that, mount `~/.config/gcal` into the container (read‑write, since the token gets refreshed). The `dstart` Makefile target already includes this mount.
@@ -153,16 +153,16 @@ python -m gcalstuff.gcal_event "Lunch" 2025-07-15 12:00 -d 90 --description "Tea
 ### hydromailstuff
 Compose and send a status email summarizing recent measurements (e.g., water level, rain totals, ambient data). Pulls latest values from MQTT topics and Netatmo.
 
-- Entrypoint: `hydromailstuff/hydromail.py` → `do_main_stuff()`.
+- Entrypoint: `somestuff/hydromailstuff/hydromail.py` → `do_main_stuff()`.
 - Needs config: email settings, MQTT (`mqtt.*`), and Netatmo credentials under `netatmo.*` in `config.yaml`.
-- There are example deployment/cron YAMLs in `hydromailstuff/somestuff_hydromail_cronjob.yml`.
+- There are example deployment/cron YAMLs in `somestuff/hydromailstuff/somestuff_hydromail_cronjob.yml`.
 - Usefulness: periodic email digests for environmental monitoring.
 
 
 ### llmstuff
 Helper utilities to interact with LLM providers or local OCR pipelines.
 
-- Files: `llmstuff/llmhelper.py`, `llmbatchhelper.py`, `ollamadeepseekocr.py`.
+- Files: `somestuff/llmstuff/llmhelper.py`, `llmbatchhelper.py`, `ollamadeepseekocr.py`.
 - Config: keys under `google.*` and `anthropic.*` in `config.yaml` if you want to call those providers.
 - Usefulness: quick building blocks when experimenting with LLMs and OCR.
 
@@ -177,7 +177,7 @@ Minimal MQTT wrapper(s) and helpers. **This is now an external package** — see
 ### netatmostuff
 Read Netatmo measurements and provide a deployment example.
 
-- Files: `netatmostuff/lnetatmo.py`, deployment example `somestuff_netatmo_deployment.yml`.
+- Files: `somestuff/netatmostuff/lnetatmo.py`, deployment example `somestuff_netatmo_deployment.yml`.
 - Config: `netatmo.username/password/client_id/client_secret` (and optional module IDs) in `config.yaml`.
 - Usefulness: sourcing outdoor temperature, rainfall, pressure, etc., for dashboards or mail digests.
 
@@ -185,14 +185,14 @@ Read Netatmo measurements and provide a deployment example.
 ### k3shelperstuff
 Helpers around a K3s/Kubernetes cluster: kubeconfig credential synchronization, client certificates for new users, a Keel image-drift checker, and a version-pin drift checker.
 
-- Entrypoints: `k3shelperstuff/update_local_k3s_keys.py`, `k3shelperstuff/k8s_user_cert.py`, `k3shelperstuff/keel_drift.py`, `k3shelperstuff/pin_drift.py`
+- Entrypoints: `somestuff/k3shelperstuff/update_local_k3s_keys.py`, `somestuff/k3shelperstuff/k8s_user_cert.py`, `somestuff/k3shelperstuff/keel_drift.py`, `somestuff/k3shelperstuff/pin_drift.py`
 - CLI usage:
 ```
-python -m k3shelperstuff.update_local_k3s_keys
-python -m k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
-python -m k3shelperstuff.keel_drift --drift-only --fix-command
-python -m k3shelperstuff.pin_drift --updates-only
-python -m k3shelperstuff.k8s_user_cert extern-admin --role view -o /tmp/extern.yaml
+python -m somestuff.k3shelperstuff.update_local_k3s_keys
+python -m somestuff.k3shelperstuff.update_local_k3s_keys -H myserver -c my-k3s-context
+python -m somestuff.k3shelperstuff.keel_drift --drift-only --fix-command
+python -m somestuff.k3shelperstuff.pin_drift --updates-only
+python -m somestuff.k3shelperstuff.k8s_user_cert extern-admin --role view -o /tmp/extern.yaml
 ```
 - `update_local_k3s_keys`: fetches the kubeconfig from a remote K3s server via SSH, compares user credentials and cluster CA data against the local `~/.kube/config`, and interactively updates any differences. Remote host and context are auto‑detected from the current‑context in the local kubeconfig if not provided.
 - `k8s_user_cert`: generates an RSA key + CSR, gets it signed by the cluster CA via the `certificates.k8s.io` API, optionally creates the RoleBinding/ClusterRoleBinding, and merges cluster/user/context into a kubeconfig (mode `0600`). By default the certificate carries no group, so `--role`/`--namespace` actually govern what the user may do; `--group system:masters` is opt-in and would bypass RBAC entirely.
@@ -250,7 +250,7 @@ Run interactively (example):
 docker run --rm -it \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   xomoxcc/somestuff:python-3.14-slim-trixie \
-  python -m dnsstuff.spf_ipset_updater pcbway.com
+  python -m somestuff.dnsstuff.spf_ipset_updater pcbway.com
 ```
 
 ### Local build and multi‑arch push via buildx
