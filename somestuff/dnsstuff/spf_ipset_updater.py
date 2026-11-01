@@ -6,7 +6,7 @@ via the pyroute2 netlink interface. Designed for maintaining firewall
 allowlists on mail relay hosts.
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/dnsstuff/spf_ipset_updater.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/dnsstuff/spf_ipset_updater.py
 """
 
 import argparse

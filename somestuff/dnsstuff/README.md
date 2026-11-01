@@ -44,7 +44,7 @@ update-21vianet-ips --ipset-name-all 21vianet_exchange --ipset-name-smtp 21viane
 python3 -m somestuff.dnsstuff.update_21vianet_ips --force --dry-run
 
 mdns-who printer.local
-python3 -m somestuff.dnsstuff.mdns_who printer --timeout 3 --unicast --iface 192.168.1.5
+python3 -m somestuff.dnsstuff.mdns_who printer --timeout 3 --unicast --iface 192.0.2.5
 ```
 
 Common flags: `--dry-run` populates the ipset but skips the atomic swap,

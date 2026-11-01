@@ -27,7 +27,7 @@ Logs go to stderr, payload to stdout — so ``learn-ir`` can be put into a pipe
 without log lines coming along.
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/broadlinkstuff/broadlinkhelper.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/broadlinkstuff/broadlinkhelper.py
 """
 
 import json

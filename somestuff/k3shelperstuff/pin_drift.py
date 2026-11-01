@@ -30,7 +30,7 @@ Examples:
     python3 -m somestuff.k3shelperstuff.pin_drift --updates-only         # hide the pins that are current
     python3 -m somestuff.k3shelperstuff.pin_drift --only hermes-agent    # a single pin (repeatable)
     python3 -m somestuff.k3shelperstuff.pin_drift --config ../pin_drift.yml
-    python3 -m somestuff.k3shelperstuff.pin_drift --context ht@dgxarley  # running versions from this context
+    python3 -m somestuff.k3shelperstuff.pin_drift --context admin@my-cluster  # running versions from this context
     python3 -m somestuff.k3shelperstuff.pin_drift --no-running           # repo against upstream only
 
 Every option can also be given as a ``PIN_DRIFT_*`` environment variable (the
@@ -64,7 +64,7 @@ Attributes:
     STATUS_STYLE: Rich style per status in the result table.
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/pin_drift.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/k3shelperstuff/pin_drift.py
 """
 
 import logging

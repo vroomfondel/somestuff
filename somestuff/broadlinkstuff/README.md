@@ -133,9 +133,9 @@ broadlink:
   devices:
     Lounge:
       devtype: 0x649B   # RM4 pro
-      host: "192.168.101.173"
+      host: "192.0.2.173"
       port: 80
-      mac: "a043b0543a36"
+      mac: "020000ab0173"
 ```
 
 | Field     | Meaning                                                                                                                                                                                                                                                                  |

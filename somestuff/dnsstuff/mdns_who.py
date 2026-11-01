@@ -30,12 +30,12 @@ shared with the rest of the package via :mod:`dnsstuff`.
 
 Usage::
 
-    python3 -m somestuff.dnsstuff.mdns_who spark5.local
-    python3 -m somestuff.dnsstuff.mdns_who spark5 --timeout 3 --unicast
-    python3 -m somestuff.dnsstuff.mdns_who spark5.local --iface 192.168.191.205   # pin the send interface
+    python3 -m somestuff.dnsstuff.mdns_who printer.local
+    python3 -m somestuff.dnsstuff.mdns_who printer --timeout 3 --unicast
+    python3 -m somestuff.dnsstuff.mdns_who printer.local --iface 192.0.2.205   # pin the send interface
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/dnsstuff/mdns_who.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/dnsstuff/mdns_who.py
 """
 
 import argparse
@@ -67,7 +67,7 @@ Record = tuple[str, int, bool, str]
 # DNS wire helpers
 # --------------------------------------------------------------------------- #
 def encode_name(name: str) -> bytes:
-    """Encode a dotted name into DNS label form (b'\\x06spark5\\x05local\\x00')."""
+    """Encode a dotted name into DNS label form (b'\\x07printer\\x05local\\x00')."""
     out = bytearray()
     for label in name.rstrip(".").split("."):
         b = label.encode("utf-8")

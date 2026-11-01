@@ -18,10 +18,10 @@ Example:
 
     Create a new context for a freshly installed cluster::
 
-        python update_local_k3s_keys.py --create --yes -H 192.168.191.10 -c ht@dgxarley
+        python update_local_k3s_keys.py --create --yes -H 192.0.2.10 -c admin@my-cluster
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/update_local_k3s_keys.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/k3shelperstuff/update_local_k3s_keys.py
 """
 
 import argparse
@@ -354,7 +354,7 @@ def create_context(
         context_name: Name to assign to the new kubeconfig context.
         cluster_name: Name to assign to the new cluster entry.
         user_name: Name to assign to the new user entry.
-        server_url: Full K3s API server URL, e.g. ``https://192.168.191.10:6443``.
+        server_url: Full K3s API server URL, e.g. ``https://192.0.2.10:6443``.
         remote_creds: The remote user credential dict supplying
             ``client-certificate-data`` and ``client-key-data``.
         remote_ca: Base64-encoded CA certificate string for the cluster entry.

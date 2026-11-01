@@ -9,7 +9,7 @@ Examples:
     python3 -m somestuff.k3shelperstuff.drift keel [keel-drift options]
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/drift.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/k3shelperstuff/drift.py
 """
 
 import os

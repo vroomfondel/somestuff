@@ -266,7 +266,7 @@ pin-drift                        # every declared pin
 pin-drift --updates-only         # hide the pins that are current
 pin-drift --only mosquitto       # a single pin (repeatable)
 pin-drift --config ../pin_drift.yml
-pin-drift --context ht@heidk8    # running versions from this context
+pin-drift --context admin@my-cluster    # running versions from this context
 pin-drift --no-running           # repo against upstream only
 python3 -m somestuff.k3shelperstuff.pin_drift --updates-only
 ```

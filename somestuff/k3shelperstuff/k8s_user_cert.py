@@ -41,7 +41,7 @@ Exit codes:
   time, or the kubeconfig could not be written.
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/k8s_user_cert.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/k3shelperstuff/k8s_user_cert.py
 """
 
 import base64

@@ -149,7 +149,7 @@ monitors:
     type: ping
     parent: outdoormesh                # name, not ID
     notifications: [Mein Gotify Alarm (1)]  # names, not IDs
-    hostname: 192.168.101.51
+    hostname: 192.0.2.51
     active: true
 ```
 

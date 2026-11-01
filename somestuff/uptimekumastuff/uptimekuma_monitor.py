@@ -182,7 +182,7 @@ EXAMPLES = r"""
   tasks:
     - name: Create group
       uptimekuma_monitor:
-        url: https://uptimekuma.heidk8.elasticc.io
+        url: https://uptimekuma.example.lan
         username: "{{ uptimekuma_admin_user }}"
         password: "{{ uptimekuma_admin_password }}"
         name: outdoormesh
@@ -190,7 +190,7 @@ EXAMPLES = r"""
 
     - name: MQTT check in the group
       uptimekuma_monitor:
-        url: https://uptimekuma.heidk8.elasticc.io
+        url: https://uptimekuma.example.lan
         username: "{{ uptimekuma_admin_user }}"
         password: "{{ uptimekuma_admin_password }}"
         name: husqvarna/automower/pongs
@@ -211,7 +211,7 @@ EXAMPLES = r"""
 # From a play that runs against real hosts: delegate to the control node.
 - name: Monitor for this host
   uptimekuma_monitor:
-    url: https://uptimekuma.heidk8.elasticc.io
+    url: https://uptimekuma.example.lan
     username: "{{ uptimekuma_admin_user }}"
     password: "{{ uptimekuma_admin_password }}"
     name: "ping-{{ inventory_hostname }}"
@@ -221,7 +221,7 @@ EXAMPLES = r"""
 
 - name: Remove monitor
   uptimekuma_monitor:
-    url: https://uptimekuma.heidk8.elasticc.io
+    url: https://uptimekuma.example.lan
     username: "{{ uptimekuma_admin_user }}"
     password: "{{ uptimekuma_admin_password }}"
     name: old-check

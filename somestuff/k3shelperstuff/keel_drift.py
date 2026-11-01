@@ -20,7 +20,7 @@ Run as ``python3 -m somestuff.k3shelperstuff.keel_drift``.
 
 Examples:
     python3 -m somestuff.k3shelperstuff.keel_drift                          # every tracked workload
-    python3 -m somestuff.k3shelperstuff.keel_drift --context ht@dgxarley    # a specific kubeconfig context
+    python3 -m somestuff.k3shelperstuff.keel_drift --context admin@my-cluster    # a specific kubeconfig context
     python3 -m somestuff.k3shelperstuff.keel_drift --namespace somestuff    # a single namespace
     python3 -m somestuff.k3shelperstuff.keel_drift --drift-only --quiet     # drift only, terse
     python3 -m somestuff.k3shelperstuff.keel_drift --fix-command            # print rollout-restart commands
@@ -34,7 +34,7 @@ Exit codes:
     * ``2`` -- no usable kubeconfig / in-cluster context.
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/k3shelperstuff/keel_drift.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/k3shelperstuff/keel_drift.py
 """
 
 import base64

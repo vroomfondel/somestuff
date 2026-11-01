@@ -11,7 +11,7 @@ Cron example (daily at 03:00)::
     0 3 * * * /usr/bin/python3 /opt/scripts/update_21vianet_ips.py 2>&1 | logger -t 21vianet
 
 Author: vroomfondel
-Source: https://github.com/vroomfondel/somestuff/blob/main/dnsstuff/update_21vianet_ips.py
+Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/dnsstuff/update_21vianet_ips.py
 """
 
 import argparse
