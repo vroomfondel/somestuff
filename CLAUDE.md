@@ -50,37 +50,37 @@ All packages live under `somestuff/<pkg>/`. `somestuff` is a PEP 420 namespace p
 
 ### Key Modules
 
-| Module                       | Purpose                                                     |
-|------------------------------|-------------------------------------------------------------|
-| `somestuff/broadlinkstuff/`            | Broadlink RM4 IR/RF blaster: device fleet, IR/RF learning, Coolix (Midea) climate codec, Typer CLI (`broadlinkhelper`; own `broadlink.yaml` + `broadlink.local.yaml`, not the repo-wide config) |
-| `somestuff/dhcpstuff/dhcp_discover.py` | DHCP Discover sender with PXE/Proxy DHCP support            |
-| `somestuff/dnsstuff/spf_ipset_updater.py` | SPF record crawler → ipset updater for SMTP allowlisting |
-| `somestuff/ecowittstuff/ecowittapi.py` | Ecowitt weather station API client (typed with Pydantic)    |
-| `somestuff/gcalstuff/gcal_event.py`   | Google Calendar event creation CLI (OAuth2)                 |
-| `somestuff/hydromailstuff/hydromail.py`| Assembles status emails from MQTT/Netatmo data              |
-| `somestuff/k3shelperstuff/`           | K3s kubeconfig credential sync via SSH (`update_local_k3s_keys`), user client certificates via the CSR API (`k8s_user_cert`, Typer CLI, `K8S_USER_CERT_*` env) + Keel image-drift checker (`keel_drift`, Typer CLI, `KEEL_*` env) + version-pin vs. upstream-release checker (`pin_drift`, Typer CLI, `pin_drift.yml`, `PIN_DRIFT_*` env) + `drift` (both as subcommands `pin`/`keel` of one Typer CLI; `DRIFT_PROG_NAME` sets the name shown in `--help`) |
-| `somestuff/llmstuff/`                  | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)      |
-| `somestuff/netatmostuff/lnetatmo.py`   | Netatmo weather data client                                 |
-| `sipstuff/`                 | **Moved** to [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff) |
-| `somestuff/ucmstuff/`                  | Grandstream UCM6204 IP-PBX monitor/control: WebSocket events (`UCMEventClient`) + HTTPS-API control (`UCM6204`/`UCM6204Rest`), trunk call router, Typer CLI |
-| `somestuff/uptimekumastuff/`           | Uptime-Kuma 2.x provisioning/migration: `KumaClient` (direct Socket.IO, fresh reads, idempotent upserts), `uptimekuma_apply` (YAML → idempotent apply, Typer CLI), `SimpleKumaApi` (full export/import, Typer CLI) |
-| `somestuff/oepnvstuff/`                | GTFS-Realtime coverage checker: `RealtimeMonitor` (poll loop, staleness detection, pluggable `on_*` handlers), MQTT bridge, Typer CLI (`check_realtime`, `OEPNV_*` env) |
-| `somestuff/mqttwebstuff/`              | Live web view onto MQTT streams: mountable mapper plugins (`plugin_api.ViewEvent`), `ViewHub` (last-value cache + SSE fan-out), FastAPI + htmx/PicoCSS frontend, Typer CLI (`serve`, `MQTTWEB_*` env) |
-| `packaging/`                 | One `<pkg>.toml` per PyPI distribution (`somestuff-<pkg>`), copied into `build/<pkg>/pyproject.toml` by `make stage-<pkg>` |
-| `scripts/`                   | Build helper scripts (`include.sh`, `update_badge.py`, `check_dist_secrets.py`: gate that refuses sdists/wheels with files outside the hatch allowlist or a `somestuff/__init__.py`) |
+| Module                                    | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+|-------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `somestuff/broadlinkstuff/`               | Broadlink RM4 IR/RF blaster: device fleet, IR/RF learning, Coolix (Midea) climate codec, Typer CLI (`broadlinkhelper`; own `broadlink.yaml` + `broadlink.local.yaml`, not the repo-wide config)                                                                                                                                                                                                                                                            |
+| `somestuff/dhcpstuff/dhcp_discover.py`    | DHCP Discover sender with PXE/Proxy DHCP support                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `somestuff/dnsstuff/spf_ipset_updater.py` | SPF record crawler → ipset updater for SMTP allowlisting                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `somestuff/ecowittstuff/ecowittapi.py`    | Ecowitt weather station API client (typed with Pydantic)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `somestuff/gcalstuff/gcal_event.py`       | Google Calendar event creation CLI (OAuth2)                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `somestuff/hydromailstuff/hydromail.py`   | Assembles status emails from MQTT/Netatmo data                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `somestuff/k3shelperstuff/`               | K3s kubeconfig credential sync via SSH (`update_local_k3s_keys`), user client certificates via the CSR API (`k8s_user_cert`, Typer CLI, `K8S_USER_CERT_*` env) + Keel image-drift checker (`keel_drift`, Typer CLI, `KEEL_*` env) + version-pin vs. upstream-release checker (`pin_drift`, Typer CLI, `pin_drift.yml`, `PIN_DRIFT_*` env) + `drift` (both as subcommands `pin`/`keel` of one Typer CLI; `DRIFT_PROG_NAME` sets the name shown in `--help`) |
+| `somestuff/llmstuff/`                     | LLM API helpers (Google Gemini, Anthropic, Ollama OCR)                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `somestuff/netatmostuff/lnetatmo.py`      | Netatmo weather data client                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `sipstuff/`                               | **Moved** to [github.com/vroomfondel/sipstuff](https://github.com/vroomfondel/sipstuff)                                                                                                                                                                                                                                                                                                                                                                    |
+| `somestuff/ucmstuff/`                     | Grandstream UCM6204 IP-PBX monitor/control: WebSocket events (`UCMEventClient`) + HTTPS-API control (`UCM6204`/`UCM6204Rest`), trunk call router, Typer CLI                                                                                                                                                                                                                                                                                                |
+| `somestuff/uptimekumastuff/`              | Uptime-Kuma 2.x provisioning/migration: `KumaClient` (direct Socket.IO, fresh reads, idempotent upserts), `uptimekuma_apply` (YAML → idempotent apply, Typer CLI), `SimpleKumaApi` (full export/import, Typer CLI)                                                                                                                                                                                                                                         |
+| `somestuff/oepnvstuff/`                   | GTFS-Realtime coverage checker: `RealtimeMonitor` (poll loop, staleness detection, pluggable `on_*` handlers), MQTT bridge, Typer CLI (`check_realtime`, `OEPNV_*` env)                                                                                                                                                                                                                                                                                    |
+| `somestuff/mqttwebstuff/`                 | Live web view onto MQTT streams: mountable mapper plugins (`plugin_api.ViewEvent`), `ViewHub` (last-value cache + SSE fan-out), FastAPI + htmx/PicoCSS frontend, Typer CLI (`serve`, `MQTTWEB_*` env)                                                                                                                                                                                                                                                      |
+| `packaging/`                              | One `<pkg>.toml` per PyPI distribution (`somestuff-<pkg>`), copied into `build/<pkg>/pyproject.toml` by `make stage-<pkg>`                                                                                                                                                                                                                                                                                                                                 |
+| `scripts/`                                | Build helper scripts (`include.sh`, `update_badge.py`, `check_dist_secrets.py`: gate that refuses sdists/wheels with files outside the hatch allowlist or a `somestuff/__init__.py`)                                                                                                                                                                                                                                                                       |
 
 ### Standalone Docker Images
 
 These subdirectories contain independent Docker image builds with their own `build.sh`:
 
-| Directory                  | Purpose                                              |
-|----------------------------|------------------------------------------------------|
-| `tangstuff/`               | Tang server for LUKS/Clevis network-bound encryption |
-| `mosquitto-2.1/`           | Mosquitto 2.1 MQTT broker with dynamic security      |
-| `python314jit/`            | Python 3.14 base image with JIT support              |
-| `python314pandasmultiarch/`| Python 3.14 base image with pandas (multi-arch)      |
-| `f2bapistuff/`             | fail2ban + remote ban API (`xomoxcc/f2b-api`)        |
-| `postfixpgsqlstuff/`       | Postfix with pgsql maps + policyd-spf for k8s pods   |
+| Directory                   | Purpose                                              |
+|-----------------------------|------------------------------------------------------|
+| `tangstuff/`                | Tang server for LUKS/Clevis network-bound encryption |
+| `mosquitto-2.1/`            | Mosquitto 2.1 MQTT broker with dynamic security      |
+| `python314jit/`             | Python 3.14 base image with JIT support              |
+| `python314pandasmultiarch/` | Python 3.14 base image with pandas (multi-arch)      |
+| `f2bapistuff/`              | fail2ban + remote ban API (`xomoxcc/f2b-api`)        |
+| `postfixpgsqlstuff/`        | Postfix with pgsql maps + policyd-spf for k8s pods   |
 
 ### Shared Utilities
 
@@ -121,3 +121,10 @@ These subdirectories contain independent Docker image builds with their own `bui
 - No section banners (`# ---- Helper ----`).
 - No meta comments about the editing process itself ("newly added", "adjusted as requested").
 - When in doubt: no comment.
+
+## Markdown Tables
+
+- Every Markdown table (README, CLAUDE.md, concept docs) is column-aligned: cells padded with spaces so all `|` line up, the separator row `|---|` spans the full column width, right-aligned columns (`---:`) are padded on the left.
+- Width is display width: umlauts and emoji count as they are rendered.
+- A cell gets shorter or longer: adjust the padding behind it so the closing `|` stays put. New content exceeds the column width: re-align the **whole** table, header and separator row included.
+- New rows and new tables are written aligned as well. No compact `| a | b |` rows, no blind `sed` on table rows.

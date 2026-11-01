@@ -23,17 +23,17 @@ python gcal_event.py "Meeting" 2025-07-15 14:00
 python gcal_event.py "Lunch" 2025-07-15 12:00 -d 90 --description "Team lunch"
 ```
 
-| Option | Description |
-|---|---|
-| `title` | Event title (positional) |
-| `date` | Event date as `YYYY-MM-DD` (positional) |
-| `start_time` | Start time as `HH:MM` (positional) |
-| `-d`, `--duration` | Duration in minutes (default: 60) |
-| `--description` | Optional event description |
-| `--calendar-id` | Target calendar ID (default: `primary`) |
-| `--credentials` | Path to OAuth2 credentials.json |
-| `--token` | Path to cached token.json |
-| `--timezone` | IANA timezone (default: `Europe/Berlin`) |
+| Option             | Description                              |
+|--------------------|------------------------------------------|
+| `title`            | Event title (positional)                 |
+| `date`             | Event date as `YYYY-MM-DD` (positional)  |
+| `start_time`       | Start time as `HH:MM` (positional)       |
+| `-d`, `--duration` | Duration in minutes (default: 60)        |
+| `--description`    | Optional event description               |
+| `--calendar-id`    | Target calendar ID (default: `primary`)  |
+| `--credentials`    | Path to OAuth2 credentials.json          |
+| `--token`          | Path to cached token.json                |
+| `--timezone`       | IANA timezone (default: `Europe/Berlin`) |
 
 ## Docker usage
 

@@ -86,16 +86,16 @@ The file `/etc/haproxy/trusted_proxies.lst` (populated via `Dockerfile` and used
 
 ### Configuration (Environment Variables)
 
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `TANGPORT` | `9090` | Internal port where `tangd` listens. |
-| `TANGDATADIR` | `/var/lib/tang` | Directory where Tang keys are stored. |
-| `USEHAPROXY` | `1` | Enable/Disable HAProxy (1 to enable, 0 to disable). |
-| `HAPROXYPORT` | `80` | Port HAProxy listens on. |
-| `HAPROXYACCEPTPROXY`| `1` | Enable PROXY protocol support in HAProxy. |
-| `USENGINX` | `0` | Enable/Disable Nginx (1 to enable, 0 to disable). |
-| `NGINXPORT` | `80` | Port Nginx listens on. |
-| `NGINXACCEPTPROXY` | `1` | Enable PROXY protocol support in Nginx. |
+| Variable             | Default         | Description                                         |
+|:---------------------|:----------------|:----------------------------------------------------|
+| `TANGPORT`           | `9090`          | Internal port where `tangd` listens.                |
+| `TANGDATADIR`        | `/var/lib/tang` | Directory where Tang keys are stored.               |
+| `USEHAPROXY`         | `1`             | Enable/Disable HAProxy (1 to enable, 0 to disable). |
+| `HAPROXYPORT`        | `80`            | Port HAProxy listens on.                            |
+| `HAPROXYACCEPTPROXY` | `1`             | Enable PROXY protocol support in HAProxy.           |
+| `USENGINX`           | `0`             | Enable/Disable Nginx (1 to enable, 0 to disable).   |
+| `NGINXPORT`          | `80`            | Port Nginx listens on.                              |
+| `NGINXACCEPTPROXY`   | `1`             | Enable PROXY protocol support in Nginx.             |
 
 ### Docker Usage
 
