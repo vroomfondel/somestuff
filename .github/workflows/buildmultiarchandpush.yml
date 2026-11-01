@@ -73,7 +73,7 @@ jobs:
       postfixpgsqlstuff: ${{ steps.filter.outputs.postfixpgsqlstuff }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 2
 
@@ -131,18 +131,18 @@ jobs:
       # Get the repository's code
       # NOTE: not really needed since build-push-action uses the "Git context"
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       # https://github.com/docker/setup-qemu-action
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       # https://github.com/docker/setup-buildx-action
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: get some runtime info
         run: |
@@ -153,7 +153,7 @@ jobs:
           tree
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -165,7 +165,7 @@ jobs:
           echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -187,16 +187,16 @@ jobs:
     if: ${{ needs.build-selector.outputs.mosquitto == 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -208,7 +208,7 @@ jobs:
           echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
 
       - name: Build and push mosquitto
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./mosquitto-2.1
           platforms: linux/amd64,linux/arm64
@@ -223,16 +223,16 @@ jobs:
     if: ${{ needs.build-selector.outputs.tangstuff == 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -244,7 +244,7 @@ jobs:
           echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
 
       - name: Build and push tang
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./tangstuff
           platforms: linux/amd64,linux/arm64
@@ -262,16 +262,16 @@ jobs:
     if: ${{ needs.build-selector.outputs.python314jit == 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -283,7 +283,7 @@ jobs:
           echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
 
       - name: Build and push python314-jit
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./python314jit
           platforms: linux/amd64,linux/arm64
@@ -299,16 +299,16 @@ jobs:
     if: ${{ needs.build-selector.outputs.python314pandasmultiarch == 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -320,7 +320,7 @@ jobs:
           echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
 
       - name: Build and push pythonpandasmultiarch
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./python314pandasmultiarch
           platforms: linux/amd64,linux/arm64
@@ -340,16 +340,16 @@ jobs:
     if: ${{ needs.build-selector.outputs.f2bapistuff == 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -365,7 +365,7 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
       - name: Build and push f2b-api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./f2bapistuff
           platforms: linux/amd64,linux/arm64
@@ -381,16 +381,16 @@ jobs:
     if: ${{ needs.build-selector.outputs.postfixpgsqlstuff == 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -402,7 +402,7 @@ jobs:
           echo "buildtime=${BUILDTIME}" >> $GITHUB_OUTPUT
 
       - name: Build and push postfix-pgsql
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./postfixpgsqlstuff
           platforms: linux/amd64,linux/arm64
