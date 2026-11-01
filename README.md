@@ -15,7 +15,6 @@ Quick links:
 
 Contents overview (Python packages/modules):
 - `broadlinkstuff`: Broadlink RM4 IR/RF blaster — learn/send codes and compute the full Coolix (Midea) climate matrix
-- `dinogame`: pathfinding/visualization playground inspired by "The Farmer Was Replaced"
 - `dnsstuff`: SPF resolution helper and ipset updater for allow‑listing email senders (e.g. pcbway.com)
 - `ecowittstuff`: simple client/types for Ecowitt weather station API
 - `gcalstuff`: CLI tool for creating Google Calendar events with day‑view confirmation
@@ -105,16 +104,8 @@ python -m broadlinkstuff.broadlinkhelper special Lounge swing
 - Usefulness: script IR/RF devices (air conditioning, TVs) from Python or a shell without the vendor cloud, and generate every climate code instead of learning it.
 
 
-### dinogame
-Pathfinding toy project and visualization to prototype search/planning strategies on a grid world, loosely inspired by “The Farmer Was Replaced”. Useful to experiment with A* heuristics and safe‑move constraints while visualizing planning vs execution.
-
-- Entrypoint example: `dinogame/dinogame.py` contains a `main()` that renders a GIF of a planning/execution sequence.
-- Requirements: `matplotlib`, `numpy` (`matplotlib` is commented out in `requirements.txt` by default; enable it to use this module).
-- Run locally:
-```
-python -m dinogame.dinogame
-```
-This saves an animated GIF (via pillow) to your desktop by default; see code comments to tweak world size and frame count.
+### dinogame (archived)
+The grid pathfinding playground was removed from the tree; its last state is kept under the git tag `archive/dinogame`.
 
 
 ### dnsstuff (spf_ipset_updater)

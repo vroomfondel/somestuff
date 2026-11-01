@@ -52,7 +52,6 @@ RUN pip3 install --no-cache-dir --upgrade -r /requirements.txt
 
 # ADD --chown=${UID}:${GID} "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
 
-COPY --chown=${UID}:${GID} dinogame /app/dinogame
 COPY --chown=${UID}:${GID} ecowittstuff /app/ecowittstuff
 COPY --chown=${UID}:${GID} llmstuff /app/llmstuff
 COPY --chown=${UID}:${GID} dnsstuff /app/dnsstuff
