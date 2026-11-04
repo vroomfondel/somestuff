@@ -39,7 +39,7 @@ Network-Bound Disk Encryption (NBDE) allows for secure, automated unlocking of e
 
 ## Tang Server Container
 
-The provided [Dockerfile](Dockerfile) builds a robust Tang server image based on Debian Trixie.
+The provided [Dockerfile](https://github.com/vroomfondel/somestuff/blob/main/tangstuff/Dockerfile) builds a robust Tang server image based on Debian Trixie.
 
 ### Process Management (s6-overlay)
 
@@ -120,7 +120,7 @@ docker run -it --cap-add=NET_ADMIN -p 80:80 \
 
 ## Deployment (Kubernetes / k3s)
 
-The [`k3s_tang_deployment.yml`](k3s_tang_deployment.yml) file provides a production-ready manifest.
+The [`k3s_tang_deployment.yml`](https://github.com/vroomfondel/somestuff/blob/main/tangstuff/k3s_tang_deployment.yml) file provides a production-ready manifest.
 
 ### Service & Routing
 
@@ -201,7 +201,7 @@ sudo update-initramfs -u
 
 ### Connectivity Checks
 
-Use the provided script [`tang_check_connection.sh`](tang_check_connection.sh) to verify your setup:
+Use the provided script [`tang_check_connection.sh`](https://github.com/vroomfondel/somestuff/blob/main/tangstuff/tang_check_connection.sh) to verify your setup:
 ```bash
 sudo ./tang_check_connection.sh /dev/mapper/vg0-lv_data
 ```

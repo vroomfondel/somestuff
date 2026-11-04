@@ -322,7 +322,7 @@ This is a living collection; no strict semantic versioning. Expect occasional br
 
 
 ## License
-This project is licensed under the LGPL where applicable/possible — see [LICENSE.md](LICENSE.md). Some files/parts may use other licenses: [MIT](LICENSEMIT.md) | [GPL](LICENSEGPL.md) | [LGPL](LICENSELGPL.md). Always check per‑file headers/comments.
+This project is licensed under the LGPL where applicable/possible — see [LICENSE.md](https://github.com/vroomfondel/somestuff/blob/main/LICENSE.md). Some files/parts may use other licenses: [MIT](https://github.com/vroomfondel/somestuff/blob/main/LICENSEMIT.md) | [GPL](https://github.com/vroomfondel/somestuff/blob/main/LICENSEGPL.md) | [LGPL](https://github.com/vroomfondel/somestuff/blob/main/LICENSELGPL.md). Always check per‑file headers/comments.
 
 
 ## ⚠️ Note
