@@ -50,7 +50,7 @@ credentials and cluster CA data against the local kubeconfig, and interactively
 updates any differences.
 
 - Extracts client certificates, client keys, and cluster CA data from both remote and local kubeconfig
-- Shows truncated diffs without exposing full secrets
+- Shows decoded differences (fingerprint, validity, subject; public key fingerprint for the private key) without exposing secrets
 - Prompts before writing any changes
 - Auto-detects remote host and context from the current-context in `~/.kube/config`
 

@@ -25,13 +25,20 @@ Source: https://github.com/vroomfondel/somestuff/blob/main/somestuff/k3shelperst
 """
 
 import argparse
+import base64
+import hashlib
 import subprocess
 import sys
+from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlparse
 
 import yaml
+from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import hashes, serialization
 
 from somestuff.k3shelperstuff import configure_logging, print_banner
 
@@ -206,6 +213,56 @@ def get_cluster_ca(kubeconfig: KubeConfig, cluster_name: str) -> str | None:
     return None
 
 
+def _short_hex(digest: bytes) -> str:
+    return digest.hex()[:16]
+
+
+def _describe_undecodable(value: str) -> str:
+    return f"undecodable, sha256={_short_hex(hashlib.sha256(value.encode()).digest())}, {len(value)} chars"
+
+
+def describe_certificate(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        chain = x509.load_pem_x509_certificates(base64.b64decode(value))
+    except ValueError:
+        return _describe_undecodable(value)
+    leaf = chain[0]
+    not_after = leaf.not_valid_after_utc
+    remaining = not_after - datetime.now(timezone.utc)
+    status = f"{remaining.days}d left" if remaining.total_seconds() > 0 else "EXPIRED"
+    description = (
+        f"sha256={_short_hex(leaf.fingerprint(hashes.SHA256()))}"
+        f"  valid {leaf.not_valid_before_utc:%Y-%m-%d}..{not_after:%Y-%m-%d} ({status})"
+        f"  {leaf.subject.rfc4514_string()}"
+    )
+    return f"{description}  (+{len(chain) - 1} in chain)" if len(chain) > 1 else description
+
+
+def describe_private_key(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        key = serialization.load_pem_private_key(base64.b64decode(value), password=None)
+    except (ValueError, TypeError, UnsupportedAlgorithm):
+        return _describe_undecodable(value)
+    public_der = key.public_key().public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return f"public-key-sha256={_short_hex(hashlib.sha256(public_der).digest())}"
+
+
+def _difference(
+    remote: str | None, local: str | None, describe: Callable[[str | None], str | None]
+) -> dict[str, str | None]:
+    remote_text, local_text = describe(remote), describe(local)
+    if remote_text == local_text:
+        suffix = "  [decoded fields identical, raw value differs]"
+        return {"remote": f"{remote_text}{suffix}", "local": f"{local_text}{suffix}"}
+    return {"remote": remote_text, "local": local_text}
+
+
 def compare_credentials(
     remote: KubeEntry,
     local: KubeEntry,
@@ -217,7 +274,9 @@ def compare_credentials(
     Checks three fields: ``client-certificate-data``, ``client-key-data``
     (from the user credential dicts), and ``certificate-authority-data``
     (passed separately because it lives in the cluster entry).  Values that
-    differ are included in the result with a 50-character truncated preview.
+    differ are included in the result as decoded summaries: fingerprint,
+    validity and subject for certificates, public key fingerprint for the
+    private key, which is never shown itself.
 
     Args:
         remote: The remote user credential dict (``client-certificate-data``,
@@ -230,33 +289,24 @@ def compare_credentials(
 
     Returns:
         A dict mapping each differing field name to a sub-dict with ``remote``
-        and ``local`` keys, each holding the first 50 characters of the
-        respective value (suffixed with ``"..."``) or ``None``.  An empty dict
-        means all compared fields are identical.
+        and ``local`` keys, each holding the summary of the respective value
+        or ``None`` if it is absent.  An empty dict means all compared fields
+        are identical.
     """
     differences: dict[str, dict[str, str | None]] = {}
 
     remote_cert = _as_str(remote.get("client-certificate-data"))
     local_cert = _as_str(local.get("client-certificate-data"))
     if remote_cert != local_cert:
-        differences["client-certificate-data"] = {
-            "remote": remote_cert[:50] + "..." if remote_cert else None,
-            "local": local_cert[:50] + "..." if local_cert else None,
-        }
+        differences["client-certificate-data"] = _difference(remote_cert, local_cert, describe_certificate)
 
     remote_key = _as_str(remote.get("client-key-data"))
     local_key = _as_str(local.get("client-key-data"))
     if remote_key != local_key:
-        differences["client-key-data"] = {
-            "remote": remote_key[:50] + "..." if remote_key else None,
-            "local": local_key[:50] + "..." if local_key else None,
-        }
+        differences["client-key-data"] = _difference(remote_key, local_key, describe_private_key)
 
     if remote_ca != local_ca:
-        differences["certificate-authority-data"] = {
-            "remote": remote_ca[:50] + "..." if remote_ca else None,
-            "local": local_ca[:50] + "..." if local_ca else None,
-        }
+        differences["certificate-authority-data"] = _difference(remote_ca, local_ca, describe_certificate)
 
     return differences
 
@@ -267,7 +317,7 @@ def update_local_kubeconfig(
     user_name: str,
     cluster_name: str,
     remote_creds: KubeEntry,
-    remote_ca: str,
+    remote_ca: str | None,
 ) -> None:
     """Overwrite the credentials in an existing local kubeconfig context.
 
@@ -283,7 +333,7 @@ def update_local_kubeconfig(
         remote_creds: The remote user credential dict supplying the new
             ``client-certificate-data`` and ``client-key-data`` values.
         remote_ca: The new ``certificate-authority-data`` string for the cluster
-            entry.
+            entry.  When ``None`` or empty, the local CA is left untouched.
     """
     # Update user credentials
     for user in _as_list(kubeconfig.get("users", [])):
@@ -295,12 +345,13 @@ def update_local_kubeconfig(
             break
 
     # Update cluster CA
-    for cluster in _as_list(kubeconfig.get("clusters", [])):
-        if cluster.get("name") == cluster_name:
-            cluster_data = _as_dict(cluster.get("cluster", {}))
-            cluster_data["certificate-authority-data"] = remote_ca
-            cluster["cluster"] = cluster_data
-            break
+    if remote_ca:
+        for cluster in _as_list(kubeconfig.get("clusters", [])):
+            if cluster.get("name") == cluster_name:
+                cluster_data = _as_dict(cluster.get("cluster", {}))
+                cluster_data["certificate-authority-data"] = remote_ca
+                cluster["cluster"] = cluster_data
+                break
 
     # Write back
     with open(local_path, "w") as f:
@@ -622,7 +673,7 @@ def main() -> None:
                 local_user,
                 local_cluster,
                 remote_creds,
-                remote_ca or "",
+                remote_ca,
             )
         else:
             print("No changes made.")
