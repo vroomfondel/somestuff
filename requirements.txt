@@ -50,6 +50,10 @@ pathvalidate
 mqttstuff>=0.0.7
 reputils>=0.0.16
 
+# hassstuff (Home Assistant REST + WebSocket)
+httpx
+websockets
+
 # ucmstuff (Grandstream UCM6204 monitor + control)
 typer
 websocket-client

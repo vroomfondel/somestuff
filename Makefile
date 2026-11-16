@@ -1,4 +1,4 @@
-PUBLISHABLE := corestuff dnsstuff ucmstuff oepnvstuff mqttwebstuff uptimekumastuff k3shelperstuff dhcpstuff broadlinkstuff ecowittstuff netatmostuff hydromailstuff
+PUBLISHABLE := corestuff dnsstuff ucmstuff oepnvstuff mqttwebstuff uptimekumastuff k3shelperstuff dhcpstuff broadlinkstuff ecowittstuff netatmostuff hydromailstuff hassstuff
 PYPI_LOCAL  := scripts/include.local.sh
 .PHONY: tests help install venv lint dstart isort tcheck gitleaks build build-nfs update-all-dockerhub-readmes check-dockerhub-token commit-checks prepare dist-all clean-dist %
 # Pattern-built stage-/dist-/distcheck-<pkg> targets are not files; keep make from printing `rm` for them.

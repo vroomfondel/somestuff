@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somestuff-hassstuff"
+dynamic = ["version"]
+description = "Home Assistant over REST and WebSocket: typed clients plus a CLI for states, registries, helpers, automations, traces and Lovelace dashboards"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
+license-files = ["LICENSE.md"]
+keywords = ["home-assistant", "hass", "websocket", "rest", "lovelace", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Home Automation",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.28",
+    "PyYAML>=6.0",
+    "typer>=0.27",
+    "websockets>=16.0",
+]
+
+[project.scripts]
+hass-api = "somestuff.hassstuff.cli:run"
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/somestuff"
+Repository = "https://github.com/vroomfondel/somestuff"
+Issues = "https://github.com/vroomfondel/somestuff/issues"
+
+[tool.hatch.version]
+path = "somestuff/hassstuff/__init__.py"
+
+# Build-level selection governs sdist AND wheel; a wheel-only `packages` leaves the sdist unscoped.
+# A target-level `exclude` replaces the build-level list instead of extending it, so each target carries the full set.
+[tool.hatch.build]
+packages = ["somestuff"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml", "**/*.sh"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml", "**/*.sh"]
+
+[tool.hatch.build.targets.wheel]
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.local.*", "**/*_deployment.yml", "**/*_cronjob.yml", "**/*.example", "**/*.example.yaml", "**/*.sh", "**/README.md"]

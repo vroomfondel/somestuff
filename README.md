@@ -22,6 +22,7 @@ Contents overview (Python packages/modules):
 - `k3shelperstuff`: K3s kubeconfig credential synchronization, user-certificate issuing, a Keel image-drift checker and a version-pin drift checker
 - `llmstuff`: helpers for working with LLM APIs and local OCR
 - `dhcpstuff`: DHCP discover tool and diagnostic script for unwanted DHCP on Linux
+- `hassstuff`: Home Assistant over REST and WebSocket — typed clients plus a CLI (`hass-api`) for states, entity/device/area registry, helpers, automations/scripts, traces and Lovelace dashboards
 - `netatmostuff`: Netatmo data fetch helper and deployment example
 - `ucmstuff`: Grandstream UCM6204 IP‑PBX monitor + control — WebSocket call events and HTTPS‑API control (accept/refuse/route incoming calls)
 - `uptimekumastuff`: Uptime‑Kuma export/import — pull the complete state (monitors, notifications, tags, status pages) via the Socket.IO API and write it into another instance
