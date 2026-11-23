@@ -89,7 +89,7 @@ python3 -m somestuff.k3shelperstuff.k8s_user_cert extern-admin
 ```
 
 | Option                 | Env var                          | Description                                                                        |
-|------------------------|----------------------------------|------------------------------------------------------------------------------------|
+|------------------------|------------------------------------|------------------------------------------------------------------------------------|
 | `USERNAME` (argument)  | —                                | Name of the new user; becomes the certificate's `CN`                               |
 | `-g`, `--group G`      | `K8S_USER_CERT_GROUPS`           | Group membership, repeatable, becomes an `O` (default: none — the binding decides) |
 | `-i`, `--input PATH`   | `K8S_USER_CERT_INPUT`            | Admin kubeconfig used to talk to the cluster (default: `~/.kube/config`)           |
@@ -227,22 +227,27 @@ pins:
     image: grafana/grafana           # matches `grafana/grafana:11.2.0`
     github: grafana/grafana
     tag_pattern: '^v\d+\.\d+\.\d+$'
+  - name: my-derived-image
+    file: deploy/app.yaml
+    image: myorg/app-tools
+    dockerhub: myorg/app-tools       # image tags on Docker Hub are the versions
 ```
 
-| Key                  | Meaning                                                                     |
-|----------------------|-----------------------------------------------------------------------------|
-| `name`               | Unique name, used by `--only`                                               |
-| `file` / `files`     | File(s) carrying the pin; several files must agree on the same value        |
-| `var`                | Extract from a `key: value` line                                            |
-| `image`              | Extract the tag after `image:`                                              |
-| `pattern`            | Raw regex with exactly one capture group                                    |
-| `github` / `forgejo` | `owner/repo` or `host/owner/repo` the releases come from                    |
-| `source`             | `releases` (default, drafts/prereleases skipped) or `tags`                  |
-| `tag_pattern`        | Filter for upstream tags (default: `^v?\d+(?:\.\d+)+$`)                     |
-| `running_image`      | Image(s) whose tags in live pods are the running version (default: `image`) |
-| `running_kubelet`    | `true`: the running version is the nodes' kubelet version (k3s, k8s)        |
+| Key                                | Meaning                                                                                        |
+|------------------------------------|------------------------------------------------------------------------------------------------|
+| `name`                             | Unique name, used by `--only`                                                                  |
+| `file` / `files`                   | File(s) carrying the pin; several files must agree on the same value                           |
+| `var`                              | Extract from a `key: value` line                                                               |
+| `image`                            | Extract the tag after `image:`                                                                 |
+| `pattern`                          | Raw regex with exactly one capture group                                                       |
+| `github` / `forgejo` / `dockerhub` | `owner/repo`, `host/owner/repo` or Docker Hub `owner/repo` (image tags) the versions come from |
+| `source`                           | `releases` (default, drafts/prereleases skipped) or `tags`; ignored for `dockerhub`            |
+| `tag_pattern`                      | Filter for upstream tags (default: `^v?\d+(?:\.\d+)+$`)                                        |
+| `running_image`                    | Image(s) whose tags in live pods are the running version (default: `image`)                    |
+| `running_kubelet`                  | `true`: the running version is the nodes' kubelet version (k3s, k8s)                           |
 
-Exactly one of `var`/`image`/`pattern` and one of `github`/`forgejo` is required.
+Exactly one of `var`/`image`/`pattern` and one of `github`/`forgejo`/`dockerhub` is required.
+Docker Hub tags are read newest-pushed first, up to 10 pages of 100.
 A pin shorter than the upstream version (`5.1` against `5.1.3`) is a floating
 tag and counts as current until a `5.2` appears. Files encrypted with git-crypt
 are reported as `unclear` instead of failing.
