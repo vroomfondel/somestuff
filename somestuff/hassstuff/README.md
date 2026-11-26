@@ -71,7 +71,44 @@ hass-api ws config/label_registry/list
 from somestuff.hassstuff.client import HassConfig, HassRest, HassWebSocket, default_token_file, default_url, load_token
 
 config = HassConfig(url=default_url(), token=load_token(None, default_token_file()))
+
+with HassRest(config) as rest, HassWebSocket(config) as ws:
+    print(rest.state("sun.sun").get("state"))
+    for entry in ws.entity_registry():
+        if entry.get("platform") == "mqtt":
+            print(entry.get("entity_id"))
 ```
+
+`get`, `post` and `call` return the full `JsonValue` union. The methods below check the shape at runtime and
+raise `HassError` (with the path or command in the message) if it does not match.
+
+| Method                                           | Returns                     | Checks                        |
+|--------------------------------------------------|-----------------------------|-------------------------------|
+| `HassRest.get_list(path, params)`                | `list[JsonObject]`          | list, every element an object |
+| `HassRest.get_object(path, params)`              | `JsonObject`                | object                        |
+| `HassRest.post_object(path, body, params)`       | `JsonObject`                | object                        |
+| `HassRest.states()`                              | `list[State]`               | as `get_list`                 |
+| `HassRest.state(entity_id)`                      | `State`                     | as `get_object`               |
+| `HassWebSocket.call_list(msg_type, **payload)`   | `list[JsonObject]`          | list, every element an object |
+| `HassWebSocket.call_object(msg_type, **payload)` | `JsonObject`                | object                        |
+| `HassWebSocket.entity_registry()`                | `list[EntityRegistryEntry]` | as `call_list`                |
+| `HassWebSocket.device_registry()`                | `list[DeviceRegistryEntry]` | as `call_list`                |
+| `HassWebSocket.area_registry()`                  | `list[AreaRegistryEntry]`   | as `call_list`                |
+| `HassWebSocket.statistic_ids(statistic_type)`    | `list[StatisticMeta]`       | as `call_list`                |
+
+The typed methods narrow with `cast` after the shape check; fields are not validated. The `TypedDict`s live in
+`somestuff.hassstuff.models` and are re-exported from `somestuff.hassstuff.client`. All are `total=False`, so
+read fields with `.get()`. mypy rejects an unknown key in `entry["…"]`; `entry.get("…")` with an unknown key
+is typed `object`, which only fails once the value is used as a concrete type.
+
+| Type                  | Source                           |
+|-----------------------|----------------------------------|
+| `Context`             | `context` of a `State`           |
+| `State`               | REST `/api/states`               |
+| `EntityRegistryEntry` | WS `config/entity_registry/list` |
+| `DeviceRegistryEntry` | WS `config/device_registry/list` |
+| `AreaRegistryEntry`   | WS `config/area_registry/list`   |
+| `StatisticMeta`       | WS `recorder/list_statistic_ids` |
 
 ## Limits
 
