@@ -32,6 +32,8 @@ from somestuff.hassstuff.client import JsonValue
 from somestuff.hassstuff.client import default_token_file
 from somestuff.hassstuff.client import default_url
 from somestuff.hassstuff.client import load_token
+from somestuff.hassstuff.models import EntityRegistryEntry
+from somestuff.hassstuff.models import State
 
 type ConfigKind = Literal["automation", "script"]
 
@@ -149,7 +151,7 @@ def _cfg(ctx: typer.Context) -> HassConfig:
     return options.config()
 
 
-def _dump(value: JsonValue, as_yaml: bool = False) -> None:
+def _dump(value: object, as_yaml: bool = False) -> None:
     """Print a JSON value as JSON or YAML.
 
     Args:
@@ -312,10 +314,8 @@ def info(ctx: typer.Context) -> None:
     """
     config = _cfg(ctx)
     with HassRest(config) as rest, HassWebSocket(config) as ws:
-        cfg = rest.get("/config")
-        user = ws.call("auth/current_user")
-    if not isinstance(cfg, dict) or not isinstance(user, dict):
-        raise HassError("unexpected answer")
+        cfg = rest.get_object("/config")
+        user = ws.call_object("auth/current_user")
     _dump(
         {
             "url": config.url,
@@ -344,8 +344,8 @@ def states(
         as_json: Print the raw state objects.
     """
     with HassRest(_cfg(ctx)) as rest:
-        items = _as_objects(rest.get("/states"))
-    selected: list[JsonObject] = []
+        items = rest.states()
+    selected: list[State] = []
     for st in items:
         entity_id = _s(st.get("entity_id"))
         attrs = st.get("attributes")
@@ -355,7 +355,7 @@ def states(
         if _matches(pattern, entity_id, name):
             selected.append(st)
     if as_json:
-        _dump(list[JsonValue](selected))
+        _dump(selected)
         return
     rows = []
     for st in sorted(selected, key=lambda s: _s(s.get("entity_id"))):
@@ -487,7 +487,7 @@ def logbook(
     """
     params = {"entity": entity_id} if entity_id else None
     with HassRest(_cfg(ctx)) as rest:
-        entries = _as_objects(rest.get(f"/logbook/{_since(hours)}", params))
+        entries = rest.get_list(f"/logbook/{_since(hours)}", params)
     for e in entries:
         context = " ".join(
             f"{k}={_s(e.get(k))}"
@@ -514,7 +514,7 @@ def _area_names(conn: HassWebSocket) -> dict[str, str]:
     Returns:
         ``{area_id: name}``.
     """
-    return {_s(a.get("area_id")): _s(a.get("name")) for a in _as_objects(conn.call("config/area_registry/list"))}
+    return {_s(a.get("area_id")): _s(a.get("name")) for a in conn.area_registry()}
 
 
 def _resolve_area(conn: HassWebSocket, area: str) -> str | None:
@@ -563,7 +563,7 @@ def devices(
     """
     with HassWebSocket(_cfg(ctx)) as conn:
         area_names = _area_names(conn)
-        items = _as_objects(conn.call("config/device_registry/list"))
+        items = conn.device_registry()
     rows = []
     for d in items:
         name = _s(d.get("name_by_user") or d.get("name"))
@@ -595,12 +595,10 @@ def entities(
     """
     with HassWebSocket(_cfg(ctx)) as conn:
         area_names = _area_names(conn)
-        device_area = {
-            _s(d.get("id")): _s(d.get("area_id")) for d in _as_objects(conn.call("config/device_registry/list"))
-        }
-        items = _as_objects(conn.call("config/entity_registry/list"))
+        device_area = {_s(d.get("id")): _s(d.get("area_id")) for d in conn.device_registry()}
+        items = conn.entity_registry()
         area_id = _resolve_area(conn, area) if area else None
-    selected: list[JsonObject] = []
+    selected: list[EntityRegistryEntry] = []
     rows = []
     for e in items:
         if e.get("disabled_by") and not include_disabled:
@@ -617,7 +615,7 @@ def entities(
         flags = ",".join(f for f, k in (("disabled", "disabled_by"), ("hidden", "hidden_by")) if e.get(k))
         rows.append([_s(e.get("entity_id")), name, area_names.get(eff_area, ""), _s(e.get("platform")), flags])
     if as_json:
-        _dump(list[JsonValue](selected))
+        _dump(selected)
         return
     _table(sorted(rows), ["ENTITY_ID", "NAME", "AREA", "PLATFORM", "FLAGS"])
 
@@ -769,9 +767,8 @@ def _config_id(rest: HassRest, kind: ConfigKind, ref: str) -> str:
         return ref
     if kind == "script":
         return ref.removeprefix("script.")
-    st = rest.get(f"/states/{ref}")
-    attrs = st.get("attributes") if isinstance(st, dict) else None
-    config_id = attrs.get("id") if isinstance(attrs, dict) else None
+    attrs = rest.state(ref).get("attributes")
+    config_id = attrs.get("id") if attrs else None
     if not config_id:
         raise HassError(f"{ref} has no id attribute (not managed by the UI config store)")
     return str(config_id)
@@ -786,7 +783,7 @@ def _config_list(ctx: typer.Context, kind: ConfigKind, pattern: str | None) -> N
         pattern: Filter on entity_id/name.
     """
     with HassRest(_cfg(ctx)) as rest:
-        items = _as_objects(rest.get("/states"))
+        items = rest.states()
     rows = []
     for st in items:
         entity_id = _s(st.get("entity_id"))
@@ -1017,7 +1014,7 @@ def trace_list(
         payload: JsonObject = {"domain": domain}
         if ref:
             payload["item_id"] = _trace_item_id(rest, domain, ref)
-        traces = _as_objects(conn.call("trace/list", **payload))
+        traces = conn.call_list("trace/list", **payload)
     rows = []
     for t in traces:
         error = _s(t.get("error"))
@@ -1059,7 +1056,7 @@ def trace_get(
     with HassRest(config) as rest, HassWebSocket(config) as conn:
         item_id = _trace_item_id(rest, domain, ref)
         if run_id is None:
-            traces = _as_objects(conn.call("trace/list", domain=domain, item_id=item_id))
+            traces = conn.call_list("trace/list", domain=domain, item_id=item_id)
             if not traces:
                 raise HassError(f"no traces for {domain} {item_id}")
             run_id = _s(max(traces, key=_trace_start).get("run_id"))
@@ -1077,7 +1074,7 @@ def dashboard_list(ctx: typer.Context) -> None:
         ctx: Typer context.
     """
     with HassWebSocket(_cfg(ctx)) as conn:
-        items = _as_objects(conn.call("lovelace/dashboards/list"))
+        items = conn.call_list("lovelace/dashboards/list")
     rows = [[_s(d.get("url_path")), _s(d.get("title")), _s(d.get("mode")), _s(d.get("id"))] for d in items]
     _table(sorted(rows), ["URL_PATH", "TITLE", "MODE", "ID"])
 
