@@ -255,3 +255,177 @@ def test_run_maps_errors_to_exit_1(
         cli.run()
     assert exc_info.value.code == 1
     assert capsys.readouterr().err.startswith("error: ")
+
+
+def _recording_rest(answer: httpx.Response, seen: list[httpx.Request]) -> HassRest:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return answer
+
+    return _rest(httpx.MockTransport(handler))
+
+
+def test_rest_get_list_and_get_object() -> None:
+    seen: list[httpx.Request] = []
+    with _recording_rest(httpx.Response(200, json=[{"a": 1}, {"b": 2}]), seen) as rest:
+        assert rest.get_list("/things", {"q": "x"}) == [{"a": 1}, {"b": 2}]
+    assert (seen[0].method, seen[0].url.path, dict(seen[0].url.params)) == ("GET", "/api/things", {"q": "x"})
+    seen.clear()
+    with _recording_rest(httpx.Response(200, json={"a": 1}), seen) as rest:
+        assert rest.get_object("/thing", {"q": "y"}) == {"a": 1}
+    assert (seen[0].method, seen[0].url.path, dict(seen[0].url.params)) == ("GET", "/api/thing", {"q": "y"})
+
+
+def test_rest_post_object() -> None:
+    seen: list[httpx.Request] = []
+    with _recording_rest(httpx.Response(200, json={"ok": True}), seen) as rest:
+        assert rest.post_object("/services/light/turn_on", {"entity_id": "light.a"}, {"return_response": "1"}) == {
+            "ok": True
+        }
+    assert (seen[0].method, seen[0].url.path, dict(seen[0].url.params)) == (
+        "POST",
+        "/api/services/light/turn_on",
+        {"return_response": "1"},
+    )
+    assert json.loads(seen[0].content) == {"entity_id": "light.a"}
+
+
+def test_rest_states_and_state() -> None:
+    states = [{"entity_id": "light.a", "state": "on", "attributes": {}}]
+    seen: list[httpx.Request] = []
+    with _recording_rest(httpx.Response(200, json=states), seen) as rest:
+        assert rest.states() == states
+    assert (seen[0].method, seen[0].url.path) == ("GET", "/api/states")
+    seen.clear()
+    with _recording_rest(httpx.Response(200, json=states[0]), seen) as rest:
+        assert rest.state("light.a") == states[0]
+    assert (seen[0].method, seen[0].url.path) == ("GET", "/api/states/light.a")
+
+
+@pytest.mark.parametrize(
+    ("method", "payload", "message"),
+    [
+        ("get_list", {"x": 1}, "/p: expected list, got dict"),
+        ("get_list", [1], "/p: expected object at index 0, got int"),
+        ("get_list", [{"a": 1}, "s"], "/p: expected object at index 1, got str"),
+        ("get_object", [{"x": 1}], "/p: expected object, got list"),
+        ("get_object", None, "/p: expected object, got NoneType"),
+        ("post_object", [{"x": 1}], "/p: expected object, got list"),
+    ],
+)
+def test_rest_shape_errors(method: str, payload: object, message: str) -> None:
+    with _rest(httpx.MockTransport(lambda request: httpx.Response(200, json=payload))) as rest:
+        with pytest.raises(HassError) as exc_info:
+            getattr(rest, method)("/p")
+    assert str(exc_info.value) == message
+
+
+@pytest.mark.parametrize(
+    ("call", "payload", "message"),
+    [
+        (lambda rest: rest.states(), {"x": 1}, "/states: expected list, got dict"),
+        (lambda rest: rest.states(), [1], "/states: expected object at index 0, got int"),
+        (lambda rest: rest.state("light.a"), [1], "/states/light.a: expected object, got list"),
+    ],
+)
+def test_rest_typed_methods_propagate_shape_errors(call: object, payload: object, message: str) -> None:
+    with _rest(httpx.MockTransport(lambda request: httpx.Response(200, json=payload))) as rest:
+        with pytest.raises(HassError) as exc_info:
+            call(rest)  # type: ignore[operator]
+    assert str(exc_info.value) == message
+
+
+def _ws_conn(monkeypatch: pytest.MonkeyPatch, *results: object) -> FakeConnection:
+    frames: list[dict[str, object]] = [{"type": "auth_required", "ha_version": "2026.11.0"}, {"type": "auth_ok"}]
+    frames += [{"id": i, "type": "result", "success": True, "result": r} for i, r in enumerate(results, 1)]
+    conn = FakeConnection(frames)
+    _fake_connect(monkeypatch, conn)
+    return conn
+
+
+def test_ws_call_list_and_call_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ws_conn(monkeypatch, [{"a": 1}], {"b": 2})
+    with HassWebSocket(CONFIG) as ws:
+        assert ws.call_list("some/list", key="v") == [{"a": 1}]
+        assert ws.call_object("some/object", n=3) == {"b": 2}
+    assert conn.sent[1:] == [{"id": 1, "type": "some/list", "key": "v"}, {"id": 2, "type": "some/object", "n": 3}]
+
+
+@pytest.mark.parametrize(
+    ("method", "msg_type", "item"),
+    [
+        ("entity_registry", "config/entity_registry/list", {"entity_id": "light.a"}),
+        ("device_registry", "config/device_registry/list", {"id": "d1"}),
+        ("area_registry", "config/area_registry/list", {"area_id": "kitchen"}),
+    ],
+)
+def test_ws_registries(monkeypatch: pytest.MonkeyPatch, method: str, msg_type: str, item: dict[str, str]) -> None:
+    conn = _ws_conn(monkeypatch, [item])
+    with HassWebSocket(CONFIG) as ws:
+        assert getattr(ws, method)() == [item]
+    assert conn.sent[1:] == [{"id": 1, "type": msg_type}]
+
+
+@pytest.mark.parametrize(
+    ("args", "extra"),
+    [({}, {}), ({"statistic_type": "sum"}, {"statistic_type": "sum"})],
+)
+def test_ws_statistic_ids(monkeypatch: pytest.MonkeyPatch, args: dict[str, str], extra: dict[str, str]) -> None:
+    metas = [{"statistic_id": "sensor.energy", "has_sum": True}]
+    conn = _ws_conn(monkeypatch, metas)
+    with HassWebSocket(CONFIG) as ws:
+        assert ws.statistic_ids(**args) == metas
+    assert conn.sent[1:] == [{"id": 1, "type": "recorder/list_statistic_ids", **extra}]
+
+
+@pytest.mark.parametrize(
+    ("method", "result", "message"),
+    [
+        ("call_list", {"x": 1}, "t/x: expected list, got dict"),
+        ("call_list", [{"a": 1}, 5], "t/x: expected object at index 1, got int"),
+        ("call_object", [{"x": 1}], "t/x: expected object, got list"),
+    ],
+)
+def test_ws_shape_errors(monkeypatch: pytest.MonkeyPatch, method: str, result: object, message: str) -> None:
+    _ws_conn(monkeypatch, result)
+    with HassWebSocket(CONFIG) as ws:
+        with pytest.raises(HassError) as exc_info:
+            getattr(ws, method)("t/x")
+    assert str(exc_info.value) == message
+
+
+@pytest.mark.parametrize(
+    ("method", "result", "message"),
+    [
+        ("entity_registry", {"x": 1}, "config/entity_registry/list: expected list, got dict"),
+        ("device_registry", ["s"], "config/device_registry/list: expected object at index 0, got str"),
+        ("area_registry", None, "config/area_registry/list: expected list, got NoneType"),
+        ("statistic_ids", {"x": 1}, "recorder/list_statistic_ids: expected list, got dict"),
+    ],
+)
+def test_ws_typed_methods_propagate_shape_errors(
+    monkeypatch: pytest.MonkeyPatch, method: str, result: object, message: str
+) -> None:
+    _ws_conn(monkeypatch, result)
+    with HassWebSocket(CONFIG) as ws:
+        with pytest.raises(HassError) as exc_info:
+            getattr(ws, method)()
+    assert str(exc_info.value) == message
+
+
+def test_model_names_importable_from_client() -> None:
+    from somestuff.hassstuff import models
+
+    for name in (
+        "JsonValue",
+        "JsonObject",
+        "Context",
+        "State",
+        "EntityRegistryEntry",
+        "DeviceRegistryEntry",
+        "AreaRegistryEntry",
+        "StatisticMeta",
+    ):
+        assert getattr(client, name) is getattr(models, name)
+    assert not hasattr(models, "DEFAULT_URL")
+    assert not hasattr(models, "DEFAULT_TOKEN_FILE")

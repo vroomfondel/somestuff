@@ -14,6 +14,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Final
 from typing import Self
+from typing import cast
 from urllib.parse import urlsplit
 from urllib.parse import urlunsplit
 
@@ -21,8 +22,14 @@ import httpx
 from websockets.sync.client import ClientConnection
 from websockets.sync.client import connect
 
-type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
-type JsonObject = dict[str, JsonValue]
+from somestuff.hassstuff.models import AreaRegistryEntry as AreaRegistryEntry
+from somestuff.hassstuff.models import Context as Context
+from somestuff.hassstuff.models import DeviceRegistryEntry as DeviceRegistryEntry
+from somestuff.hassstuff.models import EntityRegistryEntry as EntityRegistryEntry
+from somestuff.hassstuff.models import JsonObject as JsonObject
+from somestuff.hassstuff.models import JsonValue as JsonValue
+from somestuff.hassstuff.models import State as State
+from somestuff.hassstuff.models import StatisticMeta as StatisticMeta
 
 FALLBACK_URL: Final = "http://homeassistant.local:8123"
 TOKEN_FILE_NAME: Final = "homeassistant_token.local.txt"
@@ -82,6 +89,47 @@ class HassError(RuntimeError):
         """
         super().__init__(message)
         self.status_code = status_code
+
+
+def _expect_list(value: JsonValue, what: str) -> list[JsonObject]:
+    """Check that a decoded answer is a list of objects.
+
+    Args:
+        value: Decoded answer.
+        what: Command or path for the error message.
+
+    Returns:
+        The answer as a list of objects.
+
+    Raises:
+        HassError: If the answer is not a list or an element is not an object.
+    """
+    if not isinstance(value, list):
+        raise HassError(f"{what}: expected list, got {type(value).__name__}")
+    items: list[JsonObject] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise HassError(f"{what}: expected object at index {index}, got {type(item).__name__}")
+        items.append(item)
+    return items
+
+
+def _expect_object(value: JsonValue, what: str) -> JsonObject:
+    """Check that a decoded answer is an object.
+
+    Args:
+        value: Decoded answer.
+        what: Command or path for the error message.
+
+    Returns:
+        The answer as an object.
+
+    Raises:
+        HassError: If the answer is not an object.
+    """
+    if not isinstance(value, dict):
+        raise HassError(f"{what}: expected object, got {type(value).__name__}")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +264,61 @@ class HassRest:
         """
         return self.request("GET", path, params=params)
 
+    def get_list(self, path: str, params: dict[str, str] | None = None) -> list[JsonObject]:
+        """GET an endpoint that answers with a list of objects.
+
+        Args:
+            path: Path below ``/api``.
+            params: Query parameters.
+
+        Returns:
+            Decoded answer.
+
+        Raises:
+            HassError: If the answer is not a list of objects.
+        """
+        return _expect_list(self.get(path, params), path)
+
+    def get_object(self, path: str, params: dict[str, str] | None = None) -> JsonObject:
+        """GET an endpoint that answers with an object.
+
+        Args:
+            path: Path below ``/api``.
+            params: Query parameters.
+
+        Returns:
+            Decoded answer.
+
+        Raises:
+            HassError: If the answer is not an object.
+        """
+        return _expect_object(self.get(path, params), path)
+
+    def states(self) -> list[State]:
+        """Fetch all entity states.
+
+        Returns:
+            One state per entity.
+
+        Raises:
+            HassError: If the answer is not a list of objects.
+        """
+        return cast(list[State], self.get_list("/states"))
+
+    def state(self, entity_id: str) -> State:
+        """Fetch the state of one entity.
+
+        Args:
+            entity_id: Entity id, e.g. ``sensor.outdoor_temperature``.
+
+        Returns:
+            The entity state.
+
+        Raises:
+            HassError: If the answer is not an object.
+        """
+        return cast(State, self.get_object(f"/states/{entity_id}"))
+
     def post(self, path: str, body: JsonValue = None, params: dict[str, str] | None = None) -> JsonValue:
         """POST shortcut.
 
@@ -228,6 +331,22 @@ class HassRest:
             Decoded answer.
         """
         return self.request("POST", path, params=params, body=body)
+
+    def post_object(self, path: str, body: JsonValue = None, params: dict[str, str] | None = None) -> JsonObject:
+        """POST to an endpoint that answers with an object.
+
+        Args:
+            path: Path below ``/api``.
+            body: JSON body.
+            params: Query parameters.
+
+        Returns:
+            Decoded answer.
+
+        Raises:
+            HassError: If the answer is not an object.
+        """
+        return _expect_object(self.post(path, body, params), path)
 
     def delete(self, path: str) -> JsonValue:
         """DELETE shortcut.
@@ -353,3 +472,81 @@ class HassWebSocket:
                 error = frame.get("error")
                 raise HassError(f"{msg_type}: {json.dumps(error, ensure_ascii=False)}")
             return frame.get("result")
+
+    def call_list(self, msg_type: str, **payload: JsonValue) -> list[JsonObject]:
+        """Run a command whose result is a list of objects.
+
+        Args:
+            msg_type: Command type.
+            **payload: Additional command fields.
+
+        Returns:
+            The ``result`` member.
+
+        Raises:
+            HassError: If the command fails or the result is not a list of objects.
+        """
+        return _expect_list(self.call(msg_type, **payload), msg_type)
+
+    def call_object(self, msg_type: str, **payload: JsonValue) -> JsonObject:
+        """Run a command whose result is an object.
+
+        Args:
+            msg_type: Command type.
+            **payload: Additional command fields.
+
+        Returns:
+            The ``result`` member.
+
+        Raises:
+            HassError: If the command fails or the result is not an object.
+        """
+        return _expect_object(self.call(msg_type, **payload), msg_type)
+
+    def entity_registry(self) -> list[EntityRegistryEntry]:
+        """Fetch the entity registry.
+
+        Returns:
+            All registry entries.
+
+        Raises:
+            HassError: If the command fails or the result is not a list of objects.
+        """
+        return cast(list[EntityRegistryEntry], self.call_list("config/entity_registry/list"))
+
+    def device_registry(self) -> list[DeviceRegistryEntry]:
+        """Fetch the device registry.
+
+        Returns:
+            All registry entries.
+
+        Raises:
+            HassError: If the command fails or the result is not a list of objects.
+        """
+        return cast(list[DeviceRegistryEntry], self.call_list("config/device_registry/list"))
+
+    def area_registry(self) -> list[AreaRegistryEntry]:
+        """Fetch the area registry.
+
+        Returns:
+            All registry entries.
+
+        Raises:
+            HassError: If the command fails or the result is not a list of objects.
+        """
+        return cast(list[AreaRegistryEntry], self.call_list("config/area_registry/list"))
+
+    def statistic_ids(self, statistic_type: str | None = None) -> list[StatisticMeta]:
+        """Fetch the statistics known to the recorder.
+
+        Args:
+            statistic_type: Restrict to ``mean`` or ``sum`` statistics; omitted when ``None``.
+
+        Returns:
+            One metadata entry per statistic.
+
+        Raises:
+            HassError: If the command fails or the result is not a list of objects.
+        """
+        payload: JsonObject = {} if statistic_type is None else {"statistic_type": statistic_type}
+        return cast(list[StatisticMeta], self.call_list("recorder/list_statistic_ids", **payload))
