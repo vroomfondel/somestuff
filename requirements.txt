@@ -47,8 +47,8 @@ tabulate
 
 pathvalidate
 
-mqttstuff>=0.0.7
-reputils>=0.0.16
+mqttstuff>=0.0.10
+reputils>=0.0.18
 
 # hassstuff (Home Assistant REST + WebSocket)
 httpx

@@ -7,7 +7,7 @@ name = "somestuff-mqttwebstuff"
 dynamic = ["version"]
 description = "Live web view onto MQTT streams: FastAPI + mountable mapper plugins, Server-Sent Events, htmx/PicoCSS frontend"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
 license-files = ["LICENSE.md"]
 keywords = ["mqtt", "fastapi", "sse", "server-sent-events", "htmx", "dashboard", "iot"]
@@ -15,7 +15,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
     "Topic :: Home Automation",
@@ -25,14 +24,14 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "loguru>=0.7.3",
-    "typer>=0.27",
-    "fastapi>=0.143",
+    "loguru>=0.8.0",
+    "typer>=0.29",
+    "fastapi>=0.165",
     "uvicorn>=0.54",
     "jinja2>=3.1",
     "python-dotenv>=1.2",
     "tabulate>=0.10",
-    "mqttstuff>=0.0.7",
+    "mqttstuff>=0.0.10",
 ]
 
 [project.scripts]

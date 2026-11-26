@@ -7,7 +7,7 @@ name = "somestuff-hydromailstuff"
 dynamic = ["version"]
 description = "Daily status email assembled from MQTT water-level readings and Netatmo rain/temperature data (Jinja2 template, SMTP via reputils)"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
 license-files = ["LICENSE.md", "LICENSEGPL.md"]
 keywords = ["netatmo", "mqtt", "email", "report", "iot"]
@@ -15,7 +15,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Communications :: Email",
     "Topic :: Home Automation",
@@ -26,10 +25,10 @@ classifiers = [
 dependencies = [
     "somestuff-corestuff>=0.1.0",
     "somestuff-netatmostuff>=0.1.0",
-    "loguru>=0.7.3",
-    "jinja2>=3.1",
-    "mqttstuff>=0.0.7",
-    "reputils>=0.0.16",
+    "loguru>=0.8.0",
+    "jinja2>=3.1.6",
+    "mqttstuff>=0.0.10",
+    "reputils>=0.0.18",
     "tabulate>=0.10",
 ]
 

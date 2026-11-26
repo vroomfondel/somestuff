@@ -7,7 +7,7 @@ name = "somestuff-oepnvstuff"
 dynamic = ["version"]
 description = "GTFS-Realtime coverage checker: does an open GTFS-RT feed carry real-time data for your lines at your stop? One-shot or MQTT-publishing watcher"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
 license-files = ["LICENSE.md"]
 keywords = ["gtfs", "gtfs-realtime", "public-transport", "oepnv", "transit", "mqtt", "monitoring"]
@@ -15,7 +15,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: System :: Monitoring",
@@ -24,13 +23,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "loguru>=0.7.3",
-    "typer>=0.27",
+    "loguru>=0.8.0",
+    "typer>=0.29",
     "gtfs-realtime-bindings>=2.2",
     "python-dotenv>=1.2",
     "requests>=2.34",
     "tabulate>=0.10",
-    "mqttstuff>=0.0.7",
+    "mqttstuff>=0.0.10",
 ]
 
 [project.scripts]

@@ -7,7 +7,7 @@ name = "somestuff-ucmstuff"
 dynamic = ["version"]
 description = "Grandstream UCM6204 IP-PBX monitor/control: WebSocket call events, HTTPS API client, trunk call router, MQTT bridge"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
 license-files = ["LICENSE.md"]
 keywords = ["grandstream", "ucm6204", "pbx", "voip", "sip", "websocket", "mqtt", "call-routing"]
@@ -15,7 +15,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Communications :: Telephony",
     "Topic :: System :: Monitoring",
@@ -24,13 +23,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "loguru>=0.7.3",
-    "typer>=0.27",
+    "loguru>=0.8.0",
+    "typer>=0.29",
     "requests>=2.34",
     "urllib3>=2.8",
     "websocket-client>=1.9",
     "tabulate>=0.10",
-    "mqttstuff>=0.0.7",
+    "mqttstuff>=0.0.10",
 ]
 
 [project.scripts]

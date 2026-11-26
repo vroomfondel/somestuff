@@ -7,7 +7,7 @@ name = "somestuff-netatmostuff"
 dynamic = ["version"]
 description = "Netatmo weather station client (bundles lnetatmo, GPLv3) and MQTT publisher loop for temperature, rain and pressure"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [{ name = "Henning Thieß", email = "ht@xomox.cc" }]
 license-files = ["LICENSE.md", "LICENSEGPL.md"]
 keywords = ["netatmo", "weather-station", "mqtt", "iot"]
@@ -15,7 +15,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Atmospheric Science",
     "Topic :: Home Automation",
@@ -25,10 +24,10 @@ classifiers = [
 ]
 dependencies = [
     "somestuff-corestuff>=0.1.0",
-    "loguru>=0.7.3",
-    "mqttstuff>=0.0.7",
+    "loguru>=0.8.0",
+    "mqttstuff>=0.0.10",
     "schedule>=1.2",
-    "pytz>=2025.1",
+    "pytz>=2026.6",
     "tabulate>=0.10",
 ]
 
